@@ -1,0 +1,9 @@
+{
+  "request_id":"purchase-refused",
+  "current_commitment_minor":120000,
+  "purchase_minor":80000,
+  "credit_limit_minor":199999,
+  "invoices":[{"amount_minor":10000,"days_overdue":0},{"amount_minor":5000,"days_overdue":7}],
+  "max_overdue_days":6,
+  "max_overdue_minor":4999
+}

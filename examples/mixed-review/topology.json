@@ -1,0 +1,6 @@
+{
+  "version":"mas-topology/1",
+  "edges":[["client","reviewer"],["reviewer","client"],
+    ["reviewer","exposure"],["exposure","reviewer"],
+    ["reviewer","arrears"],["arrears","reviewer"]]
+}
