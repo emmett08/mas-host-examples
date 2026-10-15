@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "security",
+        "delivery",
+        "operations"
+      ]
+    },
+    "approved": {
+      "type": "boolean"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "role",
+    "approved",
+    "findings"
+  ],
+  "additionalProperties": false
+}

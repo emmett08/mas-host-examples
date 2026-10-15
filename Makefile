@@ -9,7 +9,7 @@ export MAS_HOST_BIN := $(MAS_HOST_SDK_ROOT)/target/debug/mas-host
 export GOWORK := off
 export GOTOOLCHAIN := local
 
-.PHONY: setup check test acceptance recovery verify go rust cpp mixed
+.PHONY: setup check test acceptance recovery verify go rust cpp mixed star tree mesh composed
 
 setup:
 	bash scripts/setup.sh
@@ -41,3 +41,9 @@ cpp:
 
 mixed:
 	"$(MAS_HOST_BIN)" run --project examples/mixed-review --agent reviewer --input examples/mixed-review/input.json --state .state --run mixed-review
+
+star tree composed:
+	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent $@ --input examples/composable-agents/input.json --state .state --run review-$@
+
+mesh:
+	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent mesh_a --input examples/composable-agents/input.json --state .state --run review-mesh

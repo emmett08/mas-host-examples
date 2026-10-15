@@ -1,0 +1,21 @@
+{
+  "type": "parallel",
+  "steps": [
+    {
+      "type": "request",
+      "key": "security",
+      "target": "security",
+      "input": {
+        "$input": ""
+      }
+    },
+    {
+      "type": "request",
+      "key": "operations",
+      "target": "operations",
+      "input": {
+        "$input": ""
+      }
+    }
+  ]
+}

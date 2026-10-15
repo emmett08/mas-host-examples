@@ -1,0 +1,35 @@
+{
+  "type": "sequence",
+  "steps": [
+    {
+      "type": "parallel",
+      "steps": [
+        {
+          "type": "request",
+          "key": "technical",
+          "target": "technical",
+          "input": {
+            "$input": ""
+          }
+        },
+        {
+          "type": "request",
+          "key": "governance",
+          "target": "governance",
+          "input": {
+            "$input": ""
+          }
+        }
+      ]
+    },
+    {
+      "type": "value",
+      "output": {
+        "topology": "tree",
+        "branches": {
+          "$previous": "/results"
+        }
+      }
+    }
+  ]
+}
