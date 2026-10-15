@@ -32,4 +32,4 @@ jobs:
       - name: Application checks and real host acceptance
         run: make verify
       - name: Run documented commands
-        run: make go rust cpp mixed
+        run: make go rust cpp mixed star tree mesh composed

@@ -1,0 +1,29 @@
+{
+  "version": "mas-connections/1",
+  "connections": {
+    "security_provider": {
+      "kind": "openai",
+      "endpoint": "https://api.openai.com/v1/responses",
+      "api_key_env": "OPENAI_API_KEY",
+      "model": "<openai-model-id>"
+    },
+    "delivery_provider": {
+      "kind": "openai",
+      "endpoint": "https://api.openai.com/v1/responses",
+      "api_key_env": "OPENAI_API_KEY",
+      "model": "<openai-model-id>"
+    },
+    "operations_provider": {
+      "kind": "openai",
+      "endpoint": "https://api.openai.com/v1/responses",
+      "api_key_env": "OPENAI_API_KEY",
+      "model": "<openai-model-id>"
+    },
+    "decision_provider": {
+      "kind": "openai",
+      "endpoint": "https://api.openai.com/v1/responses",
+      "api_key_env": "OPENAI_API_KEY",
+      "model": "<openai-model-id>"
+    }
+  }
+}

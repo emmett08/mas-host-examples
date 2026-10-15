@@ -6,9 +6,10 @@ functions, `agents.json` and `topology.json`. The host generates worker entry
 points, communication code and registration bundles. Application directories
 contain no Python, handwritten worker transport or custom host implementation.
 
-These are deterministic native agents. They need no model subscription, API key
-or external service. The examples demonstrate coordination and recovery; they do
-not evaluate language models or make production release decisions.
+The native examples and the default model fixtures run without credentials.
+The composable example also supplies explicit OpenAI, Cursor, compatible-provider
+and mixed-provider profiles. The examples demonstrate coordination and recovery;
+they do not evaluate model quality or make production release decisions.
 
 | Example | Application behaviour | Host feature |
 |---|---|---|
@@ -16,6 +17,7 @@ not evaluate language models or make production release decisions.
 | [Rust order calculation](examples/rust-order) | Checked integer totals, discount, tax and budget comparison | Generated Rust worker and precise JSON results |
 | [C++ telemetry assessment](examples/cpp-telemetry) | Bounded sample-window statistics and threshold decisions | Generated C++17 worker and input validation |
 | [Mixed-language review](examples/mixed-review) | Go coordinator combines Rust exposure and C++ arrears assessments, independently checks reports and applies a synthetic policy | Cross-language requests under one topology and execution journal |
+| [Composable review agents](examples/composable-agents) | Star, tree and mesh reviews nested into a release workflow; interchangeable model providers | Recursive Composite workflow, provider Strategy/Adapter, MAS admission and durable inference replay |
 
 ## Quick start
 
@@ -34,6 +36,7 @@ make go
 make rust
 make cpp
 make mixed
+make star tree mesh composed
 ```
 
 `make setup` fetches the exact host commit in [host-revision.txt](host-revision.txt)
@@ -117,12 +120,12 @@ application using a remote service needs evidence from that service. Ordinary
 file writes or network calls outside `Effect` do not acquire recovery guarantees.
 
 The host executes trusted code with the operator's filesystem permissions. The
-initial profile is not a sandbox and has no built-in model providers, remote
-service ingress or credential injection. JSON numbers are integers; examples
+local profile supplies maintained provider adapters and scoped credentials; it
+has no remote service ingress or untrusted-code sandbox. JSON numbers are integers; examples
 use minor units and basis points to avoid floating-point ambiguity. The C++ SDK
 supports signed and unsigned 64-bit integers.
 
-See the pinned host's [execution contract](https://github.com/emmett08/mas-host/blob/ad3c275fbfb29bf780b405b824b5abf94380444b/docs/native-contract.md)
+See the host's [execution contract](https://github.com/emmett08/mas-host/blob/main/docs/native-contract.md)
 for the precise limits and recovery semantics.
 
 ## Licence

@@ -1,0 +1,73 @@
+{
+  "type": "sequence",
+  "steps": [
+    {
+      "type": "request",
+      "key": "local_review",
+      "target": "delivery",
+      "input": {
+        "$input": ""
+      }
+    },
+    {
+      "type": "branch",
+      "condition": {
+        "$input": "/delegate"
+      },
+      "then": {
+        "type": "parallel",
+        "steps": [
+          {
+            "type": "value",
+            "output": {
+              "member": "mesh_b",
+              "review": {
+                "$previous": ""
+              }
+            }
+          },
+          {
+            "type": "request",
+            "key": "mesh_a",
+            "target": "mesh_a",
+            "input": {
+              "change": {
+                "$input": "/change"
+              },
+              "delegate": false,
+              "upstream_review": {
+                "$previous": ""
+              }
+            }
+          },
+          {
+            "type": "request",
+            "key": "mesh_c",
+            "target": "mesh_c",
+            "input": {
+              "change": {
+                "$input": "/change"
+              },
+              "delegate": false,
+              "upstream_review": {
+                "$previous": ""
+              }
+            }
+          }
+        ]
+      },
+      "else": {
+        "type": "value",
+        "output": {
+          "member": "mesh_b",
+          "review": {
+            "$previous": ""
+          },
+          "received": {
+            "$input": ""
+          }
+        }
+      }
+    }
+  ]
+}
