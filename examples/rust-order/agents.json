@@ -1,0 +1,4 @@
+{
+  "version": "mas-agents/1",
+  "agents": [{"name":"order","language":"rust","source":"order.rs","handler":"quote"}]
+}
