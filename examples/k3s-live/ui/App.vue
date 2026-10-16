@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import TopologyCanvas from "./components/TopologyCanvas.vue";
+import { ArchivePlayback, playbackTime, type PlaybackFrame } from "./archive";
 import {
   deduplicateMessages,
   formatDuration,
   isRequestComplete,
   messageTone,
 } from "./topology";
-import type { Message, Run, Snapshot, Topology } from "./types";
+import type { Message, Run, RunArchive, Snapshot, Topology } from "./types";
+
+const props = defineProps<{ archive?: RunArchive; archiveError?: string; archiveRequested?: boolean }>();
+const isArchive = computed(() => Boolean(props.archiveRequested || props.archive));
+const playback = ref<PlaybackFrame>();
+const canvasReset = ref(0);
+let playbackClock: ArchivePlayback | undefined;
+let playbackWallTime = 0;
 
 const topology = ref<Topology>({ nodes: [], edges: [] });
 const runs = ref<Run[]>([]);
@@ -94,7 +102,7 @@ const observationNotice = computed(() =>
     : "",
 );
 const emptyLogTitle = computed(() =>
-  !currentRun.value
+  isArchive.value ? "No envelopes in this recorded observation" : !currentRun.value
     ? "The next investigation starts here"
     : observationAvailable.value === false
       ? active.value
@@ -105,13 +113,13 @@ const emptyLogTitle = computed(() =>
         : "This run recorded no envelopes",
 );
 const emptyLogCopy = computed(() =>
-  !currentRun.value
+  isArchive.value ? "Play the recording or move along the observed timeline to inspect later messages." : !currentRun.value
     ? "Start a run to observe actual requests and results between agents."
     : active.value
       ? "Provider calls can take time. Messages appear as mas-host records them."
       : "Select another run or start an investigation to observe its message flow.",
 );
-const statusLabel = computed(() => currentRun.value?.status ?? "Ready");
+const statusLabel = computed(() => currentRun.value ? `${isArchive.value ? "Recorded " : ""}${currentRun.value.status}` : "Ready");
 const nodeActivity = computed(() =>
   selectedNode.value
     ? messages.value.filter(
@@ -178,6 +186,10 @@ function shortTime(value: string): string {
       });
 }
 
+function recordingDate(value: string): string {
+  return new Date(value).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "medium" });
+}
+
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, options);
   if (!response.ok) {
@@ -200,6 +212,7 @@ function upsertRun(run: Run) {
 }
 
 function connect(id: string) {
+  if (isArchive.value) return;
   stream?.close();
   epoch++;
   const thisEpoch = epoch;
@@ -271,11 +284,13 @@ function connect(id: string) {
 }
 
 watch(selectedRunId, (id) => {
+  if (isArchive.value) return;
   if (newRunId.value === id) newRunId.value = "";
   connect(id);
 });
 
 async function refreshRuns() {
+  if (isArchive.value) return;
   if (refreshing || loading.value || disposed) return;
   refreshing = true;
   try {
@@ -301,6 +316,17 @@ async function refreshRuns() {
 }
 
 async function load() {
+  if (isArchive.value) {
+    loading.value = false;
+    error.value = props.archiveError ?? "";
+    if (props.archive) {
+      topology.value = props.archive.topology;
+      playbackClock = new ArchivePlayback(props.archive);
+      selectedRunId.value = props.archive.runId;
+      applyPlayback(playbackClock.current(), true);
+    }
+    return;
+  }
   loading.value = true;
   error.value = "";
   try {
@@ -325,6 +351,7 @@ async function load() {
 }
 
 async function startRun() {
+  if (isArchive.value) return;
   starting.value = true;
   error.value = "";
   try {
@@ -348,6 +375,43 @@ async function startRun() {
   }
 }
 
+function applyPlayback(frame: PlaybackFrame, reset = false) {
+  playback.value = frame;
+  // Replacing the complete record removes future output/error fields on seek.
+  runs.value = [frame.snapshot.run];
+  messages.value = frame.snapshot.observation.messages;
+  arrivals.value = reset ? [] : frame.arrivals;
+  observationAvailable.value = frame.snapshot.observationAvailable ?? true;
+  now.value = frame.snapshot.observation.observed_at_ms;
+  if (reset) canvasReset.value++;
+  if (selectedMessageId.value && !messages.value.some(message => message.id === selectedMessageId.value)) selectedMessageId.value = null;
+}
+
+function togglePlayback() {
+  if (!playbackClock || !playback.value) return;
+  const wasPlaying = playback.value.playing;
+  const atEnd = playback.value.index === playbackClock.archive.snapshots.length - 1;
+  applyPlayback(wasPlaying ? playbackClock.pause() : playbackClock.play(), wasPlaying || atEnd);
+  playbackWallTime = performance.now();
+}
+
+function seekPlayback(event: Event) {
+  if (playbackClock) applyPlayback(playbackClock.seek(Number((event.target as HTMLInputElement).value)), true);
+}
+
+function restartPlayback() {
+  if (playbackClock) applyPlayback(playbackClock.seek(0), true);
+}
+
+function finalPlayback() {
+  if (playbackClock) applyPlayback(playbackClock.final(), true);
+}
+
+function changePlaybackSpeed(event: Event) {
+  if (playbackClock) applyPlayback(playbackClock.setSpeed(Number((event.target as HTMLSelectElement).value)));
+  playbackWallTime = performance.now();
+}
+
 function selectMessage(message: Message) {
   selectedMessageId.value = message.id;
   selectedNodeId.value = null;
@@ -360,6 +424,15 @@ function selectNode(id: string) {
 
 onMounted(() => {
   void load();
+  if (isArchive.value) {
+    playbackWallTime = performance.now();
+    timer = setInterval(() => {
+      const wallTime = performance.now();
+      if (playbackClock && playback.value?.playing) applyPlayback(playbackClock.advance(wallTime - playbackWallTime));
+      playbackWallTime = wallTime;
+    }, 50);
+    return;
+  }
   timer = setInterval(() => {
     if (active.value) now.value = Date.now();
   }, 1000);
@@ -412,7 +485,7 @@ onBeforeUnmount(() => {
       </a>
       <div class="header-meta">
         <span class="environment"
-          ><span class="tiny-square" /> Kubernetes · k3s</span
+          ><span class="tiny-square" /> {{ isArchive ? "Recorded run · playback" : "Kubernetes · k3s" }}</span
         ><a
           class="source-link"
           href="https://github.com/emmett08/mas-host-examples/tree/main/examples/k3s-live"
@@ -427,7 +500,7 @@ onBeforeUnmount(() => {
       <section class="intro" aria-labelledby="page-title">
         <div>
           <div class="eyebrow">
-            <span class="eyebrow-line" /> AGENT SYSTEMS · LIVE OBSERVABILITY
+            <span class="eyebrow-line" /> AGENT SYSTEMS · {{ isArchive ? "RECORDED OBSERVATIONS" : "LIVE OBSERVABILITY" }}
           </div>
           <h1 id="page-title">
             One incident.<br class="mobile-break" />
@@ -450,7 +523,7 @@ onBeforeUnmount(() => {
       <div v-if="error" class="notice error-notice" role="alert">
         <span>{{ error }}</span
         ><button
-          v-if="!topology.nodes.length"
+          v-if="!isArchive && !topology.nodes.length"
           class="text-button"
           @click="load"
         >
@@ -465,7 +538,25 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <section class="control-bar" aria-label="Investigation controls">
+      <section v-if="isArchive" class="playback-bar" aria-label="Recording playback controls">
+        <div class="recording-heading">
+          <div><strong>Recorded run · playback</strong><span>{{ mode === "live" ? "Real LLM run" : mode === "fixture" ? "Fixture · no LLM calls" : "Recording unavailable" }}</span></div>
+          <span v-if="props.archive" class="capture-date">Captured {{ recordingDate(props.archive.capturedAt) }}</span>
+        </div>
+        <template v-if="playback">
+          <div class="playback-controls">
+            <button class="playback-button primary" :disabled="props.archive?.snapshots.length === 1" @click="togglePlayback">{{ playback.playing ? "Pause" : "Play" }}</button>
+            <button class="playback-button" @click="restartPlayback">Restart</button>
+            <button class="playback-button" @click="finalPlayback">View final</button>
+            <label class="playback-speed">Speed <select :value="playback.speed" aria-label="Playback speed" @change="changePlaybackSpeed"><option v-for="speed in [1, 2, 4, 8]" :key="speed" :value="speed">{{ speed }}×</option></select></label>
+            <output class="playback-time">{{ playbackTime(playback.positionMs) }} / {{ playbackTime(playback.durationMs) }}</output>
+          </div>
+          <label class="playback-timeline"><span class="sr-only">Recorded observation timeline</span><input type="range" min="0" :max="playback.durationMs" step="1" :value="playback.positionMs" aria-label="Recorded observation timeline" @input="seekPlayback" /></label>
+          <p class="playback-note">Sampled host observations. Pulses mark newly observed envelopes during playback; the timeline does not measure network send times. No cluster or provider is connected.</p>
+        </template>
+      </section>
+
+      <section v-else class="control-bar" aria-label="Investigation controls">
         <div class="scenario">
           <div class="scenario-icon" aria-hidden="true">!</div>
           <div>
@@ -510,10 +601,9 @@ onBeforeUnmount(() => {
       </section>
 
       <div v-if="isFixture" class="notice fixture-notice">
-        <strong>Fixture mode</strong
+        <strong>{{ isArchive ? "Recorded fixture" : "Fixture mode" }}</strong
         ><span
-          >This run uses deterministic provider responses. No LLM provider is
-          being called.</span
+          >{{ isArchive ? "This recording contains deterministic provider responses and no LLM calls." : "This run uses deterministic provider responses. No LLM provider is being called." }}</span
         >
       </div>
 
@@ -526,7 +616,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <section class="workspace" aria-label="Live investigation workspace">
+      <section class="workspace" :aria-label="isArchive ? 'Recorded investigation workspace' : 'Live investigation workspace'">
         <div class="primary-column">
           <section
             class="panel topology-panel"
@@ -537,9 +627,9 @@ onBeforeUnmount(() => {
                 <span class="section-kicker">01 / TOPOLOGY</span>
                 <h2 id="topology-title">The communication graph</h2>
               </div>
-              <div class="stream-status" :class="connection">
+              <div class="stream-status" :class="isArchive ? 'recorded' : connection">
                 <span class="status-dot" />{{
-                  connection === "connected"
+                  isArchive ? playback?.playing ? "Playing recording" : playback?.index === (props.archive?.snapshots.length ?? 0) - 1 ? "Recording ended" : "Recording paused" : connection === "connected"
                     ? "Observing"
                     : connection === "connecting"
                       ? "Connecting"
@@ -552,7 +642,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <TopologyCanvas
-              :key="selectedRunId"
+              :key="`${selectedRunId}:${canvasReset}`"
               :topology="topology"
               :messages="messages"
               :arrivals="arrivals"
@@ -673,7 +763,7 @@ onBeforeUnmount(() => {
           <section class="panel run-panel" aria-labelledby="run-title">
             <div class="panel-heading">
               <div>
-                <span class="section-kicker">RUN CONTROL</span>
+                <span class="section-kicker">{{ isArchive ? "RECORDED RUN" : "RUN CONTROL" }}</span>
                 <h2 id="run-title">Investigation</h2>
               </div>
               <span
@@ -686,11 +776,12 @@ onBeforeUnmount(() => {
               <p v-if="historyError" class="history-error" role="status">
                 {{ historyError }}
               </p>
-              <label class="field-label" for="run-picker">SELECT RUN</label
+              <label class="field-label" for="run-picker">{{ isArchive ? "RECORDED RUN" : "SELECT RUN" }}</label
               ><select
                 id="run-picker"
                 v-model="selectedRunId"
                 class="run-picker"
+                :disabled="isArchive"
               >
                 <option v-if="!runs.length" value="">No runs yet</option>
                 <option v-for="run in runs" :key="run.id" :value="run.id">
@@ -717,22 +808,21 @@ onBeforeUnmount(() => {
               <div v-if="currentRun" class="run-identity">
                 <span class="run-mode" :class="currentRun.mode">{{
                   currentRun.mode === "live"
-                    ? "LIVE LLM RUN"
+                    ? isArchive ? "RECORDED REAL LLM RUN" : "LIVE LLM RUN"
                     : currentRun.mode === "fixture"
-                      ? "FIXTURE · NO LLM CALLS"
+                      ? isArchive ? "RECORDED FIXTURE · NO LLM CALLS" : "FIXTURE · NO LLM CALLS"
                       : "MODE UNKNOWN"
                 }}</span
                 ><span>{{ currentRun.id }}</span
                 ><span
-                  >Started {{ shortTime(currentRun.startedAt)
-                  }}<template v-if="active">
+                  >{{ isArchive ? "Recorded start" : "Started" }} {{ shortTime(currentRun.startedAt)
+                  }}<template v-if="active && !isArchive">
                     · {{ elapsed }} elapsed</template
                   ></span
                 >
               </div>
               <p class="observation-note">
-                Pulses follow observed protocol envelopes. Provider computation
-                happens between a request and its reply.
+                {{ isArchive ? "This view restores the recorded host state at the selected observation. Playback does not execute agents." : "Pulses follow observed protocol envelopes. Provider computation happens between a request and its reply." }}
               </p>
               <p v-if="currentRun?.error" class="run-error" role="alert">
                 {{ currentRun.error }}
@@ -817,10 +907,10 @@ onBeforeUnmount(() => {
                 <p class="node-explanation">
                   {{
                     selectedNode.kind === "llm"
-                      ? "This agent sends its assigned task to the configured LLM provider. Its request and result appear in the message log."
+                      ? isArchive ? "This specialist used the recorded run's configured provider. Its observed request and result can be inspected in the message log." : "This agent sends its assigned task to the configured LLM provider. Its request and result appear in the message log."
                       : selectedNode.kind === "workflow"
-                        ? "mas-host executes this workflow, routes requests and combines the resulting messages."
-                        : "The demo submits a Kubernetes incident as the input to this investigation."
+                        ? isArchive ? "mas-host executed this workflow, routed requests and combined the resulting messages in the recorded run." : "mas-host executes this workflow, routes requests and combines the resulting messages."
+                        : isArchive ? "The recorded run used a Kubernetes incident as its investigation input." : "The demo submits a Kubernetes incident as the input to this investigation."
                   }}
                 </p>
                 <dl class="metadata">
@@ -899,13 +989,13 @@ onBeforeUnmount(() => {
         <span
           ><span class="footer-dot" />mas-host
           <span class="footer-separator">+</span> MAS protocol</span
-        ><span>Server-side provider credentials · read-only investigation</span>
+        ><span>{{ isArchive ? "Recorded observations · no cluster or provider connection" : "Server-side provider credentials · read-only investigation" }}</span>
       </footer>
       <div class="sr-only" aria-live="polite" aria-atomic="true">
         {{
           currentRun
-            ? `Run ${currentRun.status}. ${messages.length} envelopes observed. ${pending.length} awaiting replies.`
-            : "Ready to start an investigation."
+            ? `${isArchive ? 'Recorded run' : 'Run'} ${currentRun.status}. ${messages.length} envelopes observed. ${pending.length} awaiting replies.`
+            : isArchive ? "Recording unavailable." : "Ready to start an investigation."
         }}
       </div>
     </main>

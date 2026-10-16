@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vue-tsc --noEmit -p tsconfig.ui.json && tsc -p tsconfig.json && vite build",
+    "archive": "node deploy/archive.mjs",
     "start": "node dist/server/index.js",
     "operator": "node dist/operator/index.js",
     "test": "node --import tsx --test server/*.test.ts operator/*.test.ts ui/*.test.ts deploy/*.test.mjs",

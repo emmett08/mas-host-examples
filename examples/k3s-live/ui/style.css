@@ -217,6 +217,99 @@ h1 {
   gap: 24px;
   margin-bottom: 24px;
 }
+.playback-bar {
+  position: sticky;
+  top: 10px;
+  z-index: 3;
+  background: #121c2a;
+  border: 1px solid #42606c;
+  border-radius: 10px;
+  padding: 17px 22px;
+  margin-bottom: 24px;
+  box-shadow: 0 8px 24px #080e1680;
+}
+.recording-heading,
+.playback-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.recording-heading {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.recording-heading > div {
+  display: flex;
+  gap: 13px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.recording-heading strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #b3e6ec;
+}
+.recording-heading span,
+.playback-note,
+.playback-speed {
+  font-size: 10px;
+  color: #9fb2c9;
+}
+.playback-button {
+  background: #1a2a3c;
+  color: #c5d4e7;
+  border: 1px solid #3c536a;
+  border-radius: 5px;
+  padding: 9px 12px;
+  font-size: 11px;
+}
+.playback-button.primary {
+  background: #88e4e9;
+  color: #0b2430;
+  border-color: #a0edf2;
+  min-width: 64px;
+  font-weight: 650;
+}
+.playback-button:hover:not(:disabled) {
+  border-color: #a0edf2;
+}
+.playback-speed {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.playback-speed select {
+  background: #0c1420;
+  border: 1px solid #3c536a;
+  border-radius: 4px;
+  color: #c5d4e7;
+  padding: 6px;
+}
+.playback-time {
+  font: 11px var(--mono);
+  color: #c5d4e7;
+  margin-left: auto;
+}
+.playback-timeline {
+  display: block;
+  margin-top: 10px;
+}
+.playback-timeline input {
+  width: 100%;
+  margin: 0;
+  accent-color: #88e4e9;
+}
+.playback-note {
+  margin: 8px 0 0;
+  line-height: 1.6;
+}
+.stream-status.recorded {
+  color: #b3c4d8;
+}
+.stream-status.recorded .status-dot {
+  background: #a498cf;
+}
 .scenario {
   display: flex;
   gap: 15px;
@@ -1118,6 +1211,35 @@ h2 {
     flex-direction: column;
     gap: 19px;
     margin-bottom: 18px;
+  }
+  .playback-bar {
+    padding: 14px;
+    top: 6px;
+    margin-bottom: 18px;
+  }
+  .recording-heading {
+    gap: 6px;
+    margin-bottom: 11px;
+  }
+  .recording-heading > div {
+    gap: 6px 10px;
+  }
+  .recording-heading .capture-date {
+    display: none;
+  }
+  .playback-controls {
+    gap: 7px;
+  }
+  .playback-button {
+    padding: 8px 9px;
+    font-size: 10px;
+  }
+  .playback-time {
+    margin-left: 0;
+    font-size: 10px;
+  }
+  .playback-note {
+    font-size: 9px;
   }
   .scenario {
     gap: 12px;
