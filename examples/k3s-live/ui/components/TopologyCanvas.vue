@@ -273,7 +273,7 @@ function draw(now = performance.now()) {
       (item) => nodeGroup(item) === nodeGroup(node),
     ).length;
     const labelWidth = vertical
-      ? (w - 24) / peersInGroup - 10
+      ? Math.max(40, (w - 96) / peersInGroup - 12)
       : (w - 64) / Math.max(groups.length, 1) - 12;
     const received = props.messages.filter(
       (message) => message.recipient === node.id,
