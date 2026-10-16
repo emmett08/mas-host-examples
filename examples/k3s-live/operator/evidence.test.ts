@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:https';
 import { tmpdir } from 'node:os';
@@ -205,13 +204,13 @@ test('Kubernetes validation diagnostics retain reason and field codes without re
 
 test('HTTPS log transport negotiates an API serializer and retains plain-text streaming with rotating credentials', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'mas-kube-transport-'));
-  const key = join(folder, 'key.pem'), certificate = join(folder, 'certificate.pem'), token = join(folder, 'token');
+  const key = new URL('./fixtures/localhost-test-key.pem', import.meta.url);
+  const certificate = new URL('./fixtures/localhost-test-cert.pem', import.meta.url);
+  const token = join(folder, 'token');
   const authorisations: string[] = [];
   const log = '2026-10-16T15:00:00Z {"method":"GET","path":"/readyz","status":404}\n';
   let server: ReturnType<typeof createServer> | undefined;
   try {
-    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-keyout', key,
-      '-out', certificate, '-subj', '/CN=localhost', '-addext', 'subjectAltName=IP:127.0.0.1'], { stdio: 'ignore' });
     await writeFile(token, 'first-test-token', { mode: 0o600 });
     server = createServer({ key: await readFile(key), cert: await readFile(certificate) }, (request, response) => {
       authorisations.push(request.headers.authorization ?? '');
@@ -227,7 +226,7 @@ test('HTTPS log transport negotiates an API serializer and retains plain-text st
     await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve));
     const address = server.address();
     assert.ok(address && typeof address !== 'string');
-    const client = new InClusterKubernetesClient(`https://127.0.0.1:${address.port}`, token, certificate);
+    const client = new InClusterKubernetesClient(`https://127.0.0.1:${address.port}`, token, certificate.pathname);
     assert.equal(await client.text('/api/v1/namespaces/mas-demo/pods/checkout/log'), log);
     await writeFile(token, 'rotated-test-token');
     assert.equal(await client.text('/api/v1/namespaces/mas-demo/pods/checkout/log'), log);
