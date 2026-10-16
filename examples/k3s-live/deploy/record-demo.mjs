@@ -57,6 +57,19 @@ export function validateSnapshot(snapshot, mode, id) {
   }
 }
 
+export function observeCanvasProgress(previous, frame, runId) {
+  if (frame.selectedRunId !== runId || !Number.isSafeInteger(frame.envelopeCount) || frame.envelopeCount < 0 ||
+      !['queued', 'running'].includes(frame.status)) return previous;
+  if (previous.firstActiveCount === undefined) return { firstActiveCount: frame.envelopeCount, grewWhileActive: false };
+  return { ...previous, grewWhileActive: previous.grewWhileActive || frame.envelopeCount > previous.firstActiveCount };
+}
+
+export function validateCanvasProgress(progress) {
+  if (progress.firstActiveCount === undefined || !progress.grewWhileActive) {
+    throw new Error('The recording did not observe increasing envelope counts on the selected active canvas before completion');
+  }
+}
+
 async function kubectl(args) {
   return (await execute('kubectl', ['-n', namespace, ...args], {
     encoding: 'utf8', timeout: 20_000, maxBuffer: 8 * 1024 * 1024,
@@ -82,6 +95,8 @@ export async function main() {
   let podCreated = false;
   let podDeleted = false;
   const browserErrors = [];
+  const canvasFrames = [];
+  let canvasProgress = {};
   const snapshots = join(destination, 'snapshots.ndjson');
   await writeFile(snapshots, '');
   let previousSnapshot = '';
@@ -137,6 +152,20 @@ export async function main() {
     if (!podUID) throw new Error('The demonstration Pod has no UID');
     await json('trigger.json', { namespace, podName, podUID, mode });
     let selected = false;
+    let refreshedForRun = false;
+    const sampleCanvas = async () => {
+      const frame = await page.evaluate(() => {
+        const statistic = [...document.querySelectorAll('.run-stats > div')]
+          .find(item => item.querySelector('dt')?.textContent?.trim() === 'Envelopes');
+        return {
+          selectedRunId: document.querySelector('#run-picker')?.value ?? '',
+          status: document.querySelector('.run-state')?.textContent?.trim() ?? '',
+          envelopeCount: Number(statistic?.querySelector('dd')?.textContent?.trim() ?? Number.NaN),
+        };
+      });
+      canvasFrames.push({ observedAt: new Date().toISOString(), ...frame });
+      canvasProgress = observeCanvasProgress(canvasProgress, frame, runId);
+    };
     while (Date.now() < deadline) {
       if (forwardError || forward.exitCode !== null) throw new Error('Dashboard port-forward exited during the recording');
       if (browserErrors.length) throw new Error('The dashboard reported a browser error');
@@ -160,12 +189,17 @@ export async function main() {
           }
           await json('snapshot.json', snapshot);
           await json('run.json', snapshot.run);
-          // Run history refreshes independently. Select this exact event run,
-          // including when a fixture smoke test left older runs in the PVC.
-          if (!selected && await page.locator(`#run-picker option[value="${runId}"]`).count()) {
+          // Fetch run history immediately instead of waiting for the UI's normal
+          // three-second poll. A first completed snapshot cannot demonstrate live
+          // canvas growth: the UI deliberately suppresses initial-state pulses.
+          if (!refreshedForRun) {
+            await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+            refreshedForRun = true;
+            await page.locator(`#run-picker option[value="${runId}"]`).waitFor({ state: 'attached', timeout: 15_000 });
             await page.locator('#run-picker').selectOption(runId);
             selected = true;
           }
+          await sampleCanvas();
           if (['completed', 'failed'].includes(snapshot.run.status)) {
             validateSnapshot(snapshot, mode, runId);
             await page.locator(`#run-picker option[value="${runId}"]`).waitFor({ state: 'attached', timeout: 15_000 });
@@ -173,6 +207,8 @@ export async function main() {
             await page.waitForFunction(() => document.querySelector('.run-state')?.textContent?.trim() === 'completed',
               undefined, { timeout: 15_000 });
             await page.locator('.output-panel').waitFor({ state: 'visible', timeout: 15_000 });
+            await sampleCanvas();
+            validateCanvasProgress(canvasProgress);
             await delay(2000); // Let the last real observation pulses finish on video.
             await page.screenshot({ path: join(destination, 'completed.png'), fullPage: true });
             break;
@@ -192,6 +228,7 @@ export async function main() {
       await kubectl(['delete', 'pod', podName, '--ignore-not-found', '--wait=false']).catch(() => {});
     }
     await json('browser-errors.json', browserErrors);
+    await json('canvas-progress.json', { ...canvasProgress, frames: canvasFrames });
     await writeFile(join(destination, 'port-forward.log'), forwardLog);
     await writeFile(join(destination, 'events-and-runs.json'),
       await kubectl(['get', 'events,masdemoruns', '-o', 'json']).catch(error => JSON.stringify({ error: error.message })));
@@ -221,7 +258,9 @@ export async function main() {
       'JSON and NDJSON contain observed server snapshots. Envelope sequences and timestamps are retained unchanged.',
       'NDJSON polling captures changing snapshots; it does not establish network send times or exact packet timing.', '',
       ...(resultError ? [`Failure: ${resultError.message}`, ''] : []),
-      'Files: `video/*.webm`, screenshots, `topology.json`, `snapshot.json`, `run.json`,',
+      'Successful capture requires a selected queued/running canvas and a later increase in its envelope count while still active.',
+      'A run which completes before the browser observes that growth fails capture; recorded completion alone is insufficient.', '',
+      'Files: `video/*.webm`, screenshots, `canvas-progress.json`, `topology.json`, `snapshot.json`, `run.json`,',
       '`snapshots.ndjson`, trigger/run resource metadata, and bounded controller/dashboard diagnostics.', '',
     ].join('\n'));
   }

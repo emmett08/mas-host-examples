@@ -154,8 +154,9 @@ credential-free fixture checks.
 The recording starts before the Warning event. The artefact retains the actual
 canvas video, screenshots, topology, run and observation snapshots, plus a result
 summary. Fixture recordings are explicitly labelled and are saved separately as
-`mas-k3s-fixture-<run-id>`. The failing pod is removed after admission so repeated
-Warning events do not create additional paid investigations. Recordings and traces
+`mas-k3s-fixture-<run-id>`. The failing pod is removed after admission to limit
+further Warning triggers; the recorder rejects duplicate admissions for that Pod.
+Recordings and traces
 remain available for seven days; the cluster is deleted when its job finishes,
 including after failure.
 

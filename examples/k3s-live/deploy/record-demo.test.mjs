@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { selectRunForPod, validateSnapshot } from './record-demo.mjs';
+import { observeCanvasProgress, selectRunForPod, validateCanvasProgress, validateSnapshot } from './record-demo.mjs';
 
 function completed() {
   const routes = [
@@ -59,4 +59,31 @@ test('recording rejects a wrong reply ID, a wrong reply direction and an unbalan
   const unbalanced = completed();
   unbalanced.observation.messages[5].kind = 'request';
   assert.throws(() => validateSnapshot(unbalanced, 'live', 'k8s-uid'), /eight recorded requests and eight recorded results/);
+});
+
+test('canvas capture requires growth on the selected active run before terminal state', () => {
+  let progress = {};
+  const frame = { selectedRunId: 'k8s-uid', status: 'running', envelopeCount: 3 };
+  progress = observeCanvasProgress(progress, frame, 'k8s-uid');
+  assert.throws(() => validateCanvasProgress(progress), /did not observe increasing/);
+  progress = observeCanvasProgress(progress, { ...frame, envelopeCount: 6 }, 'k8s-uid');
+  assert.doesNotThrow(() => validateCanvasProgress(progress));
+});
+
+test('fast completion, terminal-only growth and growth on an older run cannot pass live canvas capture', () => {
+  const fastCompleted = observeCanvasProgress({}, {
+    selectedRunId: 'k8s-uid', status: 'completed', envelopeCount: 16,
+  }, 'k8s-uid');
+  assert.throws(() => validateCanvasProgress(fastCompleted), /did not observe increasing/);
+  const active = observeCanvasProgress({}, {
+    selectedRunId: 'k8s-uid', status: 'running', envelopeCount: 3,
+  }, 'k8s-uid');
+  const terminalGrowth = observeCanvasProgress(active, {
+    selectedRunId: 'k8s-uid', status: 'completed', envelopeCount: 16,
+  }, 'k8s-uid');
+  assert.throws(() => validateCanvasProgress(terminalGrowth), /did not observe increasing/);
+  const oldRunGrowth = observeCanvasProgress(active, {
+    selectedRunId: 'old-run', status: 'running', envelopeCount: 12,
+  }, 'k8s-uid');
+  assert.throws(() => validateCanvasProgress(oldRunGrowth), /did not observe increasing/);
 });
