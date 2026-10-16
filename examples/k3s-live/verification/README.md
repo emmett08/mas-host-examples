@@ -1,4 +1,4 @@
-# Finite hybrid choreography check
+# Finite MAS choreography and remediation checks
 
 This example uses the existing MAS version 1 `Request`, `Result` and `Failure`
 messages. It adds no protocol syntax, message kind or delivery rule. The browser
@@ -171,3 +171,96 @@ resolution publication and rejection of invalid reports. The reviewed source
 hashes identify those tests and implementations. This correspondence is reviewed
 manually; the runner does not derive the model from JavaScript and establishes
 no formal refinement proof.
+
+
+## Durable remediation controller
+
+`controller.pml` supplements the single-invocation tool model with the dedicated
+`remediator/controller.ts` reconciliation protocol. MAS still uses version 1 and
+the same eight Request/Result pairs. The new Kubernetes journal and controller
+are application mechanisms; they add no MAS delivery semantics.
+
+The model contains two concurrent worker boot identities, two possible source
+Run UIDs, one retained fault journal and at most two publication attempts. The
+journal key abstracts the SHA-256-derived namespace UID, Deployment UID,
+original full Pod-template hash and policy version. Distinct Events and source
+Run UIDs for the same fault share that key. The immutable journal specification
+binds the original source Run UID/backend ID, namespace/target identities,
+template hash and evidence hash. A later investigation for the same fault
+cannot substitute its identity or gain a second effect reservation.
+
+The shared executor performs its existing evidence, proposal and live-resource
+admission before invoking `beforePatch`. That hook lazily creates the journal
+and then reserves `Pending → Applying` with Kubernetes resourceVersion CAS.
+Create conflict, a lost create acknowledgement, claim conflict and a lost claim acknowledgement grant no
+permission to patch in that reconciliation. A later pass can re-admit a retained
+`Pending` journal, but `Applying` never returns to `Pending` and never authorises
+a replacement attempt. Observing the original owner ID after a lost response is
+also insufficient: only the original successful claim response grants effect
+authority. A journal is a retained tombstone even if the application is later
+rolled back to its original template.
+
+| Named assertion or claim | Meaning and implementation correspondence |
+| --- | --- |
+| `SOURCE_AND_ENABLEMENT_BOUND`, `FRESH_EVIDENCE_BEFORE_EFFECT` | Explicit enablement and `binding`/`assertFresh` bind the completed backend run to the exact Succeeded Kubernetes investigation, immutable Event/evidence and age limit. Freshness is the check result, not a real-time guarantee during subsequent API calls. |
+| `ACKNOWLEDGED_ORIGINAL_RESERVATION` | `beforePatch` obtains an acknowledged `casStatus` transition before the shared executor calls the workload PATCH. The hook records its exact admitted pre-patch report with owner boot/Pod identity and rechecks freshness after the claim response. |
+| `EFFECT_BINDS_IMMUTABLE_SOURCE_RUN` | The retained journal specification must exactly match the original source, evidence and target; a different investigation sharing the fault key stops without another effect. |
+| `ONE_EFFECT_PER_RETAINED_FAULT_JOURNAL` | Two competing workers can produce at most one workload effect while that journal is retained. The model separates the atomic guarded PATCH, actual effect and response acknowledgement. |
+| `FIRST_TERMINAL_WINS` | `finish` uses status CAS; a competing terminal, lost status response or expired owner causes a reread of the retained terminal rather than an overwrite with a local report. |
+| `IMMUTABLE_DURABLE_REPORT` | Mutation-bearing reports publish only after `Finished` stores canonical report bytes. Repeated outbox publication uses that exact report and its original source backend ID. |
+| Verified-report assertions | A published verified result requires the original acknowledged reservation, its actual effect, acknowledged PATCH and complete observed recovery. Expiry or an owner crash produces uncertainty/failure rather than verification. |
+| `controller_settles` | Under finite-return/deadline assumptions, the two worker attempts, reservation recovery and two publication attempts finish; no journal remains `Applying`. This permits failed POSTs and a retained `Pending` journal awaiting a later poll; it does not promise successful delivery or application recovery. |
+
+Only create CAS, status CAS and guarded workload PATCH are atomic. Reading state,
+claim acknowledgement, applying the effect, receiving the PATCH response,
+checking recovery, committing `Finished` and posting its report are separate
+steps. A worker can crash before the effect, after the effect, after the PATCH
+response or after observing recovery. A committed `Finished` response can also
+be lost; the outbox reads the persisted report instead. The acknowledgement
+choices abstract the common durable-reread outcome, rather than modelling
+transport retry timing.
+
+The recovery process can close `Applying` as uncertain when its owner is known
+to have stopped or its finite reservation deadline has elapsed. A delayed live
+owner may still execute its one already-reserved patch after that terminal
+write. Its later terminal CAS loses, so it cannot replace uncertainty with a
+verified local report. Retrying report publication never calls the executor or
+re-applies the patch. A failed or uncertain report therefore does not imply
+that the workload remained unchanged.
+
+Admission guards are represented by their conjunctive acceptance class and
+each individual rejection class. Multiple failed guards cannot introduce an
+effect. Recovery is represented by the conjunction of the predicates enumerated
+individually in `remediation.pml`: exact identity/owner chain and template,
+observed generation and completed rollout, Ready replacement Pod without
+restarts, expected Service HTTP response, and fresh replacement-Pod metrics.
+Pure preflight/no-action returns have no mutation, create no journal, publish
+no resolution and are outside the durable effect-outbox model.
+
+The positive model includes no journal deletion, Kubernetes storage loss,
+forged credentials, SHA-256 collision, arbitrary administrator edits or
+unbounded fresh process failures. API operations must return or fail within
+their deadlines, and a surviving reconciliation/outbox process must perform
+the finite recovery work. The model does not establish wall-clock deadlines,
+cryptographic security, unrestricted exactly-once execution, high availability,
+or a refinement proof of TypeScript and Kubernetes. The deployment remains one
+controller replica; the two-worker model challenges its CAS behaviour during
+accidental overlap or replacement.
+
+Safety and settlement each run with and without partial-order reduction. Seven
+controls continue after a lost create acknowledgement, bypass the claim CAS, resume `Applying`, publish before durable
+`Finished`, bypass source binding, accept stale evidence, or indefinitely stall
+reservation recovery. Each must yield its intended replayable counterexample.
+Two further deliberately false assertions witness durable verified recovery
+and an actual effect followed by an uncertain retained terminal. The witnesses
+show those paths are reachable; they do not claim that every incident reaches
+either outcome. All 33 choreography, tool and controller checks use the same
+runner, resource limits and retained evidence format above.
+
+`remediator/controller.test.ts` exercises the controller's actual admission,
+CAS competition, restart/lost-response handling and stable report retries;
+`remediator/transport.test.ts` checks its in-cluster HTTP transport.
+`deploy/remediation.test.mjs` tests that the shared executor awaits `beforePatch`
+and produces no workload PATCH when reservation fails. The summary records
+reviewed implementation/test/schema hashes. Correspondence is reviewed
+manually, and the model does not derive correctness from those hashes.

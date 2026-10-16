@@ -83,11 +83,14 @@ test('disabled or engineer-review decisions never invoke kubectl mutations', asy
 test('resolution retains exact admitted patch and independently verifies fresh Pod metrics and functional HTTP', async () => {
   const { snapshot, deployment } = candidate();
   let patched = false;
+  let reservation;
   const seen = [];
   const kubectl = async args => {
     seen.push(args);
     if (args[0] === 'get' && args[1] === 'namespace') return JSON.stringify({ metadata: { uid: 'namespace-uid' } });
     if (args[0] === 'patch') {
+      assert.ok(reservation, 'The durable reservation must complete before the API mutation');
+      assert.deepEqual(JSON.parse(args[5]), reservation.patch);
       patched = true;
       deployment.spec.template.spec.containers[0].readinessProbe.httpGet.path = '/healthz';
       deployment.metadata.generation = 3;
@@ -107,7 +110,15 @@ test('resolution retains exact admitted patch and independently verifies fresh P
     if (args[1] === '--raw' && args[2].endsWith('/proxy/')) return APPLICATION_BODY;
     throw new Error(`Unexpected kubectl ${args.join(' ')}`);
   };
-  const report = await resolveIncident(snapshot, { kubectl, namespaceUID: 'namespace-uid', enabled: true });
+  const report = await resolveIncident(snapshot, { kubectl, namespaceUID: 'namespace-uid', enabled: true,
+    beforePatch: async prepared => {
+      assert.equal(patched, false);
+      assert.equal(prepared.checks[0].name, 'Admission');
+      assert.equal(prepared.checks[0].passed, true);
+      assert.equal(prepared.before.uid, 'deployment-uid');
+      await Promise.resolve();
+      reservation = prepared;
+    } });
   assert.equal(patched, true);
   assert.equal(report.status, 'verified');
   assert.equal(report.after.pod.uid, 'new-pod-uid');
@@ -116,6 +127,35 @@ test('resolution retains exact admitted patch and independently verifies fresh P
   assert.ok(report.checks.every(check => check.passed));
   assert.equal(seen.filter(args => args[0] === 'patch').length, 1);
   assert.ok(JSON.stringify(report).length < 16 * 1024);
+});
+
+test('a rejected or uncertain durable reservation prevents every Kubernetes mutation', async () => {
+  for (const reason of ['reservation CAS conflict', 'reservation acknowledgement lost']) {
+    const { snapshot, deployment } = candidate();
+    let mutations = 0;
+    let hooks = 0;
+    const report = await resolveIncident(snapshot, { namespaceUID: 'namespace-uid', enabled: true,
+      kubectl: async args => {
+        if (args[0] !== 'get') { mutations++; throw new Error('Mutation must never execute'); }
+        return JSON.stringify(args[1] === 'namespace' ? { metadata: { uid: 'namespace-uid' } } : deployment);
+      },
+      beforePatch: async prepared => {
+        hooks++;
+        assert.equal(prepared.patch.length, 5);
+        assert.equal(prepared.before.readinessPath, '/readyz');
+        assert.equal(prepared.checks[0].passed, true);
+        // The hook receives its own copy, preserving the admission result.
+        prepared.patch.length = 0;
+        await Promise.resolve();
+        throw new Error(reason);
+      } });
+    assert.equal(hooks, 1);
+    assert.equal(mutations, 0);
+    assert.equal(report.status, 'failed');
+    assert.equal(report.reason, reason);
+    assert.equal(report.patch.length, 5);
+    assert.equal(report.checks.some(check => check.name === 'Patch applied'), false);
+  }
 });
 
 test('namespace identity changes fail before mutation and success requires observed generation and one updated replica', async () => {

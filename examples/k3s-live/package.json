@@ -10,7 +10,8 @@
     "archive": "node deploy/archive.mjs",
     "start": "node dist/server/index.js",
     "operator": "node dist/operator/index.js",
-    "test": "node --import tsx --test server/*.test.ts operator/*.test.ts ui/*.test.ts deploy/*.test.mjs",
+    "remediator": "node dist/remediator/index.js",
+    "test": "node --import tsx --test server/*.test.ts operator/*.test.ts remediator/*.test.ts ui/*.test.ts deploy/*.test.mjs",
     "test:host": "node --import tsx --test server/host.integration.ts"
   },
   "dependencies": {"vue": "3.5.44", "yaml": "2.9.1"},

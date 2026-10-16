@@ -4,9 +4,9 @@ import { execFile, spawn } from 'node:child_process';
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { promisify } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
 import { parseAllDocuments } from 'yaml';
-import { resolveIncident, validatePracticalEvidence } from './remediation.mjs';
+import { validatePracticalEvidence } from './remediation.mjs';
 
 const execute = promisify(execFile);
 const namespace = 'mas-demo';
@@ -18,6 +18,26 @@ export function selectRunForPod(items, uid) {
   const matches = items.filter(item => item.spec?.event?.involvedObject?.uid === uid);
   if (matches.length > 1) throw new Error('More than one investigation was admitted for the demonstration Pod');
   return matches[0];
+}
+
+export function selectRemediationForRun(items, runId) {
+  const matches = items.filter(item => item.spec?.runId === runId);
+  if (matches.length > 1) throw new Error('More than one durable remediation journal was created for this run');
+  return matches[0];
+}
+
+export function validateControllerResolution(snapshot, journal, sourceRunUID) {
+  const resolution = snapshot?.run?.resolution;
+  if (!resolution) return false;
+  if (resolution.status !== 'verified') throw new Error(`Practical recovery was ${resolution.status}: ${resolution.reason}`);
+  if (journal?.spec?.runId !== snapshot.run.id || journal.spec.sourceRunUID !== sourceRunUID ||
+      journal.status?.phase !== 'Finished' || !journal.status.reportJson) {
+    throw new Error('The verified recovery has no matching finished controller journal');
+  }
+  if (!isDeepStrictEqual(JSON.parse(journal.status.reportJson), resolution)) {
+    throw new Error('The captured recovery differs from the durable controller report');
+  }
+  return true;
 }
 
 export function validateSnapshot(snapshot, mode, id) {
@@ -154,6 +174,8 @@ export async function main() {
   const browserErrors = [];
   const canvasFrames = [];
   let canvasProgress = {};
+  let assessmentCaptured = false;
+  let recoveryCaptured = false;
   const snapshots = join(destination, 'snapshots.ndjson');
   await writeFile(snapshots, '');
   let previousSnapshot = '';
@@ -261,30 +283,28 @@ export async function main() {
           if (['completed', 'failed'].includes(snapshot.run.status)) {
             validateSnapshot(snapshot, mode, runId);
             validatePracticalEvidence(snapshot);
-            await page.locator(`#run-picker option[value="${runId}"]`).waitFor({ state: 'attached', timeout: 15_000 });
-            if (!selected) await page.locator('#run-picker').selectOption(runId);
-            await page.waitForFunction(() => document.querySelector('.run-state')?.textContent?.trim() === 'completed',
-              undefined, { timeout: 15_000 });
-            await page.locator('.output-panel').waitFor({ state: 'visible', timeout: 15_000 });
-            await sampleCanvas();
-            validateCanvasProgress(canvasProgress);
-            await json('evidence.json', snapshot.run.input.incident.evidence);
-            const resolution = await resolveIncident(snapshot, { kubectl, namespaceUID,
-              enabled: process.env.DEMO_AUTO_REMEDIATE === 'true' });
-            await json('outcome.json', resolution);
-            const posted = await fetch(`${baseURL}/api/runs/${encodeURIComponent(runId)}/resolution`, {
-              // This administrative runner credential never enters prompts, logs or artefacts.
-              method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${Buffer.from(
-                JSON.parse(await kubectl(['get', 'secret', 'mas-demo-verifier', '-o', 'json'])).data.DEMO_VERIFIER_TOKEN, 'base64').toString('utf8')}` },
-              body: JSON.stringify(resolution),
-              signal: AbortSignal.timeout(10_000),
-            });
-            if (!posted.ok) throw new Error(`Could not retain the external recovery result (HTTP ${posted.status})`);
-            snapshot = await api(`/api/runs/${encodeURIComponent(runId)}/snapshot`);
-            await json('snapshot.json', snapshot);
-            await json('run.json', snapshot.run);
-            await appendFile(snapshots, `${JSON.stringify(snapshot)}\n`);
-            if (resolution.status !== 'verified') throw new Error(`Practical recovery was ${resolution.status}: ${resolution.reason}`);
+            if (!assessmentCaptured) {
+              await page.locator(`#run-picker option[value="${runId}"]`).waitFor({ state: 'attached', timeout: 15_000 });
+              if (!selected) await page.locator('#run-picker').selectOption(runId);
+              await page.waitForFunction(() => document.querySelector('.run-state')?.textContent?.trim() === 'completed',
+                undefined, { timeout: 15_000 });
+              await page.locator('.output-panel').waitFor({ state: 'visible', timeout: 15_000 });
+              await sampleCanvas();
+              validateCanvasProgress(canvasProgress);
+              await json('evidence.json', snapshot.run.input.incident.evidence);
+              assessmentCaptured = true;
+            }
+            // The recorder only observes. The in-cluster controller owns admission,
+            // journal persistence, Kubernetes mutation, verification and publication.
+            const journals = JSON.parse(await kubectl(['get', 'masremediations', '-o', 'json']));
+            const journal = selectRemediationForRun(journals.items, runId);
+            if (journal) await json('remediation-journal.json', journal);
+            if (!validateControllerResolution(snapshot, journal, resource.metadata.uid)) {
+              await delay(500);
+              continue;
+            }
+            await json('outcome.json', snapshot.run.resolution);
+            recoveryCaptured = true;
             await page.locator('.resolution-panel[data-resolution-status="verified"]').waitFor({ state: 'attached', timeout: 15_000 });
             await page.locator('.resolution-panel').scrollIntoViewIfNeeded();
             await delay(2000); // Let the last real observation pulses finish on video.
@@ -296,6 +316,7 @@ export async function main() {
       await delay(500);
     }
     if (snapshot?.run?.status !== 'completed') throw new Error('No completed event investigation was captured within 900 seconds');
+    if (!recoveryCaptured) throw new Error('The dedicated remediation controller did not publish verified recovery within 900 seconds');
     if (browserErrors.length) throw new Error('The dashboard reported a browser error');
     console.log(`Recorded ${mode} investigation ${runId} with ${snapshot.observation.messages.length} actual MAS envelopes`);
   } catch (error) {
@@ -316,11 +337,13 @@ export async function main() {
     await json('canvas-progress.json', { ...canvasProgress, frames: canvasFrames });
     await writeFile(join(destination, 'port-forward.log'), forwardLog);
     await writeFile(join(destination, 'events-and-runs.json'),
-      await kubectl(['get', 'events,masdemoruns', '-o', 'json']).catch(error => JSON.stringify({ error: error.message })));
+      await kubectl(['get', 'events,masdemoruns,masremediations', '-o', 'json']).catch(error => JSON.stringify({ error: error.message })));
     for (const container of ['dashboard', 'operator']) {
       await writeFile(join(destination, `${container}.log`),
         await kubectl(['logs', 'deployment/mas-demo', '-c', container, '--tail=200']).catch(error => error.message));
     }
+    await writeFile(join(destination, 'remediator.log'),
+      await kubectl(['logs', 'deployment/mas-demo-remediator', '-c', 'remediator', '--tail=200']).catch(error => error.message));
     // Closing the context finalises Playwright's video before artifact upload.
     await context?.close().catch(() => {});
     await browser?.close().catch(() => {});
@@ -345,7 +368,9 @@ export async function main() {
       'JSON and NDJSON contain observed server snapshots. Envelope sequences and timestamps are retained unchanged.',
       'Successful demonstration capture requires application payloads in every envelope. These are embedded in the offline inspector.',
       'The practical incident uses real logs, resource specifications, Warning Events and metrics-server samples.',
-      'An isolated external policy tool admits only the managed checkout Deployment readiness path /readyz to /healthz.',
+      'A dedicated in-cluster remediation controller admits only the managed checkout Deployment readiness path /readyz to /healthz.',
+      'The recorder observes that controller; it never patches workloads or reads the report credential.',
+      'remediation-journal.json retains the immutable admission identity and terminal report independently of the controller Pod.',
       'outcome.json records the exact precondition-tested patch and independently checked rollout, HTTP response and fresh metrics.',
       'A completed investigation is not treated as a recovered application: successful recording requires verified recovery.',
       'NDJSON polling captures changing snapshots; it does not establish network send times or exact packet timing.', '',

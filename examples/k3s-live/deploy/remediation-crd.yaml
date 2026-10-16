@@ -1,0 +1,68 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: masremediations.demo.mas.dev
+spec:
+  group: demo.mas.dev
+  scope: Namespaced
+  names:
+    plural: masremediations
+    singular: masremediation
+    kind: MASRemediation
+    shortNames: [masrepair]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Phase, type: string, jsonPath: .status.phase}
+        - {name: Run, type: string, jsonPath: .spec.runId}
+        - {name: Age, type: date, jsonPath: .metadata.creationTimestamp}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [version, runId, sourceRunUID, namespaceUID, targetUID, templateHash, evidenceHash]
+              x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: Create a new MASRemediation; admitted remediation identity is immutable.
+              properties:
+                version: {type: string, enum: [mas-k8s-remediation/1]}
+                runId: {type: string, minLength: 1, maxLength: 128}
+                sourceRunUID: {type: string, minLength: 1, maxLength: 128}
+                namespaceUID: {type: string, minLength: 1, maxLength: 128}
+                targetUID: {type: string, minLength: 1, maxLength: 128}
+                templateHash: {type: string, pattern: '^[a-f0-9]{64}$'}
+                evidenceHash: {type: string, pattern: '^[a-f0-9]{64}$'}
+            status:
+              type: object
+              required: [phase]
+              x-kubernetes-validations:
+                - rule: oldSelf.phase == 'Pending' || self.phase == oldSelf.phase || (oldSelf.phase == 'Applying' && self.phase == 'Finished')
+                  message: Remediation phases cannot move backwards.
+                - rule: oldSelf.phase != 'Finished' || self == oldSelf
+                  message: A finished remediation report is immutable.
+                - rule: '!has(oldSelf.ownerId) || (has(self.ownerId) && self.ownerId == oldSelf.ownerId)'
+                  message: Remediation attempt ownership is immutable.
+                - rule: '!has(oldSelf.ownerPodUID) || (has(self.ownerPodUID) && self.ownerPodUID == oldSelf.ownerPodUID)'
+                  message: Remediation owner Pod UID is immutable.
+                - rule: '!has(oldSelf.ownerPodName) || (has(self.ownerPodName) && self.ownerPodName == oldSelf.ownerPodName)'
+                  message: Remediation owner Pod name is immutable.
+                - rule: '!has(oldSelf.startedAt) || (has(self.startedAt) && self.startedAt == oldSelf.startedAt)'
+                  message: Remediation attempt time is immutable.
+                - rule: self.phase != 'Applying' || (has(self.ownerId) && has(self.ownerPodUID) && has(self.ownerPodName) && has(self.startedAt) && has(self.reportJson))
+                  message: An applying remediation requires a durable attempt owner and report.
+                - rule: self.phase != 'Finished' || has(self.reportJson)
+                  message: A finished remediation requires a report.
+              properties:
+                phase: {type: string, enum: [Pending, Applying, Finished]}
+                ownerId: {type: string, minLength: 1, maxLength: 128}
+                ownerPodUID: {type: string, minLength: 1, maxLength: 128}
+                ownerPodName: {type: string, minLength: 1, maxLength: 253}
+                startedAt: {type: string, format: date-time}
+                reportJson: {type: string, minLength: 2, maxLength: 16384}

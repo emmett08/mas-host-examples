@@ -24,8 +24,8 @@ service.** See [GitHub Actions](#github-actions) for the single required secret.
    findings travel with the critique to the final agent.
 5. The canvas animates envelopes first observed after connection. The message
    log, correlation inspector and final output remain available after completion.
-6. The recording workflow can apply one allowed readiness-probe correction using
-   a deterministic tool. It records the exact patch and independently checks
+6. A dedicated remediation controller can apply one allowed readiness-probe
+   correction after the assessment completes. It records the exact patch and checks
    rollout, replacement Pod identity, application health and fresh metrics.
 
 ## The practical incident and outcome
@@ -43,7 +43,7 @@ collected evidence IDs. It can return `action: none` and request further work
 when evidence does not support that remedy; missing metrics are never zeroes,
 and a current usage sample cannot rule out earlier resource pressure.
 
-For the isolated recording, `DEMO_AUTO_REMEDIATE=true` enables a tool restricted
+Deploying with `DEMO_AUTO_REMEDIATE=true` enables a dedicated controller restricted
 to the managed `mas-demo/mas-demo-checkout` Deployment and its `checkout`
 container. It accepts only `/readyz` → `/healthz`, verifies the proposal against
 the collected specification and probe logs, checks Deployment UID and the full
@@ -59,10 +59,51 @@ Service and fresh resource metrics. The archive retains the admitted patch,
 checks and before/after observations. A failed or incomplete verification remains
 visible and is never reported as recovery.
 
-The verifier reports through a dedicated authenticated endpoint. Deployment
-creates its token automatically; it is available to the backend and the trusted
-recording workflow, and is excluded from workers, prompts and archives. The
-Kubernetes operator and all LLM workers remain read-only.
+The controller reports through a dedicated authenticated endpoint. Deployment
+creates its token automatically and supplies it to the backend and remediator.
+It is excluded from the collector, LLM workers, prompts and archives. The
+collector and LLM workers retain read-only access to workloads. The recording
+script observes the controller's result; it holds no reporting credential and
+executes no remediation.
+
+## Dedicated remediation controller
+
+`mas-demo-remediator` runs as a separate Deployment with its own ServiceAccount.
+It polls completed `MASDemoRun` objects, binds the backend run ID, Event and
+evidence to the admitted custom resource, and checks evidence age before
+considering a change. It reuses the same admission and recovery functions as
+the original workflow tool, through direct Kubernetes HTTPS requests.
+
+Before applying a patch it creates a `MASRemediation` journal and reserves the
+attempt through a resource-version-conditional status update. The journal
+retains the admitted patch and original observation before the effect can
+occur. A reservation whose acknowledgement is lost grants no execution
+authority. A retained `Applying` attempt is never patched again after restart.
+An uncertain effect becomes a failed report requiring inspection.
+
+The journal identity binds the namespace UID, Deployment UID, original Pod
+template hash and policy version. Retaining it suppresses automatic repetition
+of the same original configuration, including another investigation or a
+manual rollback to that exact template. The controller cannot delete journals.
+They must remain available for as long as the corresponding target and
+investigations can be reconsidered. Repeating a completed or uncertain attempt
+requires an explicit engineering decision outside this controller.
+
+The controller saves a terminal report before publishing it to the dashboard.
+If publication fails, it retries the identical report without repeating the
+Kubernetes change. An assessment that fails preflight leaves the agent's
+assessment visible without creating a mutation journal or publishing a repair
+report. A later investigation can supply better evidence. The deployment uses
+one replica and the `Recreate` strategy;
+it provides durable effect reservations rather than a highly available
+remediation service or an unrestricted exactly-once guarantee.
+
+Its Role grants patch access only to the named checkout Deployment. The
+admission code enforces the allowed field and value change; Kubernetes RBAC
+does not express that field restriction. The controller can read the Pods,
+ReplicaSets, metrics and named Service proxy needed for verification, and the
+demo namespace UID. It receives neither the provider key nor permission to
+read Secrets, execute in Pods or mutate other Deployments.
 
 ## Collected evidence
 
@@ -97,7 +138,8 @@ which peer to contact. The four provider calls normally produce eight MAS
 invocations and sixteen request/result envelopes. Failure can stop that sequence.
 
 The canvas shows logical agents, not pods. One pod contains a dashboard/backend
-and a separate Kubernetes controller container. The backend runs the Rust host
+and a separate evidence collector container; the remediator has its own pod.
+The backend runs the Rust host
 and supervised workers locally. MAS protocol admission governs actor messages;
 private IPC connects workers to the host; HTTPS connects LLM adapters to providers;
 SSE carries read-only observation snapshots to Vue. No MAS wire change is needed.
@@ -168,7 +210,7 @@ docker build -f examples/k3s-live/Dockerfile -t mas-k3s-live:demo .
 k3d cluster create mas-demo --image rancher/k3s:v1.32.3-k3s1 --wait
 k3d image import mas-k3s-live:demo --cluster mas-demo
 export OPENAI_API_KEY='your-provider-key'
-SHOW_PAYLOADS=true DEMO_MODE=live examples/k3s-live/deploy/apply.sh
+SHOW_PAYLOADS=true DEMO_MODE=live DEMO_AUTO_REMEDIATE=true examples/k3s-live/deploy/apply.sh
 kubectl -n mas-demo port-forward svc/mas-demo 8080:8080
 ```
 
@@ -176,7 +218,7 @@ The recording script creates the faulty workload, waits for genuine metrics and
 probe logs, then opts its exact Pod into event-triggered investigation:
 
 ```sh
-DEMO_MODE=live DEMO_AUTO_REMEDIATE=true node examples/k3s-live/deploy/record-demo.mjs
+DEMO_MODE=live node examples/k3s-live/deploy/record-demo.mjs
 ```
 
 For a manual investigation, apply `deploy/failing-pod.yaml`, wait for its Pod to
@@ -193,11 +235,14 @@ pods and events from other namespaces are ignored. A queued run can also be
 created explicitly with `deploy/run.yaml`.
 
 The operator reads namespace Pods, their logs, Events, ReplicaSets, Deployments
-and PodMetrics, and writes its own custom resources and status. Only the operator container receives a Kubernetes service-account
-token; only the backend receives the provider key. No LLM receives Kubernetes tools
+and PodMetrics, and writes its own custom resources and status. The collector and
+remediator have separate Kubernetes identities; only the backend receives the
+provider key. No LLM receives Kubernetes tools
 or authority to mutate workloads. Event text is bounded and treated as untrusted
-evidence. Remediation is a separate, narrowly constrained workflow tool rather
-than an LLM Kubernetes capability.
+evidence. Remediation runs in the separately authorised controller. Omit
+`DEMO_AUTO_REMEDIATE` or set it to `false` at deployment to collect and assess
+incidents without automatic workload changes. Changing that setting through
+`apply.sh` rolls the remediator onto the new value.
 
 The service is ClusterIP, intended for `kubectl port-forward`. This example has
 no public authentication layer; add authenticated ingress before exposing it
@@ -247,8 +292,9 @@ and recovery checks finish; the recorder rejects duplicate admissions for that P
 The fixture recording uses the five-second paced providers described above;
 its video shows actual MAS envelopes carrying deterministic responses. Live
 recordings retain actual provider timing and use the configured OpenAI models.
-Both recording jobs explicitly enable payload capture and the constrained demo
-verifier. Successful practical capture requires collected logs, live resource
+Both jobs deploy the dedicated remediator with automatic correction enabled and
+enable payload capture. Recordings observe its retained outcome and include the
+`MASRemediation` resource. Successful practical capture requires collected logs, live resource
 specifications, real metric samples, every message payload and a verified
 recovery. It fails explicitly when that evidence or outcome is missing.
 Recordings and traces
@@ -303,11 +349,14 @@ python3 verification/verify.py     # requires SPIN and a C compiler
 
 The integration test runs the real host, asserts the lateral peer request and two
 distinct security-specialist invocations, checks exact reply correlation, then
-replays the completed run and verifies that no messages were added. The controller
-tests cover event selection, durable identity, lost status responses, queue limits
-and admission backpressure. The SPIN model checks the finite hybrid choreography,
-including the join before final synthesis, and detects deliberate route,
-correlation, observation and progress faults. See [verification](verification/README.md)
+replays the completed run and verifies that no messages were added. Collector
+tests cover event selection, durable identity, queue limits and admission
+backpressure. Remediator tests cover competing reservations, lost API responses,
+restarts, stale evidence and durable report retries. The SPIN models check the
+finite hybrid choreography, guarded repair and controller journal, including
+the join before synthesis and crash or acknowledgement loss around mutation.
+Deliberate faults exercise the safety and progress assertions.
+See [verification](verification/README.md)
 for assumptions, complete-search evidence and the implementation boundary.
 
 One backend owns one execution at a time. It retains at most fifty run records;
@@ -341,6 +390,8 @@ the results, use a fresh data directory or dedicated PVC.
 - [MAS host architecture](https://github.com/emmett08/mas-host/blob/main/docs/architecture.md)
 - [MAS LLM/workflow contract](https://github.com/emmett08/mas-host/blob/main/docs/llm-workflows.md)
 - [Kubernetes operator pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/)
+- [Kubernetes API concurrency](https://kubernetes.io/docs/reference/using-api/api-concepts/)
+- [Kubernetes RBAC](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
 - [Kubernetes Pod and log API](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/)
 - [Resource metrics semantics](https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/)
 - [K3s packaged metrics-server](https://docs.k3s.io/installation/packaged-components)

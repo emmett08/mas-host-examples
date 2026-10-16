@@ -39,6 +39,19 @@ CASES = [
     ("remediation-report-auth", "BUG_REPORT_AUTH", False, False, "(!(report_published)||report_authenticated)"),
     ("remediation-api-stall", "BUG_REMEDIATION_STALL", True, False, "acceptance cycle"),
     ("remediation-success-witness", "WITNESS_REMEDIATION_SUCCESS", False, False, "(outcome!=Verified)"),
+    ("controller-safety", None, False, False, None),
+    ("controller-safety-no-reduction", None, False, True, None),
+    ("controller-settlement", None, True, False, None),
+    ("controller-settlement-no-reduction", None, True, True, None),
+    ("controller-lost-create-ack", "BUG_LOST_CREATE_ACK", False, False, "!(lost_create_ack[id])"),
+    ("controller-cas-bypass", "BUG_CAS_BYPASS", False, False, "(effects<=1)"),
+    ("controller-retry-applying", "BUG_RETRY_APPLYING", False, False, "original_claim_ack[id]"),
+    ("controller-early-publication", "BUG_EARLY_PUBLISH", False, False, "(phase==Finished)"),
+    ("controller-source-binding", "BUG_SOURCE_BINDING", False, False, "source_bound"),
+    ("controller-stale-evidence", "BUG_STALE_EVIDENCE", False, False, "evidence_fresh"),
+    ("controller-owner-stall", "BUG_CONTROLLER_STALL", True, False, "acceptance cycle"),
+    ("controller-success-witness", "WITNESS_CONTROLLER_SUCCESS", False, False, "(durable_report!=Verified)"),
+    ("controller-uncertainty-witness", "WITNESS_CONTROLLER_UNCERTAINTY", False, False, "Uncertain"),
 ]
 
 
@@ -70,7 +83,7 @@ def main() -> int:
     compiler = shutil.which(os.environ.get("CC", "cc"))
     source = ROOT / "hybrid.pml"
     summary = {
-        "schema": "mas-k3s-application-verification/2",
+        "schema": "mas-k3s-application-verification/3",
         "model_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "models": {
             "hybrid.pml": {"sha256": hashlib.sha256(source.read_bytes()).hexdigest()},
@@ -86,6 +99,27 @@ def main() -> int:
                     "No fairness option; positive transitions consume finite remaining work",
                 ],
             },
+            "controller.pml": {
+                "sha256": hashlib.sha256((ROOT / "controller.pml").read_bytes()).hexdigest(),
+                "bounds": {"concurrent_workers": 2, "source_run_uids": 2,
+                           "retained_fault_journals": 1, "maximum_patch_effects": 1,
+                           "publication_attempts": 2},
+                "assumptions": [
+                    "One retained journal key covers namespace UID, Deployment UID, original template hash and fixed policy version",
+                    "No journal deletion, durable storage loss, hash collisions, credential adversary or arbitrary workload mutation",
+                    "Kubernetes create, status resourceVersion CAS and guarded workload PATCH are separately atomic",
+                    "Create and claim responses may be lost; their originating worker grants no effect authority",
+                    "A retained Pending journal may await a later poll after the two bounded worker attempts; settlement excludes retained Applying",
+                    "A boot can crash before or after its one effect, patch ACK, recovery or durable Finished write",
+                    "A finite owner deadline may store an uncertain terminal before a delayed owner finishes its already-reserved effect",
+                    "Each API attempt returns or reaches a finite failure deadline; no fairness option or elapsed-time guarantee",
+                    "Publication retry may fail or duplicate delivery but uses only the immutable durable report and original source Run UID",
+                    "Recovery conjunction abstracts predicates independently enumerated in remediation.pml",
+                    "Freshness abstracts the admission comparison, not wall-clock passage before the patch",
+                    "Finish/POST acknowledgement choices share one durable-reread abstraction; no transport retry timing proof",
+                    "No implementation refinement proof or unrestricted exactly-once claim",
+                ],
+            },
         },
         "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "reviewed_application_files": {
@@ -93,7 +127,10 @@ def main() -> int:
             for name in ("project/topology.yaml", "project/workflows/coordinator.yaml",
                          "project/workflows/platform.yaml", "project/workflows/security.yaml",
                          "deploy/remediation.mjs", "deploy/remediation.test.mjs",
-                         "server/http.ts", "server/runs.ts", "server/runs.test.ts")
+                         "server/http.ts", "server/runs.ts", "server/runs.test.ts",
+                         "remediator/controller.ts", "remediator/controller.test.ts", "remediator/index.ts", "remediator/transport.ts",
+                         "remediator/transport.test.ts", "operator/client.ts", "deploy/rbac.yaml",
+                         "deploy/remediation-crd.yaml", "deploy/remediator.yaml")
         },
         "bounds": {"actors": 7, "request_identities": 8, "runs": 1, "observer_reads": 2},
         "limits": {"seconds_per_command": TIMEOUT_SECONDS, "address_space_bytes": MEMORY_BYTES,
@@ -117,8 +154,9 @@ def main() -> int:
     counterexamples = out / "counterexamples.zip"
     counterexamples.unlink(missing_ok=True)
     for name, macro, liveness, no_reduction, violation in CASES:
-        source = ROOT / ("remediation.pml" if name.startswith("remediation-") else "hybrid.pml")
-        claim = "remediation_settles" if source.stem == "remediation" else "choreography_settles"
+        model = "controller" if name.startswith("controller-") else "remediation" if name.startswith("remediation-") else "hybrid"
+        source = ROOT / f"{model}.pml"
+        claim = {"controller": "controller_settles", "remediation": "remediation_settles", "hybrid": "choreography_settles"}[model]
         commands = []
         check = {"name": name, "model": source.name, "claim": claim if liveness else None,
                  "macro": macro, "mode": "ltl" if liveness else "safety",
@@ -129,7 +167,7 @@ def main() -> int:
                 build = Path(temporary)
                 shutil.copyfile(source, build / source.name)
                 definitions = [f"-D{macro}"] if macro else []
-                if name in ("safety", "remediation-safety"):
+                if name in ("safety", "remediation-safety", "controller-safety"):
                     for seed in (17, 29):
                         run([spin, f"-n{seed}", "-u1000", "-p", *definitions, source.name], build, commands)
                 run([spin, *definitions, "-a", source.name], build, commands)
