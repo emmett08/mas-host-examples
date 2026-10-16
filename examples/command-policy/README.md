@@ -41,7 +41,40 @@ the verified receipt and invocation identity as separate nonempty evidence.
 The original run deadline remains in force; resolution asserts the observed
 external outcome and grants no automatic retry.
 
-An LLM can delegate to `policy_check` through permitted routes; a workflow can
-request it like any other actor. The host's command integration tests cover both
-the CLI boundary and the shared effect lifecycle. Provider SDK commands use a
-different inference envelope and remain configured under provider connections.
+## Let a model request the CLI
+
+The same application also declares `reviewer`, a GPT-5.4 actor permitted to
+request `policy_check`. Its prompt asks it to request the policy result on its
+first inference turn and return that result on its second. The CLI's operation
+name and input/output schemas are supplied to the model as its delegate contract.
+The host admits the request through the topology and returns the actual CLI
+result in the next inference input.
+
+To opt into live, billed inference, set `OPENAI_API_KEY`, confirm access to the
+configured `gpt-5.4-2026-03-05` snapshot, and run:
+
+```sh
+make command-agent
+```
+
+The example permits two inference turns and three external calls in total: two
+model calls and one CLI execution. `make command` still selects `policy_check`
+directly and performs no inference. Both entries share the same tool and
+operation schemas. The `reviewer_provider` connection can be overridden with a
+`mas-connections/1` profile without changing the actor or tool implementation.
+
+The prompt requests delegation; the host's allow-list permits it. Neither proves
+that a live model will call the tool or faithfully report its result. Treat the
+reviewer output as advisory. For mandatory policy enforcement, call `policy_check`
+directly or make a workflow request it explicitly and use that recorded result
+as the acceptance decision. The model has no deployment operation in this example.
+
+Acceptance tests substitute a local HTTP Responses endpoint for the remote
+provider. They exercise both model turns through the maintained OpenAI adapter,
+the actual CLI through MAS request/result messages, positive and negative policy
+results, and replay with no new model or command calls. The HTTP replies are
+explicit fixtures; they verify integration rather than live model behaviour.
+No credentials or remote model calls are needed by `make verify`.
+
+Provider SDK commands use a different inference envelope and remain configured
+under provider connections. The policy tool is an ordinary application command.

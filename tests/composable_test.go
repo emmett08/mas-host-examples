@@ -111,6 +111,12 @@ func TestComposableMeshHonoursRouteAdmission(t *testing.T) {
 func TestExplicitProviderConfigurations(t *testing.T) {
 	h := newHarness(t)
 	project := h.project("composable-agents")
+	openaiModels := map[string]string{
+		"security":   "gpt-5.4-2026-03-05",
+		"delivery":   "gpt-5.4-mini-2026-03-17",
+		"operations": "gpt-5.4-mini-2026-03-17",
+		"decision":   "gpt-5.4-2026-03-05",
+	}
 	for _, variant := range []string{"openai", "cursor", "compatible", "mixed"} {
 		result := h.success("build", "--project", project, "--sdk-root", h.sdk,
 			"--connections", "connections."+variant+".toml")
@@ -125,6 +131,10 @@ func TestExplicitProviderConfigurations(t *testing.T) {
 			connection := child(t, binding, "connection")
 			if connection["kind"] == "mock" {
 				t.Fatalf("live %s actor %s silently selects mock", variant, actor["name"])
+			}
+			if variant == "openai" {
+				assertEqual(t, binding["model"], openaiModels[actor["name"].(string)])
+				assertEqual(t, connection["kind"], "openai")
 			}
 			credential, ok := connection["api_key_env"].(string)
 			if !ok || credential == "" {
@@ -161,7 +171,7 @@ func TestExplicitProviderConfigurations(t *testing.T) {
 		binding := child(t, actor, "configuration")
 		baseBinding := child(t, base, "configuration")
 		if binding["kind"] == "llm" {
-			assertEqual(t, binding["model"], "<openai-model-id>")
+			assertEqual(t, binding["model"], openaiModels[actor["name"].(string)])
 			assertEqual(t, child(t, binding, "connection")["kind"], "openai")
 			for _, field := range []string{"instructions", "output_schema", "max_output_tokens", "delegates"} {
 				assertEqual(t, binding[field], baseBinding[field])

@@ -8,8 +8,9 @@ and registration bundles. Applications supply no handwritten worker transport or
 custom host implementation.
 
 The native examples and the default model fixtures run without credentials.
-The composable example also supplies explicit OpenAI, Cursor, compatible-provider
-and mixed-provider profiles. The examples demonstrate coordination and recovery;
+The composable example also supplies task-specific GPT-5.4/GPT-5.4 Mini settings,
+Cursor, compatible-provider and mixed-provider profiles. The command example has
+an explicit live model-to-CLI entry. The examples demonstrate coordination and recovery;
 they do not evaluate model quality or make production release decisions.
 
 | Example | Application behaviour | Host feature |
@@ -18,7 +19,7 @@ they do not evaluate model quality or make production release decisions.
 | [Rust order calculation](examples/rust-order) | Checked integer totals, discount, tax and budget comparison | Generated Rust worker and precise JSON results |
 | [C++ telemetry assessment](examples/cpp-telemetry) | Bounded sample-window statistics and threshold decisions | Generated C++17 worker and input validation |
 | [Python service review](examples/python-review) | Dataclass inputs and outputs, capacity/security checks, independent acceptance and optional durable receipt | Typed Python client and workers, parallel/request/effect APIs, TOML settings and YAML input |
-| [Command policy check](examples/command-policy) | Standalone CLI with arguments, JSON stdin/stdout and an optional receipt | Retained executable, operation schemas and admitted command recovery |
+| [Command policy check](examples/command-policy) | Standalone CLI with arguments, JSON stdin/stdout and an optional receipt; optional GPT-5.4 delegation | Retained executable, shared operation contracts, model-to-command requests and admitted command recovery |
 | [Composable review agents](examples/composable-agents) | Star, tree and mesh reviews nested into a release workflow; interchangeable model providers | Recursive Composite workflow, provider Strategy/Adapter, MAS admission and durable inference replay |
 
 ## Quick start
@@ -111,7 +112,8 @@ make recovery     # Go/CLI crash reconciliation and Python recorded-effect repla
 
 The integration tests build the actual examples and exercise positive decisions,
 negative decisions, invalid inputs, replay, CLI argument binding and receipts,
-Python typed calls, changed-source identity rejection, changed-input rejection
+model-to-CLI delegation through a local HTTP fixture, Python typed calls,
+changed-source identity rejection, changed-input rejection
 and denied communication routes. They use the public host CLI; they do not replace
 it with a mock. Test state is created in temporary directories, independently of `.state`.
 

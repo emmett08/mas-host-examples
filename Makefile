@@ -11,7 +11,7 @@ export PYTHONDONTWRITEBYTECODE := 1
 export GOWORK := off
 export GOTOOLCHAIN := local
 
-.PHONY: setup check test acceptance recovery verify go rust cpp python python-client command star tree mesh composed
+.PHONY: setup check test acceptance recovery verify go rust cpp python python-client command command-agent star tree mesh composed
 
 setup:
 	bash scripts/setup.sh
@@ -50,6 +50,11 @@ python-client:
 
 command:
 	"$(MAS_HOST_BIN)" run --project examples/command-policy --agent policy_check --input examples/command-policy/input.yaml --state .state --run command-policy
+
+# Explicit live opt-in; excluded from verify and credential-free CI commands.
+command-agent:
+	@: "$${OPENAI_API_KEY:?Set OPENAI_API_KEY for this billed live model example}"
+	"$(MAS_HOST_BIN)" run --project examples/command-policy --agent reviewer --input examples/command-policy/input.yaml --state .state --run command-policy-agent
 
 star tree composed:
 	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent $@ --input examples/composable-agents/input.yaml --state .state --run review-$@
