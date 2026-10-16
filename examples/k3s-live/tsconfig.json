@@ -4,6 +4,6 @@
     "strict": true, "noUncheckedIndexedAccess": true, "skipLibCheck": true,
     "rootDir": ".", "outDir": "dist", "types": ["node"], "ignoreDeprecations": "6.0"
   },
-  "include": ["server/**/*.ts", "operator/**/*.ts"],
+  "include": ["server/**/*.ts", "operator/**/*.ts", "remediator/**/*.ts"],
   "exclude": ["**/*.test.ts", "**/*.integration.ts"]
 }

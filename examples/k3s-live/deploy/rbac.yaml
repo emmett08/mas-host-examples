@@ -5,6 +5,13 @@ metadata:
   namespace: mas-demo
 automountServiceAccountToken: false
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mas-demo-remediator
+  namespace: mas-demo
+automountServiceAccountToken: false
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

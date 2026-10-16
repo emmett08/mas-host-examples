@@ -1,0 +1,118 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mas-demo-remediator
+  namespace: mas-demo
+rules:
+  - apiGroups: [demo.mas.dev]
+    resources: [masdemoruns]
+    verbs: [get, list]
+  - apiGroups: [demo.mas.dev]
+    resources: [masremediations]
+    verbs: [get, list, create]
+  - apiGroups: [demo.mas.dev]
+    resources: [masremediations/status]
+    verbs: [get, update]
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [mas-demo-checkout]
+    verbs: [get, patch]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list]
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get]
+  - apiGroups: ['']
+    resources: [services/proxy]
+    resourceNames: ['mas-demo-checkout:8081']
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mas-demo-remediator
+  namespace: mas-demo
+subjects:
+  - {kind: ServiceAccount, name: mas-demo-remediator, namespace: mas-demo}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: mas-demo-remediator}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mas-demo-remediator-namespace
+rules:
+  - apiGroups: ['']
+    resources: [namespaces]
+    resourceNames: [mas-demo]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mas-demo-remediator-namespace
+subjects:
+  - {kind: ServiceAccount, name: mas-demo-remediator, namespace: mas-demo}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: mas-demo-remediator-namespace}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mas-demo-remediator
+  namespace: mas-demo
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: mas-demo-remediator}
+  template:
+    metadata:
+      annotations:
+        demo.mas.dev/auto-remediate: 'false'
+      labels: {app.kubernetes.io/name: mas-demo-remediator}
+    spec:
+      serviceAccountName: mas-demo-remediator
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 35
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: remediator
+          image: mas-k3s-live:demo
+          imagePullPolicy: IfNotPresent
+          command: [node, dist/remediator/index.js]
+          env:
+            - name: MAS_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: POD_UID
+              valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+            - {name: MAS_DEMO_API_URL, value: 'http://mas-demo.mas-demo.svc:8080'}
+            - name: DEMO_AUTO_REMEDIATE
+              valueFrom: {configMapKeyRef: {name: mas-demo-settings, key: autoRemediate}}
+            - name: DEMO_VERIFIER_TOKEN
+              valueFrom: {secretKeyRef: {name: mas-demo-verifier, key: DEMO_VERIFIER_TOKEN}}
+          resources:
+            requests: {cpu: 20m, memory: 48Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: api-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+      volumes:
+        - name: api-token
+          projected:
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 3600}
+              - configMap:
+                  name: kube-root-ca.crt
+                  items: [{key: ca.crt, path: ca.crt}]

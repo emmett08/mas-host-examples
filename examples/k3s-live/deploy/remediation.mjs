@@ -96,13 +96,14 @@ export function recovered(deployment) {
     deployment.status?.updatedReplicas === 1 && deployment.status?.replicas === 1 &&
     deployment.status?.readyReplicas === 1 && deployment.status?.availableReplicas === 1;
 }
-export async function resolveIncident(snapshot, { kubectl, namespaceUID, enabled = false, delay = pause, timeoutMs = 120_000 }) {
+export async function resolveIncident(snapshot, { kubectl, namespaceUID, enabled = false, delay = pause, timeoutMs = 120_000,
+  beforePatch = async () => {} }) {
   const bundle = evidence(snapshot);
   const saved = collected(bundle, 'workload-deployment')?.data;
   const report = { version: 'mas-k8s-resolution/1', status: 'not-attempted', action: 'replace_readiness_probe_path',
     target: { namespace: TARGET.namespace, name: TARGET.name, uid: saved?.metadata?.uid ?? '' },
     recordedAt: new Date().toISOString(), reason: '', patch: [], before: null, after: null, checks: [] };
-  if (!enabled) { report.reason = 'The isolated recording did not explicitly enable DEMO_AUTO_REMEDIATE=true.'; return report; }
+  if (!enabled) { report.reason = 'Automatic readiness remediation has not been explicitly enabled.'; return report; }
   try {
     validatePracticalEvidence(snapshot);
     if (snapshot.run.output?.requires_human !== false || snapshot.run.output?.remediation?.action !== 'replace_readiness_probe_path') {
@@ -110,11 +111,14 @@ export async function resolveIncident(snapshot, { kubectl, namespaceUID, enabled
       return report;
     }
     const namespace = JSON.parse(await kubectl(['get', 'namespace', TARGET.namespace, '-o', 'json']));
-    assert(namespaceUID && namespace.metadata.uid === namespaceUID, 'The recording namespace identity changed');
+    assert(namespaceUID && namespace.metadata.uid === namespaceUID, 'The configured namespace identity changed');
     const before = JSON.parse(await kubectl(['get', 'deployment', TARGET.name, '-o', 'json']));
     report.patch = admitReadinessPatch(snapshot, before);
     report.before = summary(before);
     report.checks.push({ name: 'Admission', passed: true, detail: 'Managed identity, collected evidence and unchanged full template passed. Only the readiness path is admitted.' });
+    // The controller must durably reserve this exact admitted mutation before
+    // contacting Kubernetes. Failure or an uncertain reservation never patches.
+    await beforePatch(structuredClone(report));
     const applied = JSON.parse(await kubectl(['patch', 'deployment', TARGET.name, '--type=json', '-p', JSON.stringify(report.patch), '-o', 'json']));
     report.checks.push({ name: 'Patch applied', passed: true, detail: `Generation ${applied.metadata.generation}; JSON Patch UID, resource version, container and old path tests passed.` });
     const expectedTemplate = structuredClone(before.spec.template);

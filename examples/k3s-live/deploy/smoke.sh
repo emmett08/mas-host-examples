@@ -2,6 +2,29 @@
 # Run after apply.sh on an isolated fixture-mode cluster.
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# Exercise the installed authorisation policy rather than only reading YAML.
+permission() {
+  local actor="$1" expected="$2" actual
+  shift 2
+  actual="$(kubectl -n mas-demo auth can-i "$@" --as="system:serviceaccount:mas-demo:$actor" 2>/dev/null || true)"
+  [[ "$actual" == "$expected" ]] || { echo "Unexpected permission: $actor $* = $actual (expected $expected)" >&2; exit 1; }
+}
+permission mas-demo-remediator yes patch deployments.apps/mas-demo-checkout
+permission mas-demo-remediator no patch deployments.apps/mas-demo
+permission mas-demo-remediator no patch deployments.apps/another-service
+permission mas-demo-remediator no delete deployments.apps/mas-demo-checkout
+permission mas-demo-remediator no get secrets
+permission mas-demo-remediator no create pods --subresource=exec
+permission mas-demo-remediator yes get services/mas-demo-checkout:8081 --subresource=proxy
+permission mas-demo-remediator no get services/mas-demo:8080 --subresource=proxy
+permission mas-demo-remediator yes get namespaces/mas-demo
+permission mas-demo-remediator no get namespaces/kube-system
+permission mas-demo-remediator yes create masremediations.demo.mas.dev
+permission mas-demo-remediator yes update masremediations.demo.mas.dev --subresource=status
+permission mas-demo-remediator no update masremediations.demo.mas.dev
+permission mas-demo-remediator no delete masremediations.demo.mas.dev
+permission mas-demo-operator no patch deployments.apps/mas-demo-checkout
+permission mas-demo-operator no create masremediations.demo.mas.dev
 preparation="$(mktemp -d)"
 trap 'rm -rf "$preparation"; kubectl -n mas-demo delete deployment,service mas-demo-checkout --ignore-not-found --wait=false >/dev/null 2>&1 || true' EXIT
 node --input-type=module - "$root" "$preparation" <<'NODE'
@@ -54,14 +77,39 @@ for attempt in {1..30}; do
 done
 run_json="$(mktemp)"
 trap 'rm -f "$run_json"; kill "$forward_pid" 2>/dev/null || true; rm -rf "$preparation"; kubectl -n mas-demo delete deployment,service mas-demo-checkout --ignore-not-found --wait=false >/dev/null 2>&1 || true' EXIT
-curl --fail --silent "http://127.0.0.1:18080/api/runs/$run_id/snapshot" > "$run_json"
-node --input-type=module - "$run_json" "$root" <<'NODE'
+# A completed assessment and a verified repair are separate durable results.
+deadline=$((SECONDS + 180))
+while (( SECONDS < deadline )); do
+  curl --fail --silent "http://127.0.0.1:18080/api/runs/$run_id/snapshot" > "$run_json"
+  recovery="$(node --input-type=module -e 'import {readFileSync} from "node:fs"; console.log(JSON.parse(readFileSync(process.argv[1],"utf8")).run.resolution?.status??"")' "$run_json")"
+  [[ -z "$recovery" ]] || break
+  sleep 2
+done
+[[ "$recovery" == verified ]] || { echo "The dedicated remediation controller did not verify recovery: ${recovery:-no report}" >&2; exit 1; }
+kubectl -n mas-demo get masremediations -o json > "$preparation/remediations.json"
+journal_name="$(node --input-type=module -e 'import {readFileSync} from "node:fs"; console.log(JSON.parse(readFileSync(process.argv[1],"utf8")).items.find(item=>item.spec?.runId===process.argv[2])?.metadata.name??"")' "$preparation/remediations.json" "$run_id")"
+[[ -n "$journal_name" ]] || { echo 'The repair has no durable Kubernetes journal' >&2; exit 1; }
+if rejection="$(kubectl -n mas-demo patch "masremediation/$journal_name" --dry-run=server --type=json \
+  -p '[{"op":"replace","path":"/spec/targetUID","value":"different-target"}]' 2>&1)"; then
+  echo 'The API accepted a mutation of immutable remediation admission identity' >&2; exit 1
+fi
+[[ "$rejection" == *'Create a new MASRemediation'* ]] || { echo "Unexpected journal validation failure: $rejection" >&2; exit 1; }
+if rejection="$(kubectl -n mas-demo patch "masremediation/$journal_name" --subresource=status --dry-run=server --type=merge \
+  -p '{"status":{"phase":"Pending"}}' 2>&1)"; then
+  echo 'The API accepted reopening a finished remediation attempt' >&2; exit 1
+fi
+[[ "$rejection" == *'Remediation phases cannot move backwards'* ]] || { echo "Unexpected phase validation failure: $rejection" >&2; exit 1; }
+source_run_uid="$(kubectl -n mas-demo get "masdemorun/$run_name" -o jsonpath='{.metadata.uid}')"
+node --input-type=module - "$run_json" "$root" "$preparation/remediations.json" "$source_run_uid" <<'NODE'
 import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const { validatePracticalEvidence } = await import(pathToFileURL(`${process.argv[3]}/remediation.mjs`));
+const { selectRemediationForRun, validateControllerResolution } = await import(pathToFileURL(`${process.argv[3]}/record-demo.mjs`));
 const {run, observation} = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const journal = selectRemediationForRun(JSON.parse(readFileSync(process.argv[4], 'utf8')).items, run.id);
+if (!validateControllerResolution({run}, journal, process.argv[5])) throw new Error('No controller recovery report was retained');
 const evidence = run.input?.incident?.evidence;
 const diagnostics = { runId: run.id, capturedAt: evidence?.capturedAt,
   items: evidence?.items?.slice(0, 16).map(item => ({ id: item.id, status: item.status,
@@ -73,6 +121,7 @@ if (artifacts) {
   await mkdir(artifacts, { recursive: true });
   await writeFile(join(artifacts, 'smoke-evidence.json'), `${JSON.stringify(evidence ?? null, null, 2)}\n`);
   await writeFile(join(artifacts, 'smoke-evidence-status.json'), `${JSON.stringify(diagnostics, null, 2)}\n`);
+  await writeFile(join(artifacts, 'smoke-remediation-journal.json'), `${JSON.stringify(journal, null, 2)}\n`);
 }
 try { validatePracticalEvidence({run}); }
 catch (error) {
@@ -90,6 +139,17 @@ if (observation.messages.filter(message => message.sender === 'security' && mess
 }
 console.log(`Completed real MAS host execution ${run.id} in fixture provider mode`);
 NODE
+# A restarted remediator must replay the durable report without another patch.
+generation_before="$(kubectl -n mas-demo get deployment mas-demo-checkout -o jsonpath='{.metadata.generation}')"
+journals_before="$(kubectl -n mas-demo get masremediations -o jsonpath='{range .items[*]}{.metadata.uid}{" "}{.status.phase}{"\n"}{end}')"
+kubectl -n mas-demo rollout restart deployment/mas-demo-remediator
+kubectl -n mas-demo rollout status deployment/mas-demo-remediator --timeout=180s
+sleep 6
+generation_after="$(kubectl -n mas-demo get deployment mas-demo-checkout -o jsonpath='{.metadata.generation}')"
+journals_after="$(kubectl -n mas-demo get masremediations -o jsonpath='{range .items[*]}{.metadata.uid}{" "}{.status.phase}{"\n"}{end}')"
+[[ "$generation_before" == "$generation_after" && "$journals_before" == "$journals_after" ]] || {
+  echo 'Remediator restart repeated a workload mutation or changed durable completion identity' >&2; exit 1;
+}
 # Restart the entire pod; retained CRs and backend IDs must prevent a second run.
 before="$(kubectl -n mas-demo get masdemoruns -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}')"
 kubectl -n mas-demo rollout restart deployment/mas-demo
@@ -109,8 +169,8 @@ done
 node --input-type=module - "$run_json" <<'NODE'
 import { readFileSync } from 'node:fs';
 const {run, observation} = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-if (run.status !== 'completed' || observation.messages.length !== 16) {
+if (run.status !== 'completed' || observation.messages.length !== 16 || run.resolution?.status !== 'verified') {
   throw new Error('Restart did not retain the completed host execution and its original messages');
 }
 NODE
-printf 'Event trigger, host run, retained state and event deduplication passed.\n'
+printf 'Event trigger, host run, controller repair, scoped RBAC, retained recovery and restart deduplication passed.\n'

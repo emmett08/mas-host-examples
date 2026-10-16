@@ -67,6 +67,7 @@ jobs:
         env:
           DEMO_MODE: fixture
           SHOW_PAYLOADS: 'true'
+          DEMO_AUTO_REMEDIATE: 'true'
         run: |
           examples/k3s-live/deploy/apply.sh
           examples/k3s-live/deploy/smoke.sh
@@ -81,7 +82,6 @@ jobs:
         env:
           DEMO_MODE: fixture
           DEMO_FIXTURE_RECORDING: 'true'
-          DEMO_AUTO_REMEDIATE: 'true'
           DEMO_ARTIFACT_DIR: ${{ runner.temp }}/mas-demo-artifacts
         run: node examples/k3s-live/deploy/record-demo.mjs
       - name: Package the same Vue dashboard with captured fixture observations
@@ -103,9 +103,10 @@ jobs:
       - name: Capture diagnostics
         if: failure()
         run: |
-          kubectl -n mas-demo get pods,events,masdemoruns -o wide || true
+          kubectl -n mas-demo get pods,events,masdemoruns,masremediations -o wide || true
           kubectl -n mas-demo logs deployment/mas-demo -c dashboard --tail=100 || true
           kubectl -n mas-demo logs deployment/mas-demo -c operator --tail=100 || true
+          kubectl -n mas-demo logs deployment/mas-demo-remediator --tail=100 || true
       - name: Remove ephemeral cluster
         if: always()
         run: k3d cluster delete mas-demo || true
@@ -164,11 +165,11 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEMO_MODE: live
           SHOW_PAYLOADS: 'true'
+          DEMO_AUTO_REMEDIATE: 'true'
         run: examples/k3s-live/deploy/apply.sh
       - name: Record the live canvas and retain the actual result
         env:
           DEMO_MODE: live
-          DEMO_AUTO_REMEDIATE: 'true'
           DEMO_ARTIFACT_DIR: ${{ runner.temp }}/mas-demo-artifacts
         run: node examples/k3s-live/deploy/record-demo.mjs
       - name: Package the same Vue dashboard with captured live observations
@@ -190,9 +191,10 @@ jobs:
       - name: Capture cluster diagnostics
         if: failure()
         run: |
-          kubectl -n mas-demo get pods,events,masdemoruns -o wide || true
+          kubectl -n mas-demo get pods,events,masdemoruns,masremediations -o wide || true
           kubectl -n mas-demo logs deployment/mas-demo -c dashboard --tail=100 || true
           kubectl -n mas-demo logs deployment/mas-demo -c operator --tail=100 || true
+          kubectl -n mas-demo logs deployment/mas-demo-remediator --tail=100 || true
       - name: Remove the runner-local cluster
         if: always()
         run: k3d cluster delete mas-demo || true
