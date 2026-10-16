@@ -1,0 +1,7 @@
+.git
+.tools
+.state
+**/node_modules
+**/dist
+**/.data
+**/.mas

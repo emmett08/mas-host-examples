@@ -1,0 +1,121 @@
+name: Kubernetes live MAS demonstration
+
+on:
+  pull_request:
+    paths: ['examples/k3s-live/**', '.github/workflows/k3s-demo.yml', 'host-revision.txt']
+  push:
+    branches: [main]
+    paths: ['examples/k3s-live/**', '.github/workflows/k3s-demo.yml', 'host-revision.txt']
+  workflow_dispatch:
+    inputs:
+      deploy_live:
+        description: 'Deploy real LLM agents to the configured demonstration k3s cluster'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: k3s-demo-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ephemeral-k3s:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: examples/k3s-live/package-lock.json
+      - name: Type checks, application build and controller tests
+        working-directory: examples/k3s-live
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          npm run build
+      - name: Verify the bounded controller model using SPIN
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y spin
+          python3 examples/k3s-live/verification/verify.py
+      - name: Build dashboard, agents and observer image
+        run: docker build -f examples/k3s-live/Dockerfile -t mas-k3s-live:demo .
+      - name: Install pinned k3d
+        env:
+          K3D_VERSION: v5.8.3
+        run: |
+          curl --fail --location --silent --show-error "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64" -o /tmp/k3d
+          sudo install -m 0755 /tmp/k3d /usr/local/bin/k3d
+          k3d version
+      - name: Create ephemeral k3s cluster and import image
+        run: |
+          k3d cluster create mas-demo --image rancher/k3s:v1.32.3-k3s1 --wait --timeout 120s
+          k3d image import mas-k3s-live:demo --cluster mas-demo
+      - name: Deploy and exercise event-driven controller with credential-free provider fixture
+        env:
+          DEMO_MODE: fixture
+        run: |
+          examples/k3s-live/deploy/apply.sh
+          examples/k3s-live/deploy/smoke.sh
+      - name: Capture diagnostics
+        if: failure()
+        run: |
+          kubectl -n mas-demo get pods,events,masdemoruns -o wide || true
+          kubectl -n mas-demo logs deployment/mas-demo -c dashboard --tail=100 || true
+          kubectl -n mas-demo logs deployment/mas-demo -c operator --tail=100 || true
+      - name: Remove ephemeral cluster
+        if: always()
+        run: k3d cluster delete mas-demo || true
+
+  deploy-live:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_live && github.ref == 'refs/heads/main'
+    needs: ephemeral-k3s
+    runs-on: ${{ vars.MAS_DEMO_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 30
+    # Configure this environment's reviewers and cluster/model secrets in GitHub.
+    environment: mas-k3s-demo
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build and publish immutable demonstration image
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_OWNER: ${{ github.repository_owner }}
+        run: |
+          image="ghcr.io/${IMAGE_OWNER,,}/mas-k3s-live:${GITHUB_SHA}"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build -f examples/k3s-live/Dockerfile -t "$image" .
+          docker push "$image"
+          printf 'MAS_IMAGE=%s\n' "$image" >> "$GITHUB_ENV"
+      - name: Deploy to demonstration cluster
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          GHCR_PULL_USER: ${{ vars.GHCR_PULL_USER || github.repository_owner }}
+          DEMO_MODE: live
+        run: |
+          export KUBECONFIG="$RUNNER_TEMP/mas-demo-kubeconfig"
+          trap 'rm -f "$KUBECONFIG"' EXIT
+          umask 077
+          test -n "$KUBECONFIG_B64"
+          test -n "$OPENAI_API_KEY"
+          test -n "$GHCR_PULL_TOKEN"
+          printf '%s' "$KUBECONFIG_B64" | base64 --decode > "$KUBECONFIG"
+          examples/k3s-live/deploy/apply.sh
+          kubectl -n mas-demo delete pod mas-demo-crash --ignore-not-found --wait=true
+          kubectl apply -f examples/k3s-live/deploy/failing-pod.yaml
+          examples/k3s-live/deploy/wait-event.sh mas-demo-crash
+      - name: Log out of registry
+        if: always()
+        run: docker logout ghcr.io

@@ -21,6 +21,7 @@ they do not evaluate model quality or make production release decisions.
 | [Python service review](examples/python-review) | Dataclass inputs and outputs, capacity/security checks, independent acceptance and optional durable receipt | Typed Python client and workers, parallel/request/effect APIs, TOML settings and YAML input |
 | [Command policy check](examples/command-policy) | Standalone CLI with arguments, JSON stdin/stdout and an optional receipt; optional GPT-5.4 delegation | Retained executable, shared operation contracts, model-to-command requests and admitted command recovery |
 | [Composable review agents](examples/composable-agents) | Star, tree and mesh reviews nested into a release workflow; interchangeable model providers | Recursive Composite workflow, provider Strategy/Adapter, MAS admission and durable inference replay |
+| [Live Kubernetes incident room](examples/k3s-live) | Vue/TypeScript canvas, real LLM specialists, parallel review and peer critique; event-triggered k3s operator | Read-only live message observation, hybrid choreography, retained run identities and GitHub deployment workflow |
 
 ## Quick start
 

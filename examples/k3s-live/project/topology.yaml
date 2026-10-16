@@ -1,0 +1,16 @@
+version: mas-topology/1
+edges:
+  - [client, coordinator]
+  - [coordinator, client]
+  - [coordinator, platform]
+  - [platform, coordinator]
+  - [coordinator, security]
+  - [security, coordinator]
+  - [platform, diagnose]
+  - [diagnose, platform]
+  - [platform, security]
+  - [security, platform]
+  - [security, security_review]
+  - [security_review, security]
+  - [coordinator, decision]
+  - [decision, coordinator]

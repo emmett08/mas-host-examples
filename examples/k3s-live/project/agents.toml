@@ -1,0 +1,69 @@
+version = "mas-agents/3"
+
+[[agents]]
+name = "coordinator"
+operation = "incident_review/1"
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/coordinator.yaml"
+
+[[agents]]
+name = "platform"
+operation = "platform_review/1"
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/platform.yaml"
+
+[[agents]]
+name = "security"
+operation = "security_review/1"
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/security.yaml"
+
+[[agents]]
+name = "diagnose"
+operation = "diagnose_incident/1"
+output_schema = "schemas/review.json"
+[agents.implementation]
+kind = "llm"
+connection = "reasoning"
+model = "gpt-5.4-mini-2026-03-17"
+instructions = "prompts/platform.md"
+max_output_tokens = 2048
+
+[[agents]]
+name = "security_review"
+operation = "assess_incident_risk/1"
+output_schema = "schemas/review.json"
+[agents.implementation]
+kind = "llm"
+connection = "reasoning"
+model = "gpt-5.4-mini-2026-03-17"
+instructions = "prompts/security.md"
+max_output_tokens = 2048
+
+[[agents]]
+name = "decision"
+operation = "recommend_investigation/1"
+output_schema = "schemas/decision.json"
+[agents.implementation]
+kind = "llm"
+connection = "synthesis"
+model = "gpt-5.4-2026-03-05"
+instructions = "prompts/decision.md"
+max_output_tokens = 2048
+
+[connections.reasoning]
+kind = "openai"
+api_key_env = "OPENAI_API_KEY"
+[connections.synthesis]
+kind = "openai"
+api_key_env = "OPENAI_API_KEY"
+
+[limits]
+wall_seconds = 300
+max_calls = 16
+max_messages = 64
+max_bytes = 1048576
+mailbox_capacity = 32

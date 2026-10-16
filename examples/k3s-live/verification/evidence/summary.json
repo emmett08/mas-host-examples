@@ -1,0 +1,143 @@
+{
+  "schema": "mas-k3s-choreography-verification/1",
+  "model_sha256": "6973a6aafb8f4984cb029fe6dc285e58118bea7bd03cf51aff98f6f4050ec515",
+  "runner_sha256": "684707606cb3335bfbe4340980aa31fb1a30b4475ca847ad5012c7eace61091c",
+  "reviewed_application_files": {
+    "project/topology.yaml": "8f64e6f77753dbe91b0b9b42da8f8742919ba4b17eb725304a8ed324c32d9bda",
+    "project/workflows/coordinator.yaml": "7b6f2ca621f5f7602026f5c645bd88dfbbe4015b0bdbaf56bbb87326282d82bb",
+    "project/workflows/platform.yaml": "273fe4a748d6ceb68281c9edfaa89ca4af1b61f7f8b7e61038bcacdd41f2cb61",
+    "project/workflows/security.yaml": "4027256127bb3337a86f86efcf5357298ebbceebb2c6fa57b2e6af87ae2047a0"
+  },
+  "bounds": {
+    "actors": 7,
+    "request_identities": 8,
+    "runs": 1,
+    "observer_reads": 2
+  },
+  "limits": {
+    "seconds_per_command": 30,
+    "address_space_bytes": 536870912,
+    "search_depth": 100000
+  },
+  "assumptions": [
+    "Every admitted leaf has a finite known success or failure response",
+    "No provider stall, crash, cancellation, expiry, storage loss or actor change in positive checks",
+    "Atomic abstract transport transitions; no implementation refinement proof",
+    "No fairness option; positive transitions consume finite remaining work"
+  ],
+  "checks": [
+    {
+      "name": "safety",
+      "macro": null,
+      "mode": "safety",
+      "partial_order_reduction": true,
+      "expected": "zero_errors",
+      "result": "COMPLETE_ZERO_ERRORS",
+      "stored_states": "2265",
+      "errors": 0,
+      "raw_commands_key": "safety"
+    },
+    {
+      "name": "safety-no-reduction",
+      "macro": null,
+      "mode": "safety",
+      "partial_order_reduction": false,
+      "expected": "zero_errors",
+      "result": "COMPLETE_ZERO_ERRORS",
+      "stored_states": "2265",
+      "errors": 0,
+      "raw_commands_key": "safety-no-reduction"
+    },
+    {
+      "name": "settlement",
+      "macro": null,
+      "mode": "ltl",
+      "partial_order_reduction": true,
+      "expected": "zero_errors",
+      "result": "COMPLETE_ZERO_ERRORS",
+      "stored_states": "2164",
+      "errors": 0,
+      "raw_commands_key": "settlement"
+    },
+    {
+      "name": "settlement-no-reduction",
+      "macro": null,
+      "mode": "ltl",
+      "partial_order_reduction": false,
+      "expected": "zero_errors",
+      "result": "COMPLETE_ZERO_ERRORS",
+      "stored_states": "2164",
+      "errors": 0,
+      "raw_commands_key": "settlement-no-reduction"
+    },
+    {
+      "name": "forbidden-route",
+      "macro": "BUG_ROUTE",
+      "mode": "safety",
+      "partial_order_reduction": true,
+      "expected": "counterexample",
+      "result": "EXPECTED_COUNTEREXAMPLE",
+      "stored_states": "12",
+      "errors": 1,
+      "raw_commands_key": "forbidden-route"
+    },
+    {
+      "name": "wrong-correlation",
+      "macro": "BUG_CORRELATION",
+      "mode": "safety",
+      "partial_order_reduction": true,
+      "expected": "counterexample",
+      "result": "EXPECTED_COUNTEREXAMPLE",
+      "stored_states": "16",
+      "errors": 1,
+      "raw_commands_key": "wrong-correlation"
+    },
+    {
+      "name": "early-decision",
+      "macro": "BUG_EARLY_DECISION",
+      "mode": "safety",
+      "partial_order_reduction": true,
+      "expected": "counterexample",
+      "result": "EXPECTED_COUNTEREXAMPLE",
+      "stored_states": "73",
+      "errors": 1,
+      "raw_commands_key": "early-decision"
+    },
+    {
+      "name": "observer-dispatch",
+      "macro": "BUG_OBSERVER_DISPATCH",
+      "mode": "safety",
+      "partial_order_reduction": true,
+      "expected": "counterexample",
+      "result": "EXPECTED_COUNTEREXAMPLE",
+      "stored_states": "25",
+      "errors": 1,
+      "raw_commands_key": "observer-dispatch"
+    },
+    {
+      "name": "provider-stall",
+      "macro": "BUG_STALL",
+      "mode": "ltl",
+      "partial_order_reduction": true,
+      "expected": "counterexample",
+      "result": "EXPECTED_COUNTEREXAMPLE",
+      "stored_states": "517",
+      "errors": 1,
+      "raw_commands_key": "provider-stall"
+    },
+    {
+      "name": "success-witness",
+      "macro": "WITNESS_SUCCESS",
+      "mode": "safety",
+      "partial_order_reduction": true,
+      "expected": "counterexample",
+      "result": "EXPECTED_COUNTEREXAMPLE",
+      "stored_states": "27",
+      "errors": 1,
+      "raw_commands_key": "success-witness"
+    }
+  ],
+  "spin": "Spin Version 6.5.2 -- 6 December 2019",
+  "compiler": "cc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+  "status": "PASS"
+}

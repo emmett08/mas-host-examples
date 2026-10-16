@@ -1,0 +1,14 @@
+type: sequence
+steps:
+  - type: request
+    key: diagnose
+    target: diagnose
+    input:
+      incident: {$input: /incident}
+  - type: request
+    key: peer-critique
+    target: security
+    input:
+      incident: {$input: /incident}
+      stage: peer-critique
+      platform_findings: {$previous: ''}
