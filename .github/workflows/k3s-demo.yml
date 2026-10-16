@@ -55,8 +55,12 @@ jobs:
           k3d version
       - name: Create ephemeral k3s cluster and import image
         run: |
+          set -euo pipefail
           k3d cluster create mas-demo --image rancher/k3s:v1.32.3-k3s1 --wait --timeout 120s
-          k3d image import mas-k3s-live:demo --cluster mas-demo
+          # Avoid the shared tools-node tarball; verify the actual node image store.
+          k3d image import mas-k3s-live:demo --cluster mas-demo --mode direct
+          docker exec k3d-mas-demo-server-0 k3s ctr --namespace k8s.io images list --quiet |
+            grep --fixed-strings --line-regexp 'docker.io/library/mas-k3s-live:demo'
           kubectl config use-context k3d-mas-demo
           kubectl -n kube-system wait --for=condition=Available deployment/metrics-server --timeout=180s
       - name: Deploy and exercise event-driven controller with credential-free provider fixture
@@ -146,8 +150,12 @@ jobs:
           k3d version
       - name: Create the runner-local k3s cluster and its kubeconfig
         run: |
+          set -euo pipefail
           k3d cluster create mas-demo --image rancher/k3s:v1.32.3-k3s1 --wait --timeout 120s
-          k3d image import mas-k3s-live:demo --cluster mas-demo
+          # Avoid the shared tools-node tarball; verify the actual node image store.
+          k3d image import mas-k3s-live:demo --cluster mas-demo --mode direct
+          docker exec k3d-mas-demo-server-0 k3s ctr --namespace k8s.io images list --quiet |
+            grep --fixed-strings --line-regexp 'docker.io/library/mas-k3s-live:demo'
           kubectl config use-context k3d-mas-demo
           kubectl get nodes
           kubectl -n kube-system wait --for=condition=Available deployment/metrics-server --timeout=180s
