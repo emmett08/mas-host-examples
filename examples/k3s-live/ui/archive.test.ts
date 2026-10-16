@@ -1,0 +1,113 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { ArchivePlayback, parseArchive, playbackTime } from "./archive";
+import type { Message } from "./types";
+
+const request: Message = { id: "request-1", sequence: 1, sender: "client", recipient: "agent", kind: "request" };
+const result: Message = { id: "result-1", sequence: 2, sender: "agent", recipient: "client", kind: "result", correlation: "request-1" };
+function archive() {
+  return { version: "mas-demo-archive/1", capturedAt: "2026-10-16T12:00:02Z", runId: "recorded-1",
+    topology: { mode: "live", nodes: [ { id: "client", label: "Incident", kind: "client" },
+      { id: "agent", label: "Specialist", kind: "llm" } ], edges: [{ from: "client", to: "agent" }] },
+    snapshots: [
+      { run: { id: "recorded-1", mode: "live", status: "running", startedAt: "2026-10-16T12:00:00Z" },
+        observation: { observed_at_ms: 1_000, messages: [] as Message[] } },
+      { run: { id: "recorded-1", mode: "live", status: "running", startedAt: "2026-10-16T12:00:00Z" },
+        observation: { observed_at_ms: 1_200, messages: [request] } },
+      { run: { id: "recorded-1", mode: "live", status: "running", startedAt: "2026-10-16T12:00:00Z" },
+        observation: { observed_at_ms: 1_250, messages: [request, request] } },
+      { run: { id: "recorded-1", mode: "live", status: "completed", startedAt: "2026-10-16T12:00:00Z", output: { final: "assessment" } },
+        observation: { observed_at_ms: 1_800, messages: [request, result] } },
+    ] };
+}
+
+test("archive parsing preserves collected timestamps, normalises duplicate IDs and checks run identity", () => {
+  const data = parseArchive(JSON.stringify(archive()));
+  assert.deepEqual(data.snapshots.map(snapshot => snapshot.observation.observed_at_ms), [1000, 1200, 1250, 1800]);
+  assert.equal(data.snapshots[2]!.observation.messages.length, 1);
+  const wrongVersion = archive(); wrongVersion.version = "future-version";
+  assert.throws(() => parseArchive(wrongVersion), /archive version/);
+  const wrongIdentity = archive(); wrongIdentity.snapshots[1]!.run.id = "different-run";
+  assert.throws(() => parseArchive(wrongIdentity), /run identity/);
+  const wrongMode = archive(); wrongMode.snapshots[1]!.run.mode = "fixture";
+  assert.throws(() => parseArchive(wrongMode), /run identity changed/);
+  const wrongStart = archive(); wrongStart.snapshots[1]!.run.startedAt = "2026-10-16T12:00:01Z";
+  assert.throws(() => parseArchive(wrongStart), /run identity changed/);
+});
+
+test("archive rejects missing/regressing observation times, changed envelopes and invalid sequence order", () => {
+  const regressed = archive(); regressed.snapshots[2]!.observation.observed_at_ms = 1199;
+  assert.throws(() => parseArchive(regressed), /observation time/);
+  const missing = archive(); delete (missing.snapshots[0]!.observation as { observed_at_ms?: number }).observed_at_ms;
+  assert.throws(() => parseArchive(missing), /observation time/);
+  const changed = archive(); changed.snapshots[2]!.observation.messages = [{ ...request, recipient: "client" }];
+  assert.throws(() => parseArchive(changed), /changed identity/);
+  const vanished = archive(); vanished.snapshots[2]!.observation.messages = [];
+  assert.throws(() => parseArchive(vanished), /disappeared/);
+  const unordered = archive(); unordered.snapshots[3]!.observation.messages = [result, request];
+  assert.throws(() => parseArchive(unordered), /envelope identity or order/);
+  const duplicateSequence = archive(); duplicateSequence.snapshots[3]!.observation.messages = [request, { ...result, sequence: 1 }];
+  assert.throws(() => parseArchive(duplicateSequence), /share a sequence/);
+});
+
+test("playback starts paused at the first real sample and advances using observed offsets", () => {
+  const clock = new ArchivePlayback(parseArchive(archive()));
+  assert.equal(clock.current().playing, false);
+  assert.equal(clock.current().snapshot.observation.messages.length, 0);
+  assert.deepEqual(clock.offsets, [0, 200, 250, 800]);
+  assert.equal(clock.advance(1000).positionMs, 0);
+  clock.play();
+  assert.equal(clock.advance(199).index, 0);
+  assert.deepEqual(clock.advance(1).arrivals.map(message => message.id), ["request-1"]);
+  assert.deepEqual(clock.advance(50).arrivals, []);
+  const final = clock.advance(550);
+  assert.deepEqual(final.arrivals.map(message => message.id), ["result-1"]);
+  assert.equal(final.playing, false);
+  assert.equal(final.snapshot.run.status, "completed");
+  assert.deepEqual(final.snapshot.run.output, { final: "assessment" });
+});
+
+test("pause freezes the clock; seeking and restarting restore state without arrivals or future output", () => {
+  const clock = new ArchivePlayback(parseArchive(archive()));
+  clock.play(); clock.advance(300);
+  const paused = clock.pause();
+  assert.equal(clock.advance(10000).positionMs, paused.positionMs);
+  assert.deepEqual(clock.final().arrivals, []);
+  const earlier = clock.seek(200);
+  assert.equal(earlier.playing, false);
+  assert.equal(earlier.snapshot.run.output, undefined);
+  assert.deepEqual(earlier.arrivals, []);
+  clock.play();
+  assert.deepEqual(clock.advance(600).arrivals.map(message => message.id), ["result-1"]);
+  const restarted = clock.seek(0);
+  assert.equal(restarted.snapshot.observation.messages.length, 0);
+  assert.equal(restarted.snapshot.run.output, undefined);
+  assert.deepEqual(restarted.arrivals, []);
+  clock.play();
+  assert.deepEqual(clock.advance(200).arrivals.map(message => message.id), ["request-1"]);
+});
+
+test("playback speed changes time progression and skipped samples animate each newly seen identity once", () => {
+  const clock = new ArchivePlayback(parseArchive(archive()));
+  clock.setSpeed(4); clock.play();
+  const frame = clock.advance(200);
+  assert.equal(frame.positionMs, 800);
+  assert.deepEqual(frame.arrivals.map(message => message.id), ["request-1", "result-1"]);
+  assert.throws(() => clock.setSpeed(3), /Playback speed/);
+  assert.throws(() => clock.advance(-1), /non-negative/);
+  assert.throws(() => clock.seek(NaN), /finite/);
+  assert.equal(playbackTime(13942), "0:13.9");
+});
+
+test("equal observed times keep capture order and an existing first-sample envelope has no fabricated arrival", () => {
+  const data = archive();
+  data.snapshots = data.snapshots.slice(1);
+  data.snapshots.forEach(snapshot => { snapshot.observation.observed_at_ms = 1200; });
+  const clock = new ArchivePlayback(parseArchive(data));
+  assert.equal(clock.current().snapshot.observation.messages.length, 1);
+  assert.deepEqual(clock.current().arrivals, []);
+  clock.play();
+  assert.deepEqual(clock.advance(0).arrivals.map(message => message.id), ["result-1"]);
+  assert.equal(clock.seek(0).index, 0);
+  assert.equal(clock.final().index, 2);
+});

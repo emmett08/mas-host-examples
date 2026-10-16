@@ -22,7 +22,7 @@ export function validateSnapshot(snapshot, mode, id) {
   if (snapshot?.run?.id !== id || snapshot.run.mode !== mode) {
     throw new Error('The recorded investigation identity or provider mode is incorrect');
   }
-  if (snapshot.run.status !== 'completed') throw new Error('The host investigation did not complete');
+  if (snapshot.run.status !== 'completed') throw new Error(snapshot.run.error ?? 'The host investigation did not complete');
   if (snapshot.observationAvailable !== true || !Array.isArray(snapshot.observation?.messages)) {
     throw new Error('The completed investigation has no available observation');
   }
@@ -55,6 +55,15 @@ export function validateSnapshot(snapshot, mode, id) {
   if (snapshot.run.output === undefined || snapshot.run.output === null) {
     throw new Error('The completed investigation has no final assessment');
   }
+}
+
+export function failureReport(snapshot, error) {
+  return {
+    runId: snapshot?.run?.id,
+    classification: snapshot?.run?.diagnostics?.classification ?? 'host-or-capture-failure',
+    error: snapshot?.run?.error ?? error.message,
+    ...(snapshot?.run?.diagnostics ? { diagnostics: snapshot.run.diagnostics } : {}),
+  };
 }
 
 export function observeCanvasProgress(previous, frame, runId) {
@@ -91,7 +100,7 @@ export async function main() {
   const json = (filename, value) => writeFile(join(destination, filename), `${JSON.stringify(value, null, 2)}\n`);
   const startedAt = new Date().toISOString();
   const deadline = Date.now() + 650_000;
-  let browser, context, page, forward, forwardError, forwardLog = '', runId, snapshot, resultError;
+  let browser, context, page, forward, forwardError, forwardLog = '', runId, snapshot, resultError, failure;
   let podCreated = false;
   let podDeleted = false;
   const browserErrors = [];
@@ -222,6 +231,13 @@ export async function main() {
     console.log(`Recorded ${mode} investigation ${runId} with ${snapshot.observation.messages.length} actual MAS envelopes`);
   } catch (error) {
     resultError = error;
+    failure = failureReport(snapshot, error);
+    await json('failure-diagnostics.json', failure);
+    console.error(`Failure classification: ${failure.classification}`);
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      await appendFile(process.env.GITHUB_STEP_SUMMARY,
+        `### MAS investigation failed\n\nClassification: **${failure.classification}**.\n\n${failure.error}\n\nSee the retained \`failure-diagnostics.json\` artefact.\n`);
+    }
     if (page) await page.screenshot({ path: join(destination, 'failure.png'), fullPage: true }).catch(() => {});
   } finally {
     if (podCreated && !podDeleted) {
@@ -259,11 +275,12 @@ export async function main() {
       'The cluster is removed when the workflow finishes; this artifact is a recording, not a running dashboard.',
       'JSON and NDJSON contain observed server snapshots. Envelope sequences and timestamps are retained unchanged.',
       'NDJSON polling captures changing snapshots; it does not establish network send times or exact packet timing.', '',
-      ...(resultError ? [`Failure: ${resultError.message}`, ''] : []),
+      ...(resultError ? [`Failure classification: ${failure.classification}.`, `Failure: ${failure.error}`, ''] : []),
       'Successful capture requires a selected queued/running canvas and a later increase in its envelope count while still active.',
       'A run which completes before the browser observes that growth fails capture; recorded completion alone is insufficient.', '',
       'Files: `video/*.webm`, screenshots, `canvas-progress.json`, `topology.json`, `snapshot.json`, `run.json`,',
-      '`snapshots.ndjson`, trigger/run resource metadata, and bounded controller/dashboard diagnostics.', '',
+      '`snapshots.ndjson`, trigger/run resource metadata, and bounded controller/dashboard diagnostics.',
+      'Failed investigations also retain `failure-diagnostics.json` with allowed inference metadata; raw provider error messages are excluded.', '',
     ].join('\n'));
   }
   if (resultError) throw resultError;

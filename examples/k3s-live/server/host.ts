@@ -1,6 +1,14 @@
 // Execute the pinned host without a shell; observation never receives or acknowledges messages.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { failureMessage, projectFailure, type FailureDiagnostics } from './diagnostics.js';
+
+export class HostRunFailure extends Error {
+  constructor(readonly diagnostics: FailureDiagnostics) {
+    super(failureMessage(diagnostics));
+    this.name = 'HostRunFailure';
+  }
+}
 
 const execute = promisify(execFile);
 export interface HostOptions { binary: string; sdk: string; project: string; payloads: boolean; fixtureRecording?: boolean }
@@ -14,9 +22,22 @@ export class Host {
       '--agent', 'coordinator', '--input', input, '--state', state, '--run', id];
     const profile = fixtureConnectionProfile(mode, this.options.fixtureRecording);
     if (profile) args.push('--connections', profile);
-    const { stdout } = await execute(this.options.binary, args,
-      { timeout: 330_000, maxBuffer: 2 * 1024 * 1024 });
-    return JSON.parse(stdout).output as unknown;
+    try {
+      const { stdout } = await execute(this.options.binary, args,
+        { timeout: 330_000, maxBuffer: 2 * 1024 * 1024 });
+      return JSON.parse(stdout).output as unknown;
+    } catch {
+      // The CLI has exited. Read its retained effect evidence once, without
+      // replaying execution or exposing arbitrary stderr and application output.
+      let observation: unknown;
+      try {
+        const { stdout } = await execute(this.options.binary,
+          ['observe', '--state', state, '--run', id, '--include-payloads', 'true'],
+          { timeout: 3000, maxBuffer: 4 * 1024 * 1024 });
+        observation = JSON.parse(stdout);
+      } catch { /* An absent/corrupt journal preserves the fixed generic error. */ }
+      throw new HostRunFailure(projectFailure(observation, id));
+    }
   }
   async observe(id: string, state: string) {
     const { stdout } = await execute(this.options.binary,

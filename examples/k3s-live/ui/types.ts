@@ -34,6 +34,18 @@ export interface Run {
 
 export interface Snapshot {
   run: Run;
-  observation: { messages: Message[] };
+  observation: { messages: Message[]; observed_at_ms?: number };
   observationAvailable?: boolean;
+}
+
+export interface ArchiveSnapshot extends Snapshot {
+  observation: Snapshot["observation"] & { observed_at_ms: number };
+}
+
+export interface RunArchive {
+  version: "mas-demo-archive/1";
+  capturedAt: string;
+  topology: Topology;
+  runId: string;
+  snapshots: ArchiveSnapshot[];
 }

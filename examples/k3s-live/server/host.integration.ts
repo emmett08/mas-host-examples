@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, resolve, join } from 'node:path';
-import { Host } from './host.js';
+import { createServer } from 'node:http';
+import { Host, HostRunFailure } from './host.js';
 
 test('real MAS host exercises the hybrid branch, correlated replies, and durable replay', async t => {
   const binary = resolve(process.env.MAS_HOST_BIN ?? '../../.tools/mas-host/target/debug/mas-host');
@@ -65,4 +66,56 @@ test('recording fixture command providers produce schema-valid results with obse
   assert.ok(counts.size > 1, 'The active host trace must expose increasing message counts before completion');
   const snapshot = await host.observe('paced-fixture-test', state);
   assert.equal(snapshot.messages.length, 16);
+});
+
+test('a real host HTTP rejection retains safe diagnostics without repeating model calls', { timeout: 60_000 }, async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'mas-provider-rejection-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const requests: unknown[] = [];
+  const secretMarker = 'private-provider-error-message-and-credential';
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk);
+    requests.push(JSON.parse(Buffer.concat(chunks).toString()));
+    response.writeHead(400, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ error: { code: 'invalid_json_schema', type: 'invalid_request_error',
+      param: 'text.format.schema', message: secretMarker } }));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const endpoint = `http://127.0.0.1:${address.port}/v1/responses`;
+  const keyName = 'MAS_DEMO_REJECTION_TEST_KEY';
+  const previous = process.env[keyName];
+  process.env[keyName] = secretMarker;
+  t.after(() => { if (previous === undefined) delete process.env[keyName]; else process.env[keyName] = previous; });
+  const project = join(folder, 'project');
+  await cp(resolve('project'), project, { recursive: true, filter: source => basename(source) !== '.mas' });
+  const agents = join(project, 'agents.toml');
+  const source = await readFile(agents, 'utf8');
+  assert.equal(source.match(/kind = "openai"/g)?.length, 2);
+  // Both connections point only to our rejecting loopback server. No provider
+  // credentials or external inference are used by this integration test.
+  await writeFile(agents, source.replaceAll('kind = "openai"', `kind = "openai"\nendpoint = "${endpoint}"`)
+    .replaceAll('api_key_env = "OPENAI_API_KEY"', `api_key_env = "${keyName}"`));
+  const host = new Host({ binary: resolve(process.env.MAS_HOST_BIN ?? '../../.tools/mas-host/target/debug/mas-host'),
+    sdk: resolve(process.env.MAS_SDK_ROOT ?? '../../.tools/mas-host'), project, payloads: false });
+  const input = join(folder, 'input.json');
+  const state = join(folder, 'state');
+  await writeFile(input, JSON.stringify({ incident: { reason: 'BackOff' } }));
+  const isSafeRejection = (error: unknown) => {
+    assert.ok(error instanceof HostRunFailure);
+    assert.match(error.message, /400/);
+    assert.ok(error.diagnostics.effects.length > 0);
+    assert.ok(error.diagnostics.effects.every(effect => effect.httpStatus === 400 && effect.errorCode === 'invalid_json_schema'));
+    assert.ok(!JSON.stringify(error.diagnostics).includes(secretMarker));
+    assert.ok(!error.message.includes(secretMarker));
+    return true;
+  };
+  await assert.rejects(host.run('rejected', input, state, 'live'), isSafeRejection);
+  assert.equal(requests.length, 2);
+  // A rejected effect is retained. Reopening the same run does not resend it.
+  await assert.rejects(host.run('rejected', input, state, 'live'), isSafeRejection);
+  assert.equal(requests.length, 2);
 });

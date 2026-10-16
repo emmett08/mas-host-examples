@@ -160,8 +160,8 @@ substitutes fixture responses. Pull requests and ordinary pushes run only the
 credential-free fixture checks.
 
 The recording starts before the Warning event. The artefact retains the actual
-canvas video, screenshots, topology, run and observation snapshots, plus a result
-summary. Fixture recordings are explicitly labelled and are saved separately as
+canvas video, screenshots, topology, run and observation snapshots, a result
+summary, and a built interactive Vue dashboard. Fixture recordings are explicitly labelled and are saved separately as
 `mas-k3s-fixture-<run-id>`. The failing pod is removed after admission to limit
 further Warning triggers; the recorder rejects duplicate admissions for that Pod.
 The fixture recording uses the five-second paced providers described above;
@@ -171,12 +171,34 @@ Recordings and traces
 remain available for seven days; the cluster is deleted when its job finishes,
 including after failure.
 
-**GitHub Actions provides a temporary execution environment, not a permanent
-dashboard URL.** The browser observes the real running system inside the runner;
-you review its recording after the run. The JSON trace is retained evidence, not
-an independently animated offline replay. Interactive remote access during a run
-would need an authenticated connection to that runner or a separate hosted service.
-The optional local and existing-cluster commands above remain available.
+After downloading and extracting the artefact, open **`dashboard/index.html`**
+directly in a browser. This single file embeds the compiled Vue application,
+styles and the run's collected observations. It needs no server, installation,
+provider key or network connection. Play or pause the flow, change speed, seek
+along the timeline, inspect envelopes and view the final assessment. The page
+labels recorded playback and distinguishes real LLM runs from provider fixtures.
+Playback follows sampled host observations; it does not reconstruct network send
+times or perform new inference. Messages present in the first observation form
+the initial state. Forward playback animates subsequently observed envelopes.
+
+The download and live service use the same Vue 3/TypeScript source and canvas.
+The archive embeds its data; the deployed application uses the backend's live
+API and SSE stream. Use the deployment commands above to run that application
+in an environment with cluster access. Provider credentials stay on its backend.
+GitHub Actions removes its temporary cluster after capture; the downloaded
+dashboard remains usable independently of the cluster.
+
+An existing capture can also be packaged locally:
+
+```sh
+cd examples/k3s-live
+npm ci
+npm run archive -- /path/to/extracted-capture
+```
+
+The workflow checks the built file through `file://` with HTTP requests blocked,
+including playback, pause, speed, seeking, restart and message inspection. Its
+result is retained in `dashboard/verification.json`.
 
 ## Verification and operational limits
 
@@ -207,6 +229,15 @@ send timestamp. Separate host/protocol database snapshots can briefly disagree.
 
 After a backend restart, incomplete runs become failed and remain available for
 inspection; this demo does not automatically repeat uncertain provider effects.
+When a host run fails, the backend reads its retained inference evidence once
+using the read-only observation command. The run record, workflow summary and
+`failure-diagnostics.json` artefact report the failed agent, effect ID, execution
+state, provider/model, HTTP status and recognised provider error identifiers.
+The public diagnostic projection accepts fixed identifiers and enum values;
+it excludes raw provider messages, prompts, outputs, CLI stderr and credentials.
+For example, HTTP 400 with `invalid_json_schema` identifies a rejected structured
+output schema, while HTTP 401 identifies authentication rejection. Unknown
+provider outcomes still require host reconciliation before any manual retry.
 The PVC retains run IDs, results and host state. The host's normal reconciliation
 tools govern uncertain effects. This deployment is a single-owner demonstration,
 not a distributed or highly available host. Preserve the original image and

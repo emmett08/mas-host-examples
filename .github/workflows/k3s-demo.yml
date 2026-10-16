@@ -77,6 +77,14 @@ jobs:
           DEMO_FIXTURE_RECORDING: 'true'
           DEMO_ARTIFACT_DIR: ${{ runner.temp }}/mas-demo-artifacts
         run: node examples/k3s-live/deploy/record-demo.mjs
+      - name: Package the same Vue dashboard with captured fixture observations
+        if: always()
+        working-directory: examples/k3s-live
+        run: npm run archive -- "${{ runner.temp }}/mas-demo-artifacts"
+      - name: Verify the downloaded dashboard opens offline and plays its observations
+        if: always()
+        working-directory: examples/k3s-live
+        run: node deploy/check-archive.mjs "${{ runner.temp }}/mas-demo-artifacts"
       - name: Retain fixture canvas recording and trace
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -149,6 +157,14 @@ jobs:
           DEMO_MODE: live
           DEMO_ARTIFACT_DIR: ${{ runner.temp }}/mas-demo-artifacts
         run: node examples/k3s-live/deploy/record-demo.mjs
+      - name: Package the same Vue dashboard with captured live observations
+        if: always()
+        working-directory: examples/k3s-live
+        run: npm run archive -- "${{ runner.temp }}/mas-demo-artifacts"
+      - name: Verify the downloaded dashboard opens offline and plays its observations
+        if: always()
+        working-directory: examples/k3s-live
+        run: node deploy/check-archive.mjs "${{ runner.temp }}/mas-demo-artifacts"
       - name: Retain live canvas recording and trace
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

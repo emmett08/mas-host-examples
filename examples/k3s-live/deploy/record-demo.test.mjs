@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { observeCanvasProgress, selectRunForPod, validateCanvasProgress, validateSnapshot } from './record-demo.mjs';
+import { failureReport, observeCanvasProgress, selectRunForPod, validateCanvasProgress, validateSnapshot } from './record-demo.mjs';
 
 function completed() {
   const routes = [
@@ -34,6 +34,22 @@ test('recording requires actual completed observations in the requested provider
   const failed = completed();
   failed.run.status = 'failed';
   assert.throws(() => validateSnapshot(failed, 'live', 'k8s-uid'), /did not complete/);
+});
+
+test('recording reports the retained safe cause rather than replacing it with a generic completion error', () => {
+  const failed = completed();
+  failed.run.status = 'failed';
+  failed.run.error = 'The provider rejected the structured output schema (HTTP 400, invalid_json_schema).';
+  failed.run.diagnostics = { version: 'mas-demo-failure/1', classification: 'invalid-schema', automaticRetry: false,
+    effects: [{ actor: 'diagnose', httpStatus: 400, errorCode: 'invalid_json_schema' }] };
+  assert.throws(() => validateSnapshot(failed, 'live', 'k8s-uid'), /HTTP 400, invalid_json_schema/);
+  const report = failureReport(failed, new Error('The host investigation did not complete'));
+  assert.equal(report.classification, 'invalid-schema');
+  assert.equal(report.error, failed.run.error);
+  assert.deepEqual(report.diagnostics, failed.run.diagnostics);
+  assert.equal('observation' in report, false);
+  assert.equal('output' in report, false);
+  assert.equal(failureReport(undefined, new Error('Capture failed')).error, 'Capture failed');
 });
 
 test('recording rejects missing hybrid flow, reordered sequence and duplicate envelope identity', () => {
