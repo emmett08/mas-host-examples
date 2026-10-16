@@ -1,6 +1,6 @@
 import type { EvidenceBundle } from '../shared/evidence.js';
 import { redactEvidenceText } from '../shared/evidence.js';
-import { collectEvidence } from './evidence.js';
+import { collectEvidence, evidenceForStorage, evidenceFromStorage } from './evidence.js';
 
 export const GROUP = 'demo.mas.dev';
 export const VERSION = 'v1alpha1';
@@ -144,7 +144,7 @@ export class DemoController {
         await this.kube.create(this.runPath, {
           apiVersion: `${GROUP}/${VERSION}`, kind: 'MASDemoRun',
           metadata: { name, namespace: this.options.namespace, labels: { [`${GROUP}/source`]: 'warning-event' } },
-          spec: { scenario: 'pod-incident', event: evidence, ...(collected ? { evidence: collected } : {}) },
+          spec: { scenario: 'pod-incident', event: evidence, ...(collected ? { evidence: evidenceForStorage(collected) } : {}) },
         });
         this.log(`Created MASDemoRun ${name} from opted-in Warning Event ${event.metadata.name}`);
       } catch (error) {
@@ -162,7 +162,7 @@ export class DemoController {
     if (!current && !mayStart) return undefined;
     if (!current) current = await this.demo.start({ id, scenario: run.spec.scenario,
       ...(run.spec.event ? { event: run.spec.event } : {}),
-      ...(run.spec.evidence ? { evidence: run.spec.evidence } : {}) });
+      ...(run.spec.evidence ? { evidence: evidenceFromStorage(run.spec.evidence) } : {}) });
     const phase = current.status === 'completed' ? 'Succeeded'
       : current.status === 'failed' ? 'Failed' : 'Running';
     const next = { phase, runId: id,

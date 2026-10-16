@@ -6,7 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: mas-demo-checkout
     demo.mas.dev/managed: 'true'
-    demo.mas.dev/trigger: 'true'
+    demo.mas.dev/trigger: 'false'
 spec:
   replicas: 1
   strategy: {type: Recreate}
@@ -17,7 +17,7 @@ spec:
       labels:
         app.kubernetes.io/name: mas-demo-checkout
         demo.mas.dev/managed: 'true'
-        demo.mas.dev/trigger: 'true'
+        demo.mas.dev/trigger: 'false'
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 5

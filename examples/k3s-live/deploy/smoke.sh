@@ -29,6 +29,22 @@ done
 kubectl -n mas-demo label "pod/$pod_name" demo.mas.dev/trigger=false --overwrite
 kubectl -n mas-demo wait "masdemorun/$run_name" --for=jsonpath='{.status.phase}'=Succeeded --timeout=180s
 run_id="$(kubectl -n mas-demo get "masdemorun/$run_name" -o jsonpath='{.status.runId}')"
+# Exercise real API validation: an unchanged spec must permit status updates,
+# while both typed and preserved opaque evidence remain immutable.
+kubectl -n mas-demo patch "masdemorun/$run_name" --subresource=status --type=merge \
+  -p "{\"status\":{\"phase\":\"Succeeded\",\"runId\":\"$run_id\"}}" >/dev/null
+expect_immutable_rejection() {
+  local patch="$1" rejection
+  if rejection="$(kubectl -n mas-demo patch "masdemorun/$run_name" --type=json --dry-run=server -p "$patch" 2>&1)"; then
+    echo 'The API accepted a mutation of immutable admitted incident evidence' >&2
+    exit 1
+  fi
+  [[ "$rejection" == *'Create a new MASDemoRun'* ]] || { echo "Unexpected API validation failure: $rejection" >&2; exit 1; }
+}
+expect_immutable_rejection '[{"op":"replace","path":"/spec/scenario","value":"pod-crash"}]'
+pod_item_index="$(kubectl -n mas-demo get "masdemorun/$run_name" -o json | node --input-type=module -e 'import {readFileSync} from "node:fs"; console.log(JSON.parse(readFileSync(0,"utf8")).spec.evidence.items.findIndex(item=>item.id==="pod"&&item.status==="collected"))')"
+[[ "$pod_item_index" =~ ^[0-9]+$ ]] || { echo 'No collected Pod evidence was admitted to test opaque-data immutability' >&2; exit 1; }
+expect_immutable_rejection "[{\"op\":\"replace\",\"path\":\"/spec/evidence/items/$pod_item_index/data/metadata/name\",\"value\":\"changed-pod\"}]"
 kubectl -n mas-demo port-forward svc/mas-demo 18080:8080 > /tmp/mas-demo-port-forward.log 2>&1 &
 forward_pid=$!
 trap 'kill "$forward_pid" 2>/dev/null || true; rm -rf "$preparation"; kubectl -n mas-demo delete deployment,service mas-demo-checkout --ignore-not-found --wait=false >/dev/null 2>&1 || true' EXIT

@@ -3,6 +3,28 @@ import { request } from 'node:https';
 import { APIError, type DemoAPI, type EventEvidence, type KubernetesAPI, type RunState } from './controller.js';
 import type { EvidenceBundle } from '../shared/evidence.js';
 
+// API Status messages can embed the rejected resource, including its logs. Keep
+// diagnostic codes and field paths, and classify familiar validation messages;
+// never print response.message, raw causes or the request/response body.
+export function safeKubernetesErrorDetails(body: string): string {
+  try {
+    const value = JSON.parse(body) as { reason?: unknown; details?: { causes?: unknown } };
+    const reason = typeof value.reason === 'string' && /^[A-Za-z]{1,40}$/.test(value.reason) ? value.reason : 'APIError';
+    const causes = Array.isArray(value.details?.causes) ? value.details.causes.slice(0, 4).map((cause: unknown) => {
+      if (!cause || typeof cause !== 'object') return 'unspecified cause';
+      const row = cause as Record<string, unknown>;
+      const type = typeof row.reason === 'string' && /^[A-Za-z]{1,40}$/.test(row.reason) ? row.reason : 'Validation';
+      const field = typeof row.field === 'string' && /^[A-Za-z0-9_.\[\]-]{1,160}$/.test(row.field) ? row.field : 'resource';
+      const message = typeof row.message === 'string' ? row.message : '';
+      const hint = /Create a new MASDemoRun|self == oldSelf/.test(message) ? ' (immutable spec check failed)'
+        : /no matching overload|invalid data|evaluation failed/.test(message) ? ' (CEL evaluation failed)'
+          : /Required value|required property/.test(message) ? ' (required field missing)' : '';
+      return `${type}@${field}${hint}`;
+    }) : [];
+    return `${reason}${causes.length ? `; ${causes.join(', ')}` : ''}`;
+  } catch { return 'Unparseable API error response'; }
+}
+
 export class InClusterKubernetesClient implements KubernetesAPI {
   constructor(private readonly baseURL: string,
     private readonly tokenPath = '/var/run/secrets/kubernetes.io/serviceaccount/token',
@@ -55,7 +77,8 @@ export class InClusterKubernetesClient implements KubernetesAPI {
         });
         response.on('end', () => {
           if ((response.statusCode ?? 500) >= 400) {
-            reject(new APIError(response.statusCode ?? 500, `Kubernetes API ${method} ${url.pathname}: ${response.statusCode}`));
+            reject(new APIError(response.statusCode ?? 500,
+              `Kubernetes API ${method} ${url.pathname}: ${response.statusCode} (${safeKubernetesErrorDetails(data)})`));
             return;
           }
           try { resolve((plainText ? data : JSON.parse(data)) as T); } catch (error) { reject(error); }

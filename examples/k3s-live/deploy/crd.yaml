@@ -55,7 +55,7 @@ spec:
                       x-kubernetes-list-map-keys: [id]
                       items:
                         type: object
-                        required: [id, kind, source, status, observedAt, truncated, data]
+                        required: [id, kind, source, status, observedAt, truncated]
                         properties:
                           id: {type: string, minLength: 1, maxLength: 128, pattern: '^[a-z0-9-]+$'}
                           kind: {type: string, enum: [pod, workload, events, logs, metrics]}
@@ -64,7 +64,7 @@ spec:
                           observedAt: {type: string, format: date-time}
                           truncated: {type: boolean}
                           data:
-                            nullable: true
+                            description: Collected JSON evidence. Omitted for unavailable or skipped items and restored as null by the operator before backend admission.
                             x-kubernetes-preserve-unknown-fields: true
                           reason: {type: string, maxLength: 500}
                 event:

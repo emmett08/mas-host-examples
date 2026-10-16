@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { APIError, DemoController, TRIGGER_LABEL, type DemoAPI, type DemoRun,
   type KubernetesAPI, type KubernetesEvent, type RunState } from './controller.js';
+import { evidenceFromStorage } from './evidence.js';
 
 const now = Date.parse('2026-10-16T10:00:00Z');
 const run = (name: string, phase?: 'Pending' | 'Running' | 'Succeeded' | 'Failed'): DemoRun => ({
@@ -77,7 +78,7 @@ test('labelled pod Warning creates one CR, starts one run and survives controlle
   assert.equal(demo.starts, 0, 'Evidence and CR persist before a backend run starts');
   await create().tick();
   assert.equal(demo.starts, 1);
-  assert.deepEqual(demo.inputs[0]?.evidence, retainedEvidence);
+  assert.deepEqual(demo.inputs[0]?.evidence, evidenceFromStorage(retainedEvidence));
   assert.equal(demo.inputs[0]?.scenario, 'pod-incident');
   demo.states.set('k8s-cr-0', { id: 'k8s-cr-0', status: 'completed' });
   await create().tick();
@@ -99,7 +100,7 @@ test('lost backend start response reuses the admitted identity and immutable evi
   await create().tick();
   assert.equal(demo.starts, 1);
   assert.equal(kube.runs[0]?.status?.phase, 'Running');
-  assert.deepEqual(demo.inputs[0]?.evidence, captured);
+  assert.deepEqual(demo.inputs[0]?.evidence, evidenceFromStorage(captured));
 });
 
 test('unlabelled pods, stale events, Normal events and reused Pod names do not trigger', async () => {

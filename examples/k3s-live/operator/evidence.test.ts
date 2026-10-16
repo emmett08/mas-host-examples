@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canonicalTemplateHash, collectEvidence, projectResource } from './evidence.js';
+import { canonicalTemplateHash, collectEvidence, evidenceForStorage, evidenceFromStorage, projectResource } from './evidence.js';
+import { safeKubernetesErrorDetails } from './client.js';
 import { EVIDENCE_VERSION, MAX_EVIDENCE_BYTES, parseEvidence, redactEvidenceText, type EvidenceBundle } from '../shared/evidence.js';
 import { APIError, type EventEvidence, type KubernetesAPI } from './controller.js';
 
@@ -171,4 +172,28 @@ test('credential scrubber handles single-quoted logs, assignment values and Basi
   assert.match(result, /"path":"\/readyz","status":404/);
   const auth = JSON.parse(redactEvidenceText('{"Authorization":"Basic aW50ZXJuYWw6cGFzc3dvcmQ=","status":404}'));
   assert.equal(auth.Authorization, 'Basic [REDACTED]');
+});
+
+test('CR storage omits declared null data and restores explicit unavailable null without changing collected opaque JSON', async () => {
+  const bundle = await collectEvidence(new Kube(), event, { now: () => now });
+  assert.ok(bundle);
+  const item = bundle.items.find(item => item.id === 'pod')!;
+  (item.data as Record<string, unknown>).opaque = { nested: null, array: [null, { value: null }] };
+  const stored = JSON.parse(JSON.stringify(evidenceForStorage(bundle))) as EvidenceBundle;
+  const missing = stored.items.find(item => item.id === 'logs-checkout-previous')!;
+  assert.equal(Object.hasOwn(missing, 'data'), false);
+  assert.deepEqual(evidenceFromStorage(stored), bundle);
+  assert.equal(evidenceFromStorage(undefined), undefined);
+});
+
+test('Kubernetes validation diagnostics retain reason and field codes without resource values or log secrets', () => {
+  const result = safeKubernetesErrorDetails(JSON.stringify({ reason: 'Invalid',
+    message: 'Rejected resource with password private-full-response', details: { causes: [
+      { reason: 'FieldValueInvalid', field: 'spec', message: 'Invalid value: private-log-value: Create a new MASDemoRun to change the admitted scenario or evidence.' },
+      { reason: 'FieldValueRequired', field: 'spec.evidence.items[0].data', message: 'Required value' },
+    ] } }));
+  assert.match(result, /Invalid; FieldValueInvalid@spec \(immutable spec check failed\)/);
+  assert.match(result, /spec.evidence.items\[0\].data \(required field missing\)/);
+  assert.doesNotMatch(result, /private-full-response|private-log-value/);
+  assert.equal(safeKubernetesErrorDetails('not JSON'), 'Unparseable API error response');
 });

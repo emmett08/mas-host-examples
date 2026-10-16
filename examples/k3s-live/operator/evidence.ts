@@ -109,6 +109,19 @@ function failure(error: unknown): string {
 
 export interface EvidenceOptions { now?: () => number; budgetMs?: number }
 
+// Kubernetes 1.32 CEL object equality treats a declared nullable property set to
+// null as absent on lookup, so whole-spec equality fails even on /status writes.
+// Omit unavailable data in CR storage; restore the public bundle's explicit null
+// before admission to the backend. Opaque non-null data retains deep equality.
+export function evidenceForStorage(bundle: EvidenceBundle): unknown {
+  return { ...bundle, items: bundle.items.map(({ data, ...item }) => data === null ? item : { ...item, data }) };
+}
+
+export function evidenceFromStorage(bundle: EvidenceBundle | undefined): EvidenceBundle | undefined {
+  if (!bundle) return undefined;
+  return parseEvidence({ ...bundle, items: bundle.items.map(item => ({ ...item, data: item.data ?? null })) });
+}
+
 export async function collectEvidence(kube: KubernetesAPI, event: EventEvidence,
   options: EvidenceOptions = {}): Promise<EvidenceBundle | undefined> {
   const target = event.involvedObject;

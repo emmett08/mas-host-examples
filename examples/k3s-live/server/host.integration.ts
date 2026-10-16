@@ -84,6 +84,9 @@ test('real host forwards evidence through both reviews and returns a schema-vali
   const observedAt = new Date().toISOString();
   await writeFile(input, JSON.stringify({ incident: { source: 'test-supplied-evidence', evidence: {
     version: 'mas-k8s-evidence/1', capturedAt: observedAt, subject: { namespace: 'mas-demo', name: 'test-pod', uid: 'pod-test-uid' }, items: [
+      { id: 'pod', kind: 'pod', source: 'fixture', observedAt, status: 'collected', truncated: false, data: {
+        kind: 'Pod', metadata: { namespace: 'mas-demo', name: 'test-pod', uid: 'pod-test-uid' }, status: { conditions: [{ type: 'Ready', status: 'False' }] },
+      } },
       { id: 'workload-deployment', kind: 'workload', source: 'fixture', observedAt, status: 'collected', truncated: false, data: {
         kind: 'Deployment', metadata: { namespace: 'mas-demo', name: 'mas-demo-checkout', uid: 'deployment-test-uid', resourceVersion: '12345' },
         spec: { template: { spec: { containers: [{ name: 'checkout', readinessProbe: { httpGet: { path: '/readyz' } }, livenessProbe: { httpGet: { path: '/healthz' } } }] } } },
@@ -98,7 +101,7 @@ test('real host forwards evidence through both reviews and returns a schema-vali
   assert.equal(output.remediation.action, 'replace_readiness_probe_path');
   assert.equal(output.remediation.target.uid, 'deployment-test-uid');
   assert.equal(output.remediation.target.resource_version, '12345');
-  assert.deepEqual(output.remediation.evidence_ids, ['workload-deployment', 'logs-checkout-current']);
+  assert.deepEqual(output.remediation.evidence_ids, ['pod', 'workload-deployment', 'logs-checkout-current']);
   assert.equal((await host.observe('evidence-flow', state)).messages.length, 16);
 });
 
