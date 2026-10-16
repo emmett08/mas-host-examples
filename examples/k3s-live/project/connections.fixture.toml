@@ -1,14 +1,8 @@
+# Evidence-aware deterministic CI provider. No LLM or external service is called.
 version = "mas-connections/1"
 [connections.reasoning]
-kind = "mock"
-[connections.reasoning.output]
-summary = "Fixture review: a BackOff event needs container termination details before diagnosis."
-findings = ["This is a deterministic test response; no LLM was called."]
-checks = ["Inspect the previous container exit code and recent logs."]
+kind = "command"
+command = ["node","fixture-provider.mjs","review"]
 [connections.synthesis]
-kind = "mock"
-[connections.synthesis.output]
-summary = "Fixture investigation plan: compare termination reason, probes and resource limits."
-confidence = "low"
-next_checks = ["Inspect the previous container termination state.", "Compare probe settings with startup duration."]
-requires_human = true
+kind = "command"
+command = ["node","fixture-provider.mjs","decision"]

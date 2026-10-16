@@ -1005,6 +1005,29 @@ h2 {
 .output-panel {
   margin-top: 22px;
 }
+.evidence-panel { margin: 20px 0; }
+.evidence-body { padding: 18px 24px 22px; }
+.evidence-body .output-note { margin-bottom: 14px; overflow-wrap: anywhere; }
+.evidence-item { border-top: 1px solid #263348; padding: 12px 0; }
+.evidence-item summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; }
+.evidence-id { font: 12px var(--mono); color: #d5e5f8; overflow-wrap: anywhere; }
+.evidence-state { font-size: 12px; color: #d3b77e; }
+.evidence-state.collected { color: #85d5b3; }
+.evidence-source, .evidence-limitation { color: #a4b4ca; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.evidence-body pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 var(--mono); max-height: 440px; overflow: auto; color: #c3d1e5; background: #0c1420; padding: 14px; border-radius: 6px; }
+.assessment-summary { color: #d5e5f8; font-size: 14px; line-height: 1.7; margin: 0 0 14px; overflow-wrap: anywhere; }
+.proposal-summary { padding: 14px 0; color: #c3d1e5; font-size: 13px; line-height: 1.7; }
+.proposal-summary p { margin: 8px 0; }
+.assessment-details summary { cursor: pointer; color: #a8c8e9; font-size: 12px; padding: 10px 0; }
+.resolution-panel { margin-top: 22px; }
+.resolution-state { font-size: 12px; color: #d3b77e; }
+.resolution-state.verified { color: #85d5b3; }
+.resolution-state.failed { color: #f0a8a8; }
+.verification-checks { padding: 0; list-style: none; margin: 0 0 16px; }
+.verification-checks li { display: grid; gap: 5px; padding: 10px 0; border-top: 1px solid #263348; color: #b5c5d8; font-size: 12px; line-height: 1.6; }
+.verification-checks strong { font-weight: 500; color: #85d5b3; }
+.verification-checks .failed strong { color: #f0a8a8; }
+@media (max-width: 600px) { .evidence-body { padding: 16px; } .evidence-panel .panel-heading, .resolution-panel .panel-heading { flex-wrap: wrap; gap: 10px; } }
 .output-label {
   font: 10px var(--mono);
   color: #b9afea;

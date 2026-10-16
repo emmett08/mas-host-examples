@@ -64,6 +64,58 @@ export async function checkArchive(directory, launchOptions = {}) {
     if (final.run.output !== undefined && final.run.output !== null) {
       await page.locator('.output-panel').waitFor({ state: 'visible' });
     }
+    const evidence = final.run.input?.incident?.evidence;
+    if (evidence) {
+      const panel = page.locator('.evidence-panel');
+      await panel.waitFor({ state: 'visible' });
+      assert.equal(await panel.locator('#evidence-title').innerText(), `${evidence.subject.namespace} / ${evidence.subject.name}`);
+      assert.equal(await panel.locator('.output-note code').innerText(), evidence.subject.uid);
+      const collected = evidence.items.filter(item => item.status === 'collected').length;
+      assert.equal(await panel.locator('.output-label').innerText(), `${collected} / ${evidence.items.length} collected`);
+      const items = panel.locator('.evidence-item');
+      assert.equal(await items.count(), evidence.items.length, 'The archive must retain every evidence item and its status');
+      for (let index = 0; index < evidence.items.length; index++) {
+        const expected = evidence.items[index], item = items.nth(index);
+        assert.equal(await item.getAttribute('data-evidence-id'), expected.id);
+        assert.equal(await item.getAttribute('data-evidence-status'), expected.status);
+        assert.equal(await item.locator('.evidence-id').innerText(), expected.id);
+        assert.equal(await item.locator('.evidence-state').innerText(), `${expected.status}${expected.truncated ? ' · bounded / truncated' : ''}`);
+        await item.locator('summary').click();
+        assert.ok((await item.locator('.evidence-source').innerText()).startsWith(`${expected.source} · `), 'Evidence provenance must remain visible');
+        if (expected.reason) assert.equal(await item.locator('.output-note').innerText(), expected.reason);
+        if (expected.status === 'collected') {
+          const raw = await item.locator('pre').innerText();
+          if (typeof expected.data === 'string') {
+            let parsed;
+            try { parsed = JSON.parse(expected.data); } catch { /* Plain log text is displayed verbatim. */ }
+            if (parsed === undefined) assert.equal(raw, expected.data);
+            else assert.deepEqual(JSON.parse(raw), parsed);
+          } else assert.deepEqual(JSON.parse(raw), expected.data, `The ${expected.id} inspector must display its captured data unchanged`);
+        } else assert.equal(await item.locator('pre').count(), 0, 'Unavailable evidence must not display invented data');
+        await item.locator('summary').click();
+      }
+    }
+    const resolution = final.run.resolution;
+    if (resolution) {
+      const panel = page.locator('.resolution-panel');
+      await panel.waitFor({ state: 'visible' });
+      assert.equal(await panel.getAttribute('data-resolution-status'), resolution.status);
+      assert.equal(await panel.locator('#resolution-title').innerText(), `${resolution.target.namespace} / ${resolution.target.name}`);
+      assert.equal(await panel.locator('.resolution-state').innerText(), resolution.status === 'verified'
+        ? 'Verified recovery' : resolution.status === 'failed' ? 'Recovery not verified' : 'Needs engineer');
+      assert.equal(await panel.locator('.assessment-summary').innerText(), resolution.reason);
+      const checks = panel.locator('.verification-checks li');
+      assert.equal(await checks.count(), resolution.checks.length);
+      for (let index = 0; index < resolution.checks.length; index++) {
+        const expected = resolution.checks[index], check = checks.nth(index);
+        assert.equal(await check.locator('strong').innerText(), `${expected.passed ? 'Passed' : 'Failed'} · ${expected.name}`);
+        assert.equal(await check.locator('span').innerText(), expected.detail);
+      }
+      await panel.locator('.assessment-details summary').click();
+      assert.deepEqual(JSON.parse(await panel.locator('.assessment-details pre').innerText()),
+        { patch: resolution.patch, before: resolution.before, after: resolution.after },
+        'The recovery inspector must display the captured patch and before/after evidence unchanged');
+    }
     const row = page.locator('.event-table tbody tr').first();
     const inspected = Boolean(await row.count());
     if (inspected) {
@@ -88,13 +140,22 @@ export async function checkArchive(directory, launchOptions = {}) {
     await timeline.focus();
     await timeline.press('Home');
     assert.equal(await envelopeCount(), firstCount);
+    if (resolution && !initial.run.resolution) {
+      await page.locator('.resolution-panel').waitFor({ state: 'detached' });
+      assert.equal(await page.locator('.resolution-panel').count(), 0, 'Seeking backwards must hide a future recovery report');
+    }
     await timeline.press('End');
     assert.equal(await envelopeCount(), finalCount);
+    if (resolution) await page.locator(`.resolution-panel[data-resolution-status="${resolution.status}"]`).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: 'Restart', exact: true }).click();
     assert.equal(await envelopeCount(), firstCount);
     assert.equal(await timeline.inputValue(), '0');
     if (initial.run.output === undefined || initial.run.output === null) {
       assert.equal(await page.locator('.output-panel').count(), 0, 'Seeking backwards must hide a future assessment');
+    }
+    if (resolution && !initial.run.resolution) {
+      await page.locator('.resolution-panel').waitFor({ state: 'detached' });
+      assert.equal(await page.locator('.resolution-panel').count(), 0, 'Restarting must hide a future recovery report');
     }
     assert.deepEqual(errors, [], 'The standalone dashboard reported a browser error');
     assert.deepEqual(requests, [], 'The standalone dashboard attempted network access');
@@ -106,6 +167,9 @@ export async function checkArchive(directory, launchOptions = {}) {
       finalEnvelopes: finalCount, offline: true, checks: ['file-url',
         ...(firstCount < finalCount ? ['play-pause', 'speed'] : []), 'seek', 'restart',
         ...(inspected ? ['inspection'] : []), ...payloadInspections.map(kind => `${kind}-payload`), 'no-network'], errors };
+    if (evidence) report.checks.push('evidence-statuses', 'evidence-provenance', 'evidence-data');
+    if (resolution) report.checks.push('resolution-status', 'resolution-checks', 'resolution-patch-and-evidence',
+      ...(!initial.run.resolution ? ['hide-future-resolution'] : []));
     await writeFile(join(resolve(directory), 'dashboard', 'verification.json'), `${JSON.stringify(report, null, 2)}\n`);
     console.log(`Verified portable Vue dashboard: ${firstCount} → ${finalCount} envelopes, no network access`);
     return report;

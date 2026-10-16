@@ -50,6 +50,10 @@ test('deployment defaults to metadata and explicitly enables payloads only on th
       name: 'SHOW_PAYLOADS', valueFrom: { configMapKeyRef: { name: 'mas-demo-settings', key: 'showPayloads', optional: true } },
     });
     assert.equal(containers.find(container => container.name === 'operator').env.some(item => item.name === 'SHOW_PAYLOADS'), false);
+    assert.deepEqual(containers.find(container => container.name === 'dashboard').env.find(item => item.name === 'DEMO_VERIFIER_TOKEN'), {
+      name: 'DEMO_VERIFIER_TOKEN', valueFrom: { secretKeyRef: { name: 'mas-demo-verifier', key: 'DEMO_VERIFIER_TOKEN', optional: true } },
+    });
+    assert.equal(containers.find(container => container.name === 'operator').env.some(item => item.name === 'DEMO_VERIFIER_TOKEN'), false);
   }
 });
 

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { failureReport, observeCanvasProgress, selectRunForPod, validateCanvasProgress, validateSnapshot } from './record-demo.mjs';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { failureReport, observeCanvasProgress, prepareIncident, selectRunForPod, validateCanvasProgress, validateSnapshot } from './record-demo.mjs';
 
 function completed() {
   const routes = [
@@ -115,4 +118,33 @@ test('fast completion, terminal-only growth and growth on an older run cannot pa
     selectedRunId: 'old-run', status: 'running', envelopeCount: 12,
   }, 'k8s-uid');
   assert.throws(() => validateCanvasProgress(oldRunGrowth), /did not observe increasing/);
+});
+
+test('preparation measures the actual faulty Pod before enabling its event trigger without replacing it', async () => {
+  const destination = await mkdtemp(join(tmpdir(), 'mas-practical-'));
+  const calls = [];
+  let manifest;
+  const pod = { metadata: { name: 'checkout-pod', uid: 'original-uid', creationTimestamp: new Date(Date.now() - 60_000).toISOString() },
+    status: { phase: 'Running' } };
+  try {
+    const result = await prepareIncident(destination, async args => {
+      calls.push(args);
+      if (args[0] === 'delete') return '';
+      if (args[0] === 'apply') { manifest = JSON.parse(await readFile(args[2], 'utf8')); return ''; }
+      if (args[1] === 'pods') return JSON.stringify({ items: [pod] });
+      if (args[1] === '--raw') return JSON.stringify({ metadata: { name: pod.metadata.name, namespace: 'mas-demo' }, timestamp: new Date().toISOString(), window: '15s',
+        containers: [{ name: 'checkout', usage: { cpu: '1n', memory: '30Mi' } }] });
+      if (args[0] === 'logs') return '{"method":"GET","path":"/readyz","status":404}\n{"method":"GET","path":"/healthz","status":200}\n';
+      if (args[1] === 'deployment') return JSON.stringify({ metadata: { uid: 'deployment-uid' } });
+      if (args[0] === 'label') return '';
+      throw new Error(`Unexpected preparation call ${args.join(' ')}`);
+    });
+    assert.equal(result.pod.metadata.uid, 'original-uid');
+    const deployment = manifest.items.find(item => item.kind === 'Deployment');
+    assert.equal(deployment.spec.template.metadata.labels['demo.mas.dev/trigger'], 'false');
+    assert.equal(deployment.spec.template.spec.containers[0].readinessProbe.httpGet.path, '/readyz');
+    assert.ok(calls.findIndex(args => args[0] === 'label') > calls.findIndex(args => args[0] === 'logs'));
+    assert.deepEqual(calls.at(-1), ['label', 'pod', 'checkout-pod', 'demo.mas.dev/trigger=true', '--overwrite']);
+    assert.equal(calls.filter(args => args[0] === 'patch').length, 0);
+  } finally { await rm(destination, { recursive: true, force: true }); }
 });

@@ -1,6 +1,29 @@
 import { readFileSync } from 'node:fs';
 import { request } from 'node:https';
 import { APIError, type DemoAPI, type EventEvidence, type KubernetesAPI, type RunState } from './controller.js';
+import type { EvidenceBundle } from '../shared/evidence.js';
+
+// API Status messages can embed the rejected resource, including its logs. Keep
+// diagnostic codes and field paths, and classify familiar validation messages;
+// never print response.message, raw causes or the request/response body.
+export function safeKubernetesErrorDetails(body: string): string {
+  try {
+    const value = JSON.parse(body) as { reason?: unknown; details?: { causes?: unknown } };
+    const reason = typeof value.reason === 'string' && /^[A-Za-z]{1,40}$/.test(value.reason) ? value.reason : 'APIError';
+    const causes = Array.isArray(value.details?.causes) ? value.details.causes.slice(0, 4).map((cause: unknown) => {
+      if (!cause || typeof cause !== 'object') return 'unspecified cause';
+      const row = cause as Record<string, unknown>;
+      const type = typeof row.reason === 'string' && /^[A-Za-z]{1,40}$/.test(row.reason) ? row.reason : 'Validation';
+      const field = typeof row.field === 'string' && /^[A-Za-z0-9_.\[\]-]{1,160}$/.test(row.field) ? row.field : 'resource';
+      const message = typeof row.message === 'string' ? row.message : '';
+      const hint = /Create a new MASDemoRun|self == oldSelf/.test(message) ? ' (immutable spec check failed)'
+        : /no matching overload|invalid data|evaluation failed/.test(message) ? ' (CEL evaluation failed)'
+          : /Required value|required property/.test(message) ? ' (required field missing)' : '';
+      return `${type}@${field}${hint}`;
+    }) : [];
+    return `${reason}${causes.length ? `; ${causes.join(', ')}` : ''}`;
+  } catch { return 'Unparseable API error response'; }
+}
 
 export class InClusterKubernetesClient implements KubernetesAPI {
   constructor(private readonly baseURL: string,
@@ -25,6 +48,9 @@ export class InClusterKubernetesClient implements KubernetesAPI {
   }
 
   get<T>(path: string): Promise<T> { return this.call('GET', new URL(path, this.baseURL)); }
+  text(path: string, maxBytes = 4096): Promise<string> {
+    return this.call<string>('GET', new URL(path, this.baseURL), undefined, true, Math.min(8192, maxBytes));
+  }
   create<T>(path: string, resource: unknown): Promise<T> {
     return this.call('POST', new URL(path, this.baseURL), resource);
   }
@@ -32,14 +58,17 @@ export class InClusterKubernetesClient implements KubernetesAPI {
     await this.call('PATCH', new URL(path, this.baseURL), { status });
   }
 
-  private call<T>(method: string, url: URL, body?: unknown): Promise<T> {
+  private call<T>(method: string, url: URL, body?: unknown, plainText = false, maxBytes = 8 * 1024 * 1024): Promise<T> {
     // Projected tokens rotate; read the current token for every request.
     const token = readFileSync(this.tokenPath, 'utf8').trim();
     const payload = body === undefined ? undefined : JSON.stringify(body);
     return new Promise((resolve, reject) => {
       const req = request(url, {
         method, ca: readFileSync(this.caPath), timeout: 10_000,
-        headers: { authorization: `Bearer ${token}`, accept: 'application/json',
+        // The API server negotiates an API serializer before handing pods/log
+        // to its text streamer. text/plain alone can fail that negotiation
+        // with HTTP 406; wildcard accepts both streamed logs and API errors.
+        headers: { authorization: `Bearer ${token}`, accept: plainText ? '*/*' : 'application/json',
           ...(payload ? { 'content-type': method === 'PATCH' ? 'application/merge-patch+json' : 'application/json',
             'content-length': Buffer.byteLength(payload) } : {}) },
       }, response => {
@@ -47,18 +76,23 @@ export class InClusterKubernetesClient implements KubernetesAPI {
         response.setEncoding('utf8');
         response.on('data', chunk => {
           data += chunk;
-          if (data.length > 8 * 1024 * 1024) req.destroy(new Error('Kubernetes response exceeds 8 MiB'));
+          if (Buffer.byteLength(data) > maxBytes) {
+            reject(new Error('Kubernetes response exceeds byte limit'));
+            response.destroy();
+            req.destroy();
+          }
         });
         response.on('end', () => {
           if ((response.statusCode ?? 500) >= 400) {
-            reject(new APIError(response.statusCode ?? 500, `Kubernetes API ${method} ${url.pathname}: ${response.statusCode}`));
+            reject(new APIError(response.statusCode ?? 500,
+              `Kubernetes API ${method} ${url.pathname}: ${response.statusCode} (${safeKubernetesErrorDetails(data)})`));
             return;
           }
-          try { resolve(JSON.parse(data) as T); } catch (error) { reject(error); }
+          try { resolve((plainText ? data : JSON.parse(data)) as T); } catch (error) { reject(error); }
         });
         response.on('error', reject);
       });
-      req.on('timeout', () => req.destroy(new Error('Kubernetes request timed out')));
+      req.on('timeout', () => { reject(new Error('Kubernetes request timed out')); req.destroy(); });
       req.on('error', reject);
       if (payload) req.write(payload);
       req.end();
@@ -82,7 +116,7 @@ export class LocalDemoClient implements DemoAPI {
     return await response.json() as RunState;
   }
 
-  async start(input: { id: string; scenario: 'pod-crash'; event?: EventEvidence }): Promise<RunState> {
+  async start(input: { id: string; scenario: 'pod-incident' | 'pod-crash'; event?: EventEvidence; evidence?: EvidenceBundle }): Promise<RunState> {
     const response = await fetch(new URL('/api/runs', this.baseURL), {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input), signal: AbortSignal.timeout(10_000),

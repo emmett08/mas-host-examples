@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { APIError, DemoController, TRIGGER_LABEL, type DemoAPI, type DemoRun,
   type KubernetesAPI, type KubernetesEvent, type RunState } from './controller.js';
+import { evidenceFromStorage } from './evidence.js';
 
 const now = Date.parse('2026-10-16T10:00:00Z');
 const run = (name: string, phase?: 'Pending' | 'Running' | 'Succeeded' | 'Failed'): DemoRun => ({
@@ -40,12 +41,16 @@ class Demo implements DemoAPI {
   states = new Map<string, RunState>();
   starts = 0;
   rejectStart = false;
+  loseStartResponse = false;
+  inputs: Parameters<DemoAPI['start']>[0][] = [];
   async get(id: string): Promise<RunState | undefined> { return this.states.get(id); }
-  async start(input: { id: string }): Promise<RunState> {
+  async start(input: Parameters<DemoAPI['start']>[0]): Promise<RunState> {
     if (this.rejectStart) throw new APIError(429, 'Busy');
     this.starts++;
+    this.inputs.push(structuredClone(input));
     const state: RunState = { id: input.id, status: 'running' };
     this.states.set(input.id, state);
+    if (this.loseStartResponse) { this.loseStartResponse = false; throw new APIError(500, 'Lost start response'); }
     return state;
   }
 }
@@ -68,14 +73,34 @@ test('labelled pod Warning creates one CR, starts one run and survives controlle
   kube.events.push(warning());
   await create().tick();
   assert.equal(kube.creates, 1);
+  const retainedEvidence = structuredClone(kube.runs[0]?.spec.evidence);
+  assert.ok(retainedEvidence?.items.find(item => item.id === 'pod'));
+  assert.equal(demo.starts, 0, 'Evidence and CR persist before a backend run starts');
   await create().tick();
   assert.equal(demo.starts, 1);
+  assert.deepEqual(demo.inputs[0]?.evidence, evidenceFromStorage(retainedEvidence));
+  assert.equal(demo.inputs[0]?.scenario, 'pod-incident');
   demo.states.set('k8s-cr-0', { id: 'k8s-cr-0', status: 'completed' });
   await create().tick();
   await create().tick();
   assert.equal(kube.runs[0].status?.phase, 'Succeeded');
   assert.equal(kube.creates, 1);
   assert.equal(demo.starts, 1);
+});
+
+test('lost backend start response reuses the admitted identity and immutable evidence without repeating inference', async () => {
+  const { kube, demo, create } = fixture();
+  kube.events.push(warning());
+  await create().tick();
+  const captured = structuredClone(kube.runs[0]?.spec.evidence);
+  demo.loseStartResponse = true;
+  await assert.rejects(create().tick(), /Lost start response/);
+  assert.equal(demo.starts, 1);
+  kube.pod.metadata.uid = 'replacement-pod';
+  await create().tick();
+  assert.equal(demo.starts, 1);
+  assert.equal(kube.runs[0]?.status?.phase, 'Running');
+  assert.deepEqual(demo.inputs[0]?.evidence, evidenceFromStorage(captured));
 });
 
 test('unlabelled pods, stale events, Normal events and reused Pod names do not trigger', async () => {

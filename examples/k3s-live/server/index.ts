@@ -14,7 +14,7 @@ const host = new Host({ binary: process.env.MAS_HOST_BIN ?? '../../.tools/mas-ho
   fixtureRecording: mode === 'fixture' && process.env.DEMO_FIXTURE_RECORDING === 'true' });
 const runs = new Runs(resolve(process.env.DEMO_DATA_DIR ?? '.data'), mode, host);
 await runs.initialise();
-const server = application(runs, await topology(project, mode), resolve('dist/ui'));
+const server = application(runs, await topology(project, mode), resolve('dist/ui'), process.env.DEMO_VERIFIER_TOKEN);
 const port = Number(process.env.PORT ?? 8080);
 server.listen(port, process.env.LISTEN_HOST ?? '127.0.0.1', () => {
   console.log(`MAS incident demo: http://localhost:${port} (${mode})`);

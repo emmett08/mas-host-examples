@@ -11,6 +11,10 @@ export class HostRunFailure extends Error {
 }
 
 const execute = promisify(execFile);
+function hostEnvironment() {
+  const { DEMO_VERIFIER_TOKEN: _verifierToken, ...environment } = process.env;
+  return environment;
+}
 export interface HostOptions { binary: string; sdk: string; project: string; payloads: boolean; fixtureRecording?: boolean }
 export function fixtureConnectionProfile(mode: 'live' | 'fixture', recording = false) {
   return mode === 'fixture' ? recording ? 'connections.recording.toml' : 'connections.fixture.toml' : undefined;
@@ -22,9 +26,12 @@ export class Host {
       '--agent', 'coordinator', '--input', input, '--state', state, '--run', id];
     const profile = fixtureConnectionProfile(mode, this.options.fixtureRecording);
     if (profile) args.push('--connections', profile);
+    // The verifier credential belongs to the HTTP report channel, never to
+    // MAS workers or provider adapters. Other credentials keep their scope.
+    const environment = hostEnvironment();
     try {
       const { stdout } = await execute(this.options.binary, args,
-        { timeout: 330_000, maxBuffer: 2 * 1024 * 1024 });
+        { timeout: 330_000, maxBuffer: 2 * 1024 * 1024, env: environment });
       return JSON.parse(stdout).output as unknown;
     } catch {
       // The CLI has exited. Read its retained effect evidence once, without
@@ -33,7 +40,7 @@ export class Host {
       try {
         const { stdout } = await execute(this.options.binary,
           ['observe', '--state', state, '--run', id, '--include-payloads', 'true'],
-          { timeout: 3000, maxBuffer: 4 * 1024 * 1024 });
+          { timeout: 3000, maxBuffer: 4 * 1024 * 1024, env: environment });
         observation = JSON.parse(stdout);
       } catch { /* An absent/corrupt journal preserves the fixed generic error. */ }
       throw new HostRunFailure(projectFailure(observation, id));
@@ -42,7 +49,7 @@ export class Host {
   async observe(id: string, state: string) {
     const { stdout } = await execute(this.options.binary,
       ['observe', '--state', state, '--run', id, '--include-payloads', String(this.options.payloads)],
-      { timeout: 3000, maxBuffer: 4 * 1024 * 1024 });
+      { timeout: 3000, maxBuffer: 4 * 1024 * 1024, env: hostEnvironment() });
     const raw = JSON.parse(stdout);
     if (raw.version !== 'mas-host-observation/1') throw new Error('Unsupported host observation version');
     return { ...raw, messages: raw.messages.map((m: Record<string, unknown>) => ({
@@ -54,6 +61,6 @@ export class Host {
   }
   async cancel(id: string, state: string) {
     await execute(this.options.binary, ['cancel', '--state', state, '--run', id],
-      { timeout: 3000, maxBuffer: 65536 });
+      { timeout: 3000, maxBuffer: 65536, env: hostEnvironment() });
   }
 }

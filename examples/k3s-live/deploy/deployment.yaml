@@ -57,6 +57,9 @@ spec:
             - name: SHOW_PAYLOADS
               valueFrom:
                 configMapKeyRef: {name: mas-demo-settings, key: showPayloads, optional: true}
+            - name: DEMO_VERIFIER_TOKEN
+              valueFrom:
+                secretKeyRef: {name: mas-demo-verifier, key: DEMO_VERIFIER_TOKEN, optional: true}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef: {name: mas-demo-provider, key: OPENAI_API_KEY, optional: true}
