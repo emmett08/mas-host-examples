@@ -44,7 +44,7 @@ function classify(effect: Omit<FailedInference, 'classification'>, output: Recor
   if (effect.certainty === 'not_sent' && output.reason === 'provider credential environment is missing or invalid') return 'missing-credential';
   if (effect.httpStatus === 401) return 'authentication';
   if (effect.httpStatus === 403) return 'permission';
-  if (effect.httpStatus === 404) return 'model-unavailable';
+  if (effect.httpStatus === 404 && effect.errorCode === 'model_not_found') return 'model-unavailable';
   if (effect.httpStatus === 429) {
     if (['insufficient_quota', 'credit_balance_exhausted', 'billing_hard_limit_reached'].includes(effect.errorCode ?? '') ||
         effect.errorType === 'insufficient_quota') return 'quota';

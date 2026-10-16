@@ -43,6 +43,7 @@ test('safe projection distinguishes actionable HTTP failures and excludes raw or
     error_param: 'private-api-key', requested_model: 'private-api-key', adapter: 'private-api-key', http_status: '400' }), 'failed-run');
   assert.doesNotMatch(JSON.stringify(malicious), /private-api-key|"(?:httpStatus|errorCode|errorType|errorParam|model|provider)":/);
   assert.equal(projectFailure(observedFailure({ http_status: 429, error_code: 'unknown' }), 'failed-run').classification, 'provider-rejected');
+  assert.equal(projectFailure(observedFailure({ http_status: 404, error_code: 'unknown' }), 'failed-run').classification, 'provider-rejected');
 });
 
 test('safe projection bounds effects, validates identity, and only recognises the exact missing credential reason', () => {
