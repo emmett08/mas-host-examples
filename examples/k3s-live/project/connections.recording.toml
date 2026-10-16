@@ -1,0 +1,9 @@
+# Recording-only deterministic providers. Delay is artificial, not model latency.
+# Inline argv code is retained in the immutable host bundle; no credentials or network.
+version = "mas-connections/1"
+[connections.reasoning]
+kind = "command"
+command = ["node","--input-type=module","-e","let input = ''; for await (const chunk of process.stdin) input += chunk; if (JSON.parse(input).version !== 'mas-provider/1') process.exit(2); await new Promise(resolve => setTimeout(resolve, 5000)); process.stdout.write(JSON.stringify({version:'mas-provider/1',status:'completed',output_json:JSON.stringify({summary:'Paced fixture review: inspect container termination details before diagnosis.',findings:['Deterministic five-second recording fixture; no LLM was called.'],checks:['Inspect the previous container exit code and recent logs.']}),evidence:{id:'paced-fixture-reasoning',cleanup:'confirmed'}}));"]
+[connections.synthesis]
+kind = "command"
+command = ["node","--input-type=module","-e","let input = ''; for await (const chunk of process.stdin) input += chunk; if (JSON.parse(input).version !== 'mas-provider/1') process.exit(2); await new Promise(resolve => setTimeout(resolve, 5000)); process.stdout.write(JSON.stringify({version:'mas-provider/1',status:'completed',output_json:JSON.stringify({summary:'Paced fixture investigation plan: compare termination reason, probes and resource limits.',confidence:'low',next_checks:['Inspect the previous container termination state.','Compare probe settings with startup duration.'],requires_human:true}),evidence:{id:'paced-fixture-synthesis',cleanup:'confirmed'}}));"]

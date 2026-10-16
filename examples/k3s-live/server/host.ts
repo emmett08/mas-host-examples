@@ -3,13 +3,17 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
-export interface HostOptions { binary: string; sdk: string; project: string; payloads: boolean }
+export interface HostOptions { binary: string; sdk: string; project: string; payloads: boolean; fixtureRecording?: boolean }
+export function fixtureConnectionProfile(mode: 'live' | 'fixture', recording = false) {
+  return mode === 'fixture' ? recording ? 'connections.recording.toml' : 'connections.fixture.toml' : undefined;
+}
 export class Host {
   constructor(readonly options: HostOptions) {}
   async run(id: string, input: string, state: string, mode: 'live' | 'fixture') {
     const args = ['run', '--project', this.options.project, '--sdk-root', this.options.sdk,
       '--agent', 'coordinator', '--input', input, '--state', state, '--run', id];
-    if (mode === 'fixture') args.push('--connections', 'connections.fixture.toml');
+    const profile = fixtureConnectionProfile(mode, this.options.fixtureRecording);
+    if (profile) args.push('--connections', profile);
     const { stdout } = await execute(this.options.binary, args,
       { timeout: 330_000, maxBuffer: 2 * 1024 * 1024 });
     return JSON.parse(stdout).output as unknown;

@@ -246,7 +246,9 @@ export async function main() {
     }
     const description = mode === 'live'
       ? 'Real OpenAI calls from the event-driven MAS host.'
-      : 'Deterministic provider fixture; no LLM calls. The actual MAS host and protocol still execute.';
+      : process.env.DEMO_FIXTURE_RECORDING === 'true'
+        ? 'Paced deterministic recording fixture; no LLM calls. Each provider call waits five artificial seconds. The actual MAS host and protocol still execute; this delay does not measure model latency.'
+        : 'Deterministic provider fixture; no LLM calls. The actual MAS host and protocol still execute.';
     await writeFile(join(destination, 'README.md'), [
       '# Kubernetes MAS demonstration recording', '',
       `Provider mode: **${mode}**. ${description}`, '',

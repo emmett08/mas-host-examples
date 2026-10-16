@@ -75,6 +75,14 @@ executes MAS admission, workflows, supervision and journal persistence. The UI
 labels it **FIXTURE · NO LLM**. Switching mode requires restarting the backend;
 existing runs retain their original mode.
 
+The workflow opts into a separate **paced recording fixture** with
+`DEMO_MODE=fixture DEMO_FIXTURE_RECORDING=true`. Its command providers consume
+the real `mas-provider/1` request, wait five seconds per call and return fixed,
+schema-checked JSON. This deliberate delay lets the browser subscribe before
+message flow finishes; it does not measure LLM latency. The normal fixture stays
+fast, and the recording flag has no effect in live mode. The inline provider code
+is retained in the host bundle and uses no provider credentials or network.
+
 ## Deploy to k3s
 
 Docker Desktop with k3d is a convenient macOS route: k3d runs a real k3s cluster
@@ -156,6 +164,9 @@ canvas video, screenshots, topology, run and observation snapshots, plus a resul
 summary. Fixture recordings are explicitly labelled and are saved separately as
 `mas-k3s-fixture-<run-id>`. The failing pod is removed after admission to limit
 further Warning triggers; the recorder rejects duplicate admissions for that Pod.
+The fixture recording uses the five-second paced providers described above;
+its video shows actual MAS envelopes carrying deterministic responses. Live
+recordings retain actual provider timing and use the configured OpenAI models.
 Recordings and traces
 remain available for seven days; the cluster is deleted when its job finishes,
 including after failure.

@@ -10,7 +10,8 @@ if (mode !== 'live' && mode !== 'fixture') throw new Error('DEMO_MODE must be li
 const project = resolve('project');
 const host = new Host({ binary: process.env.MAS_HOST_BIN ?? '../../.tools/mas-host/target/debug/mas-host',
   sdk: resolve(process.env.MAS_SDK_ROOT ?? '../../.tools/mas-host'), project,
-  payloads: process.env.SHOW_PAYLOADS === 'true' });
+  payloads: process.env.SHOW_PAYLOADS === 'true',
+  fixtureRecording: mode === 'fixture' && process.env.DEMO_FIXTURE_RECORDING === 'true' });
 const runs = new Runs(resolve(process.env.DEMO_DATA_DIR ?? '.data'), mode, host);
 await runs.initialise();
 const server = application(runs, await topology(project, mode), resolve('dist/ui'));
