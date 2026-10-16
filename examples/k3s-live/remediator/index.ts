@@ -22,11 +22,12 @@ const transport = createRemediationTransport({ client, namespace, verifierToken:
 // single admission/verification implementation for controller and CLI callers.
 const module = await import(new URL('../../deploy/remediation.mjs', import.meta.url).href) as {
   resolveIncident(snapshot: Snapshot, options: { kubectl(args: string[]): Promise<string>; namespaceUID: string;
+    operationId: string; attemptId: string; isDefiniteRejection(error: unknown): boolean;
     enabled: boolean; beforePatch(report: ResolutionReport): Promise<void> }): Promise<ResolutionReport>;
 };
 const enabled = process.env.DEMO_AUTO_REMEDIATE === 'true';
 const controller = new RemediationController(client, transport,
-  (snapshot, options) => module.resolveIncident(snapshot, { ...options, enabled: true, kubectl: transport.kubectl }),
+  (snapshot, options) => module.resolveIncident(snapshot, { ...options, enabled: true, kubectl: transport.kubectl, isDefiniteRejection: transport.isDefiniteRejection }),
   { namespace, enabled, ownerId: randomUUID(), podUID, podName });
 console.log(`MAS remediation controller: ${enabled ? 'enabled for the managed readiness correction' : 'disabled'}`);
 const stop = new AbortController();

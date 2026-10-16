@@ -5,8 +5,12 @@
  * deadline failure. No crashes, retries, unbounded concurrent writers or timing
  * guarantee. A race is possible between the live GET and the atomic API patch.
  */
-mtype = { Pending, NotAttempted, Rejected, PatchFailed, PatchUncertain, RecoveryFailed, Verified };
+mtype = { Pending, NotAttempted, Rejected, PatchFailed, PatchUncertain, RecoveryFailed, Verified,
+          EffectNotStarted, EffectRejected, EffectApplied, EffectUnknown,
+          VerificationNotRun, VerificationPassed, VerificationFailed, VerificationInconclusive };
 mtype outcome = Pending;
+mtype effect_outcome = EffectNotStarted;
+mtype verification_outcome = VerificationNotRun;
 bool done = false;
 bool remediation_enabled;
 bool evidence_valid;
@@ -22,6 +26,8 @@ bool resource_version_matches;
 bool api_accepts;
 bool patch_applied = false;
 bool patch_acknowledged = false;
+bool response_received = false;
+bool observed_postcondition_failure = false;
 byte effects = 0;
 bool recovery_identity_matches = false;
 bool generation_observed = false;
@@ -87,6 +93,7 @@ active proctype Remediation() {
 #ifdef BUG_REMEDIATION_STALL
             do :: patch_target_present -> skip :: break od;
 #endif
+            effect_outcome=EffectUnknown;
             atomic {
                 if
                 :: patch_target_present && uid_patch_test && rv_patch_test && api_accepts ->
@@ -99,16 +106,18 @@ active proctype Remediation() {
                 :: !(patch_target_present && uid_patch_test && rv_patch_test && api_accepts) -> outcome=PatchFailed
                 fi
             };
+            choose(response_received);
             if
             :: patch_applied ->
                 /* The API may apply the effect but its response can be lost,
                  * time out or fail JSON decoding. The tool reports failure,
                  * does not retry and cannot declare verified recovery.
                  */
-                choose(patch_acknowledged);
+                patch_acknowledged=response_received;
                 if
                 :: !patch_acknowledged -> outcome=PatchUncertain
                 :: patch_acknowledged ->
+                effect_outcome=EffectApplied;
                 /* All partial recovery combinations are possible, including
                  * a Ready Deployment with missing/stale replacement metrics.
                  * Each flag summarises the bounded polling outcome, not one
@@ -129,9 +138,22 @@ active proctype Remediation() {
                 fi;
 #endif
                 assert(outcome!=Verified || (patch_applied && patch_acknowledged && recovered)); /* VERIFY_ONLY_OBSERVED_RECOVERY */
-                assert(outcome!=Verified || effects==1)
+                assert(outcome!=Verified || effects==1);
+                if
+                :: recovered -> verification_outcome=VerificationPassed
+                :: !recovered ->
+                    choose(observed_postcondition_failure);
+                    if
+                    :: observed_postcondition_failure -> verification_outcome=VerificationFailed
+                    :: !observed_postcondition_failure -> verification_outcome=VerificationInconclusive
+                    fi
                 fi
-            :: !patch_applied -> skip
+                fi
+            :: !patch_applied ->
+                if
+                :: response_received -> effect_outcome=EffectRejected
+                :: !response_received -> outcome=PatchUncertain
+                fi
             fi
         :: !(evidence_valid && namespace_uid_matches && observed_target_present && uid_admitted && template_matches && probe_matches) -> outcome=Rejected
         fi
@@ -140,6 +162,15 @@ active proctype Remediation() {
     assert(outcome!=Verified || (evidence_policy && target_preconditions && patch_identity && resource_version_matches && patch_applied && patch_acknowledged && recovered));
     assert(effects==0 || patch_applied);
     assert(!patch_applied || effects==1);
+#ifdef BUG_EFFECT_ATTRIBUTION
+    if
+    :: effect_outcome==EffectUnknown -> effect_outcome=EffectApplied
+    :: else -> skip
+    fi;
+#endif
+    assert(effect_outcome!=EffectApplied || patch_acknowledged); /* APPLIED_REQUIRES_ACKNOWLEDGED_EFFECT */
+    assert(verification_outcome!=VerificationPassed || (effect_outcome==EffectApplied && recovered)); /* VERIFICATION_IS_INDEPENDENT_OF_EFFECT */
+    assert(effect_outcome==EffectApplied || verification_outcome==VerificationNotRun);
     /* Server publication authorises the external verifier's credential. This
      * models the acceptance decision, not credential secrecy or HTTP security.
      */
@@ -156,6 +187,9 @@ active proctype Remediation() {
     done=true;
 #ifdef WITNESS_REMEDIATION_SUCCESS
     assert(outcome!=Verified); /* WITNESS_REACHABLE_VERIFIED_RECOVERY */
+#endif
+#ifdef WITNESS_EFFECT_UNCERTAINTY
+    assert(!(patch_applied && effect_outcome==EffectUnknown && verification_outcome==VerificationNotRun)); /* WITNESS_UNKNOWN_APPLIED_EFFECT */
 #endif
 }
 

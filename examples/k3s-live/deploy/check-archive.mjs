@@ -104,6 +104,11 @@ export async function checkArchive(directory, launchOptions = {}) {
       assert.equal(await panel.locator('.resolution-state').innerText(), resolution.status === 'verified'
         ? 'Verified recovery' : resolution.status === 'failed' ? 'Recovery not verified' : 'Needs engineer');
       assert.equal(await panel.locator('.assessment-summary').innerText(), resolution.reason);
+      const effects = { not_started: 'Not started', rejected: 'Rejected by the target API', applied: 'Application acknowledged', unknown: 'Unknown — no automatic retry' };
+      const verification = { not_run: 'Not run', passed: 'Passed', failed: 'Failed', inconclusive: 'Inconclusive' };
+      assert.equal(await panel.locator('[data-effect-outcome]').innerText(), resolution.version === 'mas-k8s-resolution/2' ? effects[resolution.effectOutcome] : 'Not separately recorded (legacy report)');
+      assert.equal(await panel.locator('[data-verification-outcome]').innerText(), resolution.version === 'mas-k8s-resolution/2' ? verification[resolution.verificationOutcome] : 'Not separately recorded (legacy report)');
+      assert.equal(await panel.locator('.reconciliation-observations details').count(), final.run.reconciliations?.length ?? 0);
       const checks = panel.locator('.verification-checks li');
       assert.equal(await checks.count(), resolution.checks.length);
       for (let index = 0; index < resolution.checks.length; index++) {
@@ -111,8 +116,8 @@ export async function checkArchive(directory, launchOptions = {}) {
         assert.equal(await check.locator('strong').innerText(), `${expected.passed ? 'Passed' : 'Failed'} · ${expected.name}`);
         assert.equal(await check.locator('span').innerText(), expected.detail);
       }
-      await panel.locator('.assessment-details summary').click();
-      assert.deepEqual(JSON.parse(await panel.locator('.assessment-details pre').innerText()),
+      await panel.locator('.assessment-details summary').first().click();
+      assert.deepEqual(JSON.parse(await panel.locator('.assessment-details pre').first().innerText()),
         { patch: resolution.patch, before: resolution.before, after: resolution.after },
         'The recovery inspector must display the captured patch and before/after evidence unchanged');
     }

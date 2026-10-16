@@ -21,6 +21,29 @@ function archive() {
     ] };
 }
 
+test('playback preserves an unknown attempt and reveals later observations only at their recorded sample', () => {
+  const data = archive();
+  const original = { version: 'mas-k8s-resolution/2', status: 'failed', operationId: 'operation-1', attemptId: 'attempt-1',
+    effectOutcome: 'unknown', verificationOutcome: 'not_run', action: 'replace_readiness_probe_path',
+    target: { namespace: 'mas-demo', name: 'mas-demo-checkout', uid: 'uid-1' }, recordedAt: '2026-10-16T12:00:02Z',
+    reason: 'Response lost', patch: [], before: null, after: null, checks: [] };
+  Object.assign(data.snapshots.at(-1)!.run, { resolution: original });
+  const next = structuredClone(data.snapshots.at(-1)!);
+  next.observation.observed_at_ms = 2_000;
+  Object.assign(next.run, { reconciliations: [{ version: 'mas-k8s-reconciliation/1', id: 'a'.repeat(64),
+    sequence: 1, runId: data.runId, operationId: original.operationId, attemptId: original.attemptId,
+    observedAt: '2026-10-16T12:00:03Z', state: 'desired' }] });
+  data.snapshots.push(next);
+  const clock = new ArchivePlayback(parseArchive(data));
+  assert.equal(clock.seek(800).snapshot.run.reconciliations, undefined);
+  assert.equal(clock.final().snapshot.run.reconciliations!.length, 1);
+  assert.equal(clock.final().snapshot.run.resolution!.version, 'mas-k8s-resolution/2');
+  assert.deepEqual(clock.final().snapshot.run.resolution, original);
+  const rewritten = structuredClone(data);
+  Object.assign(rewritten.snapshots.at(-1)!.run, { resolution: { ...original, effectOutcome: 'applied' } });
+  assert.throws(() => parseArchive(rewritten), /immutable attempt report/);
+});
+
 test("archive parsing preserves collected timestamps, normalises duplicate IDs and checks run identity", () => {
   const data = parseArchive(JSON.stringify(archive()));
   assert.deepEqual(data.snapshots.map(snapshot => snapshot.observation.observed_at_ms), [1000, 1200, 1250, 1800]);

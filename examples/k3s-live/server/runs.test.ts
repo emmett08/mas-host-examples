@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { canonicalJSON } from '../remediator/controller.js';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -291,6 +293,60 @@ test('resolution reporting is disabled without an independently configured verif
   assert.ok(address && typeof address !== 'string');
   const response = await fetch(`http://127.0.0.1:${address.port}/api/runs/forged/resolution`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(response.status, 503);
+});
+
+test('authenticated reconciliation appends exact report-bound evidence, retains uncertainty and returns small receipts', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-reconcile-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const host = { run: async () => ({ assessment: 'x'.repeat(90_000) }), observe: async () => ({ messages: [] }) } as unknown as Host;
+  const runs = new Runs(dir, 'fixture', host);
+  await runs.initialise();
+  const input = evidenceRequest('uncertain-operation');
+  (input.evidence.items[0]!.data as { templateHash: string }).templateHash = 'a'.repeat(64);
+  await runs.create(input);
+  await waitFor(() => runs.get(input.id).status === 'completed');
+  const token = 'independent-verifier';
+  const server = application(runs, {}, dir, token);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const address = server.address(); assert.ok(address && typeof address !== 'string');
+  const post = (kind: string, value: unknown, credential = token) => fetch(`http://127.0.0.1:${address.port}/api/runs/${input.id}/${kind}`, {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${credential}` }, body: JSON.stringify(value),
+  });
+  const report = { version: 'mas-k8s-resolution/2', status: 'failed', operationId: 'readiness-1', attemptId: 'owner-1',
+    effectOutcome: 'unknown', verificationOutcome: 'not_run', action: 'replace_readiness_probe_path',
+    target: { namespace: 'mas-demo', name: 'mas-demo-checkout', uid: 'deployment-a' }, recordedAt: '2026-10-16T12:01:00Z',
+    reason: 'The response was lost', patch: [], before: { namespaceUID: 'namespace-1', templateHash: 'a'.repeat(64), expectedTemplateHash: 'b'.repeat(64) },
+    after: null, checks: [{ name: 'Execution outcome', passed: false, detail: 'No acknowledged outcome' }] };
+  assert.equal((await post('resolution', { ...report, status: 'verified', verificationOutcome: 'passed' })).status, 400);
+  const response = await post('resolution', report);
+  assert.equal(response.status, 202);
+  const receipt = await response.text();
+  assert.ok(receipt.length < 300, 'A publication receipt does not echo the large retained run');
+  assert.equal(JSON.parse(receipt).recordId, createHash('sha256').update(JSON.stringify(report)).digest('hex'));
+  const digest = (value: unknown) => createHash('sha256').update(canonicalJSON(value)).digest('hex');
+  const content = { version: 'mas-k8s-reconciliation/1', sequence: 1, runId: input.id,
+    operationId: report.operationId, attemptId: report.attemptId, reportDigest: digest(report),
+    target: report.target, originalTemplateHash: 'a'.repeat(64), observedAt: '2026-10-16T12:02:00Z', state: 'desired',
+    reason: 'Desired template observed, without attribution to the uncertain attempt',
+    evidence: { namespaceUID: 'namespace-1', uid: 'deployment-a', resourceVersion: '45', templateHash: 'b'.repeat(64),
+      readinessPath: '/healthz', generation: 3, observedGeneration: 3, readyReplicas: 1 } };
+  const observation = { ...content, id: digest(content) };
+  assert.equal((await post('reconciliations', observation, 'wrong')).status, 401);
+  for (const change of [{ attemptId: 'other' }, { reportDigest: 'c'.repeat(64) }, { runId: 'other' },
+    { originalTemplateHash: 'c'.repeat(64) }, { evidence: { ...content.evidence, namespaceUID: 'replaced-namespace' } }]) {
+    const bad = { ...content, ...change };
+    assert.equal((await post('reconciliations', { ...bad, id: digest(bad) })).status, 400);
+  }
+  assert.equal((await post('reconciliations', observation)).status, 202);
+  assert.equal((await post('reconciliations', observation)).status, 202);
+  const changed = { ...content, reason: 'Different evidence under the same sequence' };
+  assert.equal((await post('reconciliations', { ...changed, id: digest(changed) })).status, 409);
+  assert.deepEqual(runs.get(input.id).resolution, report);
+  assert.equal(runs.get(input.id).reconciliations!.length, 1);
+  const restarted = new Runs(dir, 'fixture', host); await restarted.initialise();
+  assert.deepEqual(restarted.get(input.id).resolution, report);
+  assert.deepEqual(restarted.get(input.id).reconciliations, [observation]);
 });
 
 test('legacy retained event-only runs keep idempotency without rewriting their historical input', async t => {

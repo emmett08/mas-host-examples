@@ -124,7 +124,8 @@ deletion or replacement can reject the effect between them.
 | `proposal_allowed` | `requires_human === false`, admitted action and exact namespace/name/container/path proposal. `remediation_enabled` separately represents explicit enablement. |
 | `target_preconditions` | Recorder namespace UID, live managed Deployment UID, full recorded template hash and current readiness/liveness paths. |
 | `patch_identity` and `resource_version_matches` | Atomic Kubernetes JSON Patch UID/resourceVersion tests, alongside container-name and old-path tests. The Boolean API outcome also permits an unrelated API error. |
-| `patch_applied`, `patch_acknowledged`, `effects` | Actual API effect and its separately successful response. A lost response can leave an applied effect with a failed report; the tool does not retry. One call site in one invocation does not establish restart/retry or exactly-once semantics. |
+| `patch_applied`, `patch_acknowledged`, `effects` | Actual API effect and its separately successful response. A lost response leaves `effectOutcome: unknown`; the tool does not retry. One call site in one invocation does not establish restart/retry or exactly-once semantics. |
+| `effect_outcome`, `verification_outcome` | Independent report axes: effect `not_started/rejected/applied/unknown`, verification `not_run/passed/failed/inconclusive`. A known failed postcondition and unavailable evidence have distinct outcomes. |
 | `generation_observed`, `rollout_ready` | `recovered`: observed generation and exactly one updated, Ready and available replica with no old replicas. |
 | `recovery_identity_matches`, `replacement_pod_ready` | Verification checks for unchanged patched Deployment identity/template and an actual Ready replacement Pod owned through the ReplicaSet by that Deployment. |
 | `endpoint_200_body` | Successful Kubernetes Service API proxy response with the expected application body. |
@@ -146,9 +147,13 @@ and the recovery poll must return or reach a finite failure deadline. There is
 no fairness option and no unrelated infinite branch in the positive model.
 The property permits rejection, failure and an uncertain effect outcome; it
 does not promise that every proposal restores the application. `PatchFailed`,
-`PatchUncertain` and `RecoveryFailed` distinguish model paths that all produce
-the implementation's `failed` report status. A failed report therefore supplies
-no guarantee that the patch had no effect.
+`PatchUncertain` and `RecoveryFailed` retain the existing overall `failed` status,
+while resolution version 2 additionally distinguishes the effect and verification
+axes. The model checks that an `applied` claim requires an acknowledged effect
+and that a passed verification requires complete positive recovery evidence.
+An overall failed report therefore supplies no guarantee that the patch had no
+effect. A lost response can leave an unknown effect even when the API rejected
+the operation without applying it.
 
 One bundle, proposal, Deployment, invocation and report publication are modelled.
 Recovery flags abstract the final bounded poll results, not elapsed time.
@@ -157,13 +162,21 @@ cluster or transport implementation correctness are outside the model.
 
 Safety and progress searches each run with and without partial-order reduction.
 Isolated mutations remove the UID guard family, ignore the resourceVersion test,
-declare verification before recovery, or publish an unauthenticated report.
+declare verification before recovery, publish an unauthenticated report, or
+misreport an uncertain effect as acknowledged application.
 Each must yield its intended replayable assertion counterexample. A stalled
 external API supplies the expected progress counterexample. A deliberately
-false assertion witnesses reachable fully verified recovery. These controls
+false assertions witness reachable fully verified recovery and an actually
+applied effect whose lost response retains unknown attribution. These controls
 test the harness and the stated abstractions; their failures are not defects
 in the unmodified model. Raw commands, search output and trails remain in the
 same `evidence/` directory as the choreography evidence.
+
+For an unsuccessful verification the model nondeterministically selects observed
+postcondition failure or inconclusive evidence. This overapproximates the
+adapter's distinction: complete negative observations justify `failed`, while
+unavailable or incomplete observations justify `inconclusive`. Correct evidence
+classification is an adapter assumption supported by executable tests.
 
 `deploy/remediation.test.mjs` exercises the actual tool's admission and recovery
 checks using Kubernetes API fixtures. `server/runs.test.ts` checks authenticated
@@ -254,7 +267,7 @@ reservation recovery. Each must yield its intended replayable counterexample.
 Two further deliberately false assertions witness durable verified recovery
 and an actual effect followed by an uncertain retained terminal. The witnesses
 show those paths are reachable; they do not claim that every incident reaches
-either outcome. All 33 choreography, tool and controller checks use the same
+either outcome. All 35 choreography, tool and controller checks use the same
 runner, resource limits and retained evidence format above.
 
 `remediator/controller.test.ts` exercises the controller's actual admission,
@@ -264,3 +277,35 @@ CAS competition, restart/lost-response handling and stable report retries;
 and produces no workload PATCH when reservation fails. The summary records
 reviewed implementation/test/schema hashes. Correspondence is reviewed
 manually, and the model does not derive correctness from those hashes.
+
+## Generic operation and append-only observation contract
+
+`deploy/guarded-operation.mjs` separates durable reservation, acknowledged effect
+execution and postcondition verification. Kubernetes admission and guarded PATCH
+construction remain in the readiness adapter. The helper is also exercised
+through a distinct key-value adapter in `guarded-operation.test.mjs`.
+
+The upstream [operation-outcome model and contract](https://github.com/emmett08/mas/blob/main/formal/operation-outcomes-notes.md)
+checks the generic lifecycle with original-owner dispatch permission, response
+loss, recovery and a delayed original effect after an unknown report. Its two
+concurrent observation writers compare the retained revision before appending
+and check exact replay, changed-content rejection, immutable history and report
+binding. It models two observation slots; this application retains up to eight.
+The upstream model is reproduced by its own repository's `verify
+--operations-only` command and has no dependency on a sibling checkout.
+
+The controller appends observations to an already Finished journal while retaining
+its original `reportJson`, operation/attempt identity and target binding.
+`shared/resolution.ts` and server tests check the report digest, target UID,
+original template and append-only history. A `desired` snapshot describes a
+resource at observation time. It neither proves the original attempt caused
+that state nor prevents an already-reserved delayed owner from acting later.
+The original `unknown` effect therefore remains unknown. New observations do not
+grant another execution reservation.
+
+The local `controller.pml` continues to abstract the immutable terminal report
+into Verified/Failed/Uncertain for reservation and outbox properties. The expanded
+local `remediation.pml` checks the two outcome axes. The upstream generic model
+checks appended observation semantics; actual TypeScript tests provide separate
+implementation evidence. None of these models establishes a refinement proof
+for the complete deployed system.

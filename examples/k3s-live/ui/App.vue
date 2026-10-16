@@ -9,6 +9,7 @@ import {
   messageTone,
 } from "./topology";
 import type { Message, Run, RunArchive, Snapshot, Topology } from "./types";
+import { outcomeLabels } from "../shared/resolution";
 
 const props = defineProps<{ archive?: RunArchive; archiveError?: string; archiveRequested?: boolean }>();
 const isArchive = computed(() => Boolean(props.archiveRequested || props.archive));
@@ -88,6 +89,8 @@ const hasOutput = computed(
 );
 const evidence = computed(() => currentRun.value?.input?.incident?.evidence);
 const resolution = computed(() => currentRun.value?.resolution);
+const executionLabels = computed(() => resolution.value ? outcomeLabels(resolution.value) : undefined);
+const reconciliations = computed(() => currentRun.value?.reconciliations ?? []);
 const resolutionLabel = computed(() => resolution.value?.status === "verified"
   ? "Verified recovery" : resolution.value?.status === "failed" ? "Recovery not verified" : "Needs engineer");
 const assessment = computed(() => output.value && typeof output.value === "object" && !Array.isArray(output.value)
@@ -1030,9 +1033,19 @@ onBeforeUnmount(() => {
         </div>
         <div class="output-body">
           <p class="assessment-summary">{{ resolution.reason }}</p>
+          <p class="execution-outcomes"><strong>Effect:</strong> <span data-effect-outcome>{{ executionLabels?.effect }}</span> · <strong>Verification:</strong> <span data-verification-outcome>{{ executionLabels?.verification }}</span></p>
+          <p v-if="resolution.version === 'mas-k8s-resolution/2'" class="output-note">Operation {{ resolution.operationId }} · Attempt {{ resolution.attemptId }}</p>
           <p class="output-note">Recorded {{ recordingDate(resolution.recordedAt) }} by the constrained demo verifier. This result is separate from the LLM assessment.</p>
           <ul class="verification-checks"><li v-for="check in resolution.checks" :key="check.name" :class="{ failed: !check.passed }"><strong>{{ check.passed ? 'Passed' : 'Failed' }} · {{ check.name }}</strong><span>{{ check.detail }}</span></li></ul>
           <details class="assessment-details"><summary>Exact patch and before / after evidence</summary><pre>{{ display({ patch: resolution.patch, before: resolution.before, after: resolution.after }) }}</pre></details>
+          <div v-if="reconciliations.length" class="reconciliation-observations">
+            <h3>Later workload observations</h3>
+            <p class="output-note">These reads preserve the original attempt outcome. Seeing the desired template does not establish which actor applied it or authorise another attempt.</p>
+            <details v-for="observation in reconciliations" :key="observation.id" class="assessment-details">
+              <summary>{{ recordingDate(observation.observedAt) }} · {{ observation.state }}</summary>
+              <p>{{ observation.reason }}</p><pre>{{ display(observation) }}</pre>
+            </details>
+          </div>
         </div>
       </section>
 

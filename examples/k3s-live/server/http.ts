@@ -2,7 +2,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { RequestError, type Runs } from './runs.js';
 
 export function application(runs: Runs, topology: unknown, ui: string, verifierToken?: string) {
@@ -23,12 +23,16 @@ export function application(runs: Runs, topology: unknown, ui: string, verifierT
     if (req.method === 'GET' && path === '/api/topology') return reply(res, 200, topology);
     if (req.method === 'GET' && path === '/api/runs') return reply(res, 200, runs.list());
     if (req.method === 'POST' && path === '/api/runs') return reply(res, 202, await runs.create(await requestBody(req)));
-    const resolution = /^\/api\/runs\/([a-zA-Z0-9_-]{1,64})\/resolution$/.exec(path);
+    const resolution = /^\/api\/runs\/([a-zA-Z0-9_-]{1,64})\/(resolution|reconciliations)$/.exec(path);
     if (req.method === 'POST' && resolution) {
       if (!verifierToken) throw new RequestError(503, 'External verifier reporting is not configured');
       const expected = Buffer.from(`Bearer ${verifierToken}`), supplied = Buffer.from(req.headers.authorization ?? '');
       if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) throw new RequestError(401, 'External verifier authentication is required');
-      return reply(res, 202, await runs.recordResolution(resolution[1]!, await requestBody(req)));
+      const body = await requestBody(req);
+      if (resolution[2] === 'resolution') await runs.recordResolution(resolution[1]!, body);
+      else await runs.recordReconciliation(resolution[1]!, body);
+      return reply(res, 202, { accepted: true, runId: resolution[1], kind: resolution[2],
+        recordId: createHash('sha256').update(JSON.stringify(body)).digest('hex') });
     }
     const match = /^\/api\/runs\/([a-zA-Z0-9_-]{1,64})(\/(?:events|snapshot))?$/.exec(path);
     if (req.method === 'GET' && match) {

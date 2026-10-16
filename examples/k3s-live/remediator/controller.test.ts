@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { APIError, type DemoRun } from '../operator/controller.js';
 import type { EvidenceBundle } from '../shared/evidence.js';
+import type { ReconciliationObservation } from '../shared/resolution.js';
 import { canonicalJSON, JOURNAL_PATH, NAMESPACE, RemediationController, RUN_PATH,
   type RemediationBackendAPI, type RemediationJournal, type RemediationKubernetesAPI,
   type ResolutionReport, type Resolver, type Snapshot } from './controller.js';
@@ -104,6 +106,15 @@ class Backend implements RemediationBackendAPI {
   snapshots = new Map<string, Snapshot>();
   reports: { id: string; report: ResolutionReport }[] = [];
   failNextReport = false;
+  observations: ReconciliationObservation[] = [];
+  async reconcile(id: string, value: ReconciliationObservation) {
+    const run = this.snapshots.get(id)?.run;
+    if (run) {
+      run.reconciliations ??= [];
+      if (!run.reconciliations.some(item => item.id === value.id)) run.reconciliations.push(clone(value));
+    }
+    this.observations.push(clone(value));
+  }
   async snapshot(id: string) { return clone(this.snapshots.get(id)); }
   async report(id: string, value: ResolutionReport) {
     const saved = this.snapshots.get(id)?.run;
@@ -352,4 +363,95 @@ test('an existing backend resolution prevents a new effect when no journal exist
   await f.make().tick();
   assert.equal(f.calls(), 0);
   assert.equal(f.kube.creates, 0);
+});
+
+function uncertainOperation() {
+  const f = fixture();
+  const template = { spec: { containers: [{ name: 'checkout', readinessProbe: { httpGet: { path: '/readyz' } } }] } };
+  const desired = clone(template); desired.spec.containers[0]!.readinessProbe.httpGet.path = '/healthz';
+  const hash = (value: unknown) => createHash('sha256').update(canonicalJSON(value)).digest('hex');
+  const evidence = f.kube.runs[0]!.spec.evidence!.items[0]!.data as { templateHash: string };
+  evidence.templateHash = hash(template);
+  f.backend.snapshots.set('k8s-run-1', snapshot(f.kube.runs[0]!));
+  let mutations = 0;
+  const before = { uid: 'deployment-1', resourceVersion: '1', generation: 1, readinessPath: '/readyz',
+    namespaceUID: 'namespace-1', templateHash: hash(template), expectedTemplateHash: hash(desired) };
+  const get = f.kube.get.bind(f.kube);
+  f.kube.get = async <T>(path: string): Promise<T> => path.includes('/deployments/')
+    ? { metadata: { uid: 'deployment-1', resourceVersion: '2', generation: 2 },
+      spec: { template: desired }, status: { observedGeneration: 2, readyReplicas: 1 } } as T
+    : get<T>(path);
+  const execute: Resolver = async (_snapshot, options) => {
+    const prepared: ResolutionReport = { ...report(), version: 'mas-k8s-resolution/2',
+      operationId: options.operationId, attemptId: options.attemptId, effectOutcome: 'not_started', verificationOutcome: 'not_run', before };
+    await options.beforePatch(prepared);
+    mutations++;
+    return { ...prepared, status: 'failed', effectOutcome: 'unknown', reason: 'The patch response was lost' };
+  };
+  return { ...f, execute, mutations: () => mutations };
+}
+
+test('read-only reconciliation appends bounded observations and preserves original unknown across restart', async () => {
+  const f = uncertainOperation();
+  await f.make('owner', 'pod', f.execute).tick();
+  const original = f.kube.journal().status!.reportJson;
+  assert.equal(JSON.parse(original!).effectOutcome, 'unknown');
+  await f.make('restart', 'new-pod', f.execute).tick();
+  const first = f.backend.observations[0]!;
+  assert.equal(first.state, 'desired');
+  assert.equal(first.attemptId, 'owner');
+  assert.equal(first.runId, 'k8s-run-1');
+  assert.equal(first.reportDigest, createHash('sha256').update(original!).digest('hex'));
+  assert.equal(f.kube.journal().status!.reportJson, original);
+  assert.equal(f.mutations(), 1);
+  for (let index = 0; index < 10; index++) await f.make('restart', 'new-pod', f.execute).tick();
+  assert.equal(f.kube.journal().status!.reconciliations!.length, 1, 'Repeated polls do not append timestamps indefinitely');
+  for (let index = 1; index <= 10; index++) {
+    f.setTime(epoch + index * 30_000);
+    await f.make('restart', 'new-pod', f.execute).tick();
+  }
+  assert.equal(f.kube.journal().status!.reconciliations!.length, 8);
+  assert.equal(f.mutations(), 1);
+  assert.equal(f.kube.journal().status!.reportJson, original);
+});
+
+test('lost observation acknowledgement and racing observers publish only retained CAS evidence', async () => {
+  const f = uncertainOperation();
+  await f.make('owner', 'pod', f.execute).tick();
+  f.kube.lostFinishedACK = true;
+  await Promise.all([f.make('reader-a', 'a', f.execute).tick(), f.make('reader-b', 'b', f.execute).tick()]);
+  const retained = f.kube.journal().status!.reconciliations!;
+  assert.equal(retained.length, 1);
+  assert.ok(f.backend.observations.every(item => canonicalJSON(item) === retained[0]));
+  assert.equal(f.mutations(), 1);
+});
+
+test('unavailable reconciliation records absence of evidence without declaring rejection or repeating mutation', async () => {
+  const f = uncertainOperation();
+  await f.make('owner', 'pod', f.execute).tick();
+  const get = f.kube.get.bind(f.kube);
+  f.kube.get = async <T>(path: string): Promise<T> => {
+    if (path.includes('/deployments/')) throw new APIError(503, 'Unavailable');
+    return get<T>(path);
+  };
+  await f.make('restart', 'other', f.execute).tick();
+  assert.equal(f.backend.observations[0]!.state, 'unavailable');
+  assert.equal(f.backend.observations[0]!.evidence, null);
+  assert.equal(JSON.parse(f.kube.journal().status!.reportJson!).effectOutcome, 'unknown');
+  assert.equal(f.mutations(), 1);
+});
+
+test('a report cannot reserve another operation or attempt identity', async () => {
+  for (const changed of ['operationId', 'attemptId'] as const) {
+    const f = fixture();
+    const invalid: Resolver = async (_snapshot, options) => {
+      await options.beforePatch({ ...report(), version: 'mas-k8s-resolution/2',
+        operationId: options.operationId, attemptId: options.attemptId,
+        [changed]: 'another-identity', effectOutcome: 'not_started', verificationOutcome: 'not_run' });
+      throw new Error('Must not obtain effect authority');
+    };
+    await f.make('owner', 'pod', invalid).tick();
+    assert.equal(f.kube.creates, 0);
+    assert.equal(f.backend.reports.length, 0);
+  }
 });

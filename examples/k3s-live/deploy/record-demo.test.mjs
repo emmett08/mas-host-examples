@@ -31,12 +31,13 @@ test('recording selects this Pod UID and rejects duplicate admitted investigatio
 test('recording requires the actual finished controller journal to match its published recovery', () => {
   const snapshot = completed();
   assert.equal(validateControllerResolution(snapshot, undefined, 'source-uid'), false);
-  snapshot.run.resolution = { status: 'verified', reason: 'Ready, HTTP 200 and metrics verified' };
+  snapshot.run.resolution = { version: 'mas-k8s-resolution/2', effectOutcome: 'applied', verificationOutcome: 'passed', status: 'verified', reason: 'Ready, HTTP 200 and metrics verified' };
   const journal = { spec: { runId: snapshot.run.id, sourceRunUID: 'source-uid' },
     status: { phase: 'Finished', reportJson: JSON.stringify(snapshot.run.resolution) } };
   assert.equal(selectRemediationForRun([{ spec: { runId: 'old-run' } }, journal], snapshot.run.id), journal);
   assert.throws(() => selectRemediationForRun([journal, journal], snapshot.run.id), /More than one durable/);
   assert.equal(validateControllerResolution(snapshot, journal, 'source-uid'), true);
+  assert.throws(() => validateControllerResolution({ run: { ...snapshot.run, resolution: { ...snapshot.run.resolution, effectOutcome: 'unknown' } } }, journal, 'source-uid'), /acknowledged applied/);
   assert.throws(() => validateControllerResolution(snapshot, journal, 'other-source'), /no matching finished/);
   assert.throws(() => validateControllerResolution(snapshot, { ...journal, status: { ...journal.status, phase: 'Applying' } }, 'source-uid'), /no matching finished/);
   assert.throws(() => validateControllerResolution(snapshot, { ...journal, status: { ...journal.status, reportJson: '{}' } }, 'source-uid'), /differs from/);
