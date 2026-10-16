@@ -61,6 +61,7 @@ jobs:
       - name: Deploy and exercise event-driven controller with credential-free provider fixture
         env:
           DEMO_MODE: fixture
+          SHOW_PAYLOADS: 'true'
         run: |
           examples/k3s-live/deploy/apply.sh
           examples/k3s-live/deploy/smoke.sh
@@ -151,6 +152,7 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEMO_MODE: live
+          SHOW_PAYLOADS: 'true'
         run: examples/k3s-live/deploy/apply.sh
       - name: Record the live canvas and retain the actual result
         env:

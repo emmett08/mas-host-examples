@@ -60,6 +60,10 @@ compatible-provider profiles.
 
 `SHOW_PAYLOADS=true` includes application message payloads and checkpoint values
 in observations. Metadata is the default. Final run output is always displayed.
+For a local service, start it with `SHOW_PAYLOADS=true DEMO_MODE=live npm start`.
+For Kubernetes, pass `SHOW_PAYLOADS=true` to `deploy/apply.sh`; it records the
+setting in the ConfigMap and rolls the dashboard onto the changed setting.
+The setting accepts only `true` or `false`. Omit it to retain metadata only.
 Do not submit confidential incident data to a demonstration session. To develop
 the UI, run the backend and `npm run dev` in separate terminals; Vite proxies
 `/api` to port 8080.
@@ -167,6 +171,9 @@ further Warning triggers; the recorder rejects duplicate admissions for that Pod
 The fixture recording uses the five-second paced providers described above;
 its video shows actual MAS envelopes carrying deterministic responses. Live
 recordings retain actual provider timing and use the configured OpenAI models.
+Both recording jobs explicitly enable payload capture. Successful capture
+requires every recorded request and result to contain its payload; a
+metadata-only session fails capture rather than producing a payload-free demo.
 Recordings and traces
 remain available for seven days; the cluster is deleted when its job finishes,
 including after failure.
@@ -177,6 +184,11 @@ styles and the run's collected observations. It needs no server, installation,
 provider key or network connection. Play or pause the flow, change speed, seek
 along the timeline, inspect envelopes and view the final assessment. The page
 labels recorded playback and distinguishes real LLM runs from provider fixtures.
+Select a message in the log to inspect its captured JSON payload, including
+request inputs and agent results. Payloads are embedded in the download, so
+share recordings only with their intended audience. Provider credentials are
+excluded. An older metadata-only recording cannot reveal payloads by changing a
+browser setting: capture a new run with `SHOW_PAYLOADS=true` to include them.
 Playback follows sampled host observations; it does not reconstruct network send
 times or perform new inference. Messages present in the first observation form
 the initial state. Forward playback animates subsequently observed envelopes.
@@ -197,8 +209,9 @@ npm run archive -- /path/to/extracted-capture
 ```
 
 The workflow checks the built file through `file://` with HTTP requests blocked,
-including playback, pause, speed, seeking, restart and message inspection. Its
-result is retained in `dashboard/verification.json`.
+including playback, pause, speed, seeking, restart and message inspection. When
+payloads were included, it compares a request and a result in the inspector with
+the captured JSON. The results are retained in `dashboard/verification.json`.
 
 ## Verification and operational limits
 

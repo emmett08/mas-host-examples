@@ -9,12 +9,12 @@ function completed() {
     ['security', 'security_review'], ['security', 'security_review'], ['coordinator', 'decision'],
   ];
   const messages = routes.flatMap(([sender, recipient], index) => [
-    { id: `request-${index}`, sequence: index * 2 + 1, sender, recipient, kind: 'request' },
+    { id: `request-${index}`, sequence: index * 2 + 1, sender, recipient, kind: 'request', payload: { input: {} } },
     { id: `result-${index}`, sequence: index * 2 + 2, sender: recipient, recipient: sender,
-      kind: 'result', correlation: `request-${index}` },
+      kind: 'result', correlation: `request-${index}`, payload: { output: {}, reply_to: `request-${index}` } },
   ]);
   return { run: { id: 'k8s-uid', mode: 'live', status: 'completed', output: {} },
-    observationAvailable: true, observation: { messages } };
+    observationAvailable: true, observation: { payloads_included: true, messages } };
 }
 
 test('recording selects this Pod UID and rejects duplicate admitted investigations', () => {
@@ -34,6 +34,19 @@ test('recording requires actual completed observations in the requested provider
   const failed = completed();
   failed.run.status = 'failed';
   assert.throws(() => validateSnapshot(failed, 'live', 'k8s-uid'), /did not complete/);
+});
+
+test('recording rejects metadata-only observations and missing or inherited envelope payloads', () => {
+  for (const flag of [false, undefined]) {
+    const metadata = completed();
+    metadata.observation.payloads_included = flag;
+    assert.throws(() => validateSnapshot(metadata, 'live', 'k8s-uid'), /SHOW_PAYLOADS=true/);
+  }
+  const missing = completed();
+  delete missing.observation.messages[0].payload;
+  assert.throws(() => validateSnapshot(missing, 'live', 'k8s-uid'), /requires message payloads/);
+  Object.setPrototypeOf(missing.observation.messages[0], { payload: { input: {} } });
+  assert.throws(() => validateSnapshot(missing, 'live', 'k8s-uid'), /requires message payloads/);
 });
 
 test('recording reports the retained safe cause rather than replacing it with a generic completion error', () => {

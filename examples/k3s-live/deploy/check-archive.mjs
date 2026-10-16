@@ -70,6 +70,21 @@ export async function checkArchive(directory, launchOptions = {}) {
       await row.click();
       assert.match(await page.locator('#inspector-title').innerText(), /Envelope/);
     }
+    const payloadInspections = [];
+    if (final.observation.payloads_included === true) {
+      for (const kind of ['request', 'result']) {
+        const message = final.observation.messages.find(message => message.kind === kind);
+        if (!message) continue; // Failed captures can end before a result exists.
+        assert.ok(Object.hasOwn(message, 'payload'), `The recorded ${kind} must retain its payload`);
+        await page.getByRole('button', {
+          name: `Inspect message ${message.sequence}: ${message.sender} to ${message.recipient}`, exact: true,
+        }).click();
+        assert.deepEqual(JSON.parse(await page.locator('.inspector-panel .payload').innerText()), message.payload,
+          `The offline inspector must display the captured ${kind} payload unchanged`);
+        assert.equal(await page.locator('.payload-hidden').count(), 0);
+        payloadInspections.push(kind);
+      }
+    }
     await timeline.focus();
     await timeline.press('Home');
     assert.equal(await envelopeCount(), firstCount);
@@ -90,7 +105,7 @@ export async function checkArchive(directory, launchOptions = {}) {
     const report = { runId: archive.runId, mode: final.run.mode, initialEnvelopes: firstCount,
       finalEnvelopes: finalCount, offline: true, checks: ['file-url',
         ...(firstCount < finalCount ? ['play-pause', 'speed'] : []), 'seek', 'restart',
-        ...(inspected ? ['inspection'] : []), 'no-network'], errors };
+        ...(inspected ? ['inspection'] : []), ...payloadInspections.map(kind => `${kind}-payload`), 'no-network'], errors };
     await writeFile(join(resolve(directory), 'dashboard', 'verification.json'), `${JSON.stringify(report, null, 2)}\n`);
     console.log(`Verified portable Vue dashboard: ${firstCount} → ${finalCount} envelopes, no network access`);
     return report;
