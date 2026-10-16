@@ -117,6 +117,11 @@ test('real host retains a defective draft, exact findings and bounded revision; 
   while (recovered.get('assessed-incident').status === 'running' && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
   assert.equal(recovered.get('assessed-incident').status, 'completed');
   assert.deepEqual(recovered.get('assessed-incident').output, result.output);
+  const remediation = await recovered.remediationSnapshot('assessed-incident');
+  assert.deepEqual(remediation.run.output, revised!.output);
+  assert.deepEqual(remediation.run.revisionSelection, { status: 'completed', candidate: result.revision.selected,
+    output_sha256: revised!.output_sha256 });
+  assert.equal('revision' in remediation.run, false);
   assert.equal((await host.observe('assessed-incident', state)).messages.length, snapshot.messages.length);
 });
 

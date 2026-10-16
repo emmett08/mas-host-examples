@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { DemoRun, EventEvidence, Metadata } from '../operator/controller.js';
 import { evidenceFromStorage } from '../operator/evidence.js';
 import type { EvidenceBundle } from '../shared/evidence.js';
+import type { DigestRef } from '../shared/revision.mjs';
 import { validOutcomeCombination, type ResolutionReport, type ReconciliationObservation } from '../shared/resolution.js';
 
 export type { ResolutionReport };
@@ -16,6 +17,7 @@ export interface Snapshot {
     id: string; status: string; startedAt?: string;
     input: { incident: { scenario?: string; source?: string; event?: EventEvidence; evidence?: EvidenceBundle } };
     output?: unknown; resolution?: ResolutionReport; reconciliations?: ReconciliationObservation[];
+    revisionSelection?: { status: string; candidate: DigestRef; output_sha256: string };
   };
 }
 export interface RemediationKubernetesAPI {

@@ -130,6 +130,11 @@ It polls completed `MASDemoRun` objects, binds the backend run ID, Event and
 evidence to the admitted custom resource, and checks evidence age before
 considering a change. It reuses the same admission and recovery functions as
 the original workflow tool, through direct Kubernetes HTTPS requests.
+Its `/api/runs/:id/remediation` response carries the unchanged incident, exact
+selected output and digest reference, completion state and retained remediation
+records. Invocation history stays in the dashboard snapshot so a growing audit
+does not exhaust the controller's unchanged 1 MiB response limit. All original
+evidence and live-resource admission checks still apply.
 
 Before applying a patch it creates a `MASRemediation` journal and reserves the
 attempt through a resource-version-conditional status update. The journal

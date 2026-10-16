@@ -151,7 +151,7 @@ export function createRemediationTransport(options: RemediationTransportOptions)
     isDefiniteRejection: (error: unknown) => error instanceof APIError && [400, 401, 403, 404, 405, 409, 415, 422, 429].includes(error.statusCode),
     kubectl: createKubernetesExecutor(options.client),
     async snapshot(id: string): Promise<Snapshot | undefined> {
-      const response = await request(`${baseURL}${runPath(id)}/snapshot`, {
+      const response = await request(`${baseURL}${runPath(id)}/remediation`, {
         redirect: 'error', signal: AbortSignal.timeout(10_000), headers: { accept: 'application/json' },
       });
       if (response.status === 404) { await response.body?.cancel(); return undefined; }

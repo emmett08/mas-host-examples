@@ -43,7 +43,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-u91ugo4g/pan",
+        "/tmp/mas-spin-i63lkvr3/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -79,7 +79,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-30z_psrc/pan",
+        "/tmp/mas-spin-abw8hmms/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -112,7 +112,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-khd2ueg1/pan",
+        "/tmp/mas-spin-24q8a4gg/pan",
         "-a",
         "-b",
         "-m100000",
@@ -147,7 +147,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-eds6249i/pan",
+        "/tmp/mas-spin-7s6jaf14/pan",
         "-a",
         "-b",
         "-m100000",
@@ -184,7 +184,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-1p1zsc7q/pan",
+        "/tmp/mas-spin-92ywooyh/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -233,7 +233,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-o5fxrv57/pan",
+        "/tmp/mas-spin-yo793dx7/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -282,7 +282,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-9qh9wi1o/pan",
+        "/tmp/mas-spin-rxabbave/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -352,7 +352,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-9jw_n2ls/pan",
+        "/tmp/mas-spin-kjgb9lnv/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -388,13 +388,13 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-wkf90foh/pan",
+        "/tmp/mas-spin-ifww41z1/pan",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 52 byte, depth reached 73, errors: 0\n     2265 states, stored\n     2654 states, matched\n     4919 transitions (= stored+matched)\n     4666 atomic steps\nhash conflicts:         4 (resolved)\n\nStats on memory usage (in Megabytes):\n    0.156\tequivalent memory usage for states (stored*(State-vector + overhead))\n    0.348\tactual memory usage for states\n    8.000\tmemory used for hash table (-w20)\n    4.578\tmemory used for DFS stack (-m100000)\n   12.871\ttotal actual memory usage\n\n\nunreached in proctype Choreography\n\thybrid.pml:40, state 282, \"(1)\"\n\t(1 of 330 states)\nunreached in claim choreography_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(done))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0.01 seconds\n"
+      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 52 byte, depth reached 73, errors: 0\n     2265 states, stored\n     2654 states, matched\n     4919 transitions (= stored+matched)\n     4666 atomic steps\nhash conflicts:         4 (resolved)\n\nStats on memory usage (in Megabytes):\n    0.156\tequivalent memory usage for states (stored*(State-vector + overhead))\n    0.348\tactual memory usage for states\n    8.000\tmemory used for hash table (-w20)\n    4.578\tmemory used for DFS stack (-m100000)\n   12.871\ttotal actual memory usage\n\n\nunreached in proctype Choreography\n\thybrid.pml:40, state 282, \"(1)\"\n\t(1 of 330 states)\nunreached in claim choreography_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(done))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0 seconds\n"
     }
   ],
   "settlement": [
@@ -421,7 +421,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-gn9i8awm/pan",
+        "/tmp/mas-spin-kzf6npnx/pan",
         "-a",
         "-b",
         "-m100000",
@@ -456,7 +456,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-7kx9x9ao/pan",
+        "/tmp/mas-spin-1nn20yq0/pan",
         "-a",
         "-b",
         "-m100000",
@@ -493,7 +493,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-7i171tu2/pan",
+        "/tmp/mas-spin-9uxveyaq/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -542,7 +542,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-hj7ypzf1/pan",
+        "/tmp/mas-spin-d06uzrpd/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -591,7 +591,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-4hbi6s_f/pan",
+        "/tmp/mas-spin-kao6gx8e/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -640,7 +640,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-rrj0j005/pan",
+        "/tmp/mas-spin-0iccy00y/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -687,7 +687,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-7tjo48dz/pan",
+        "/tmp/mas-spin-ko5p0468/pan",
         "-a",
         "-b",
         "-m100000",
@@ -737,7 +737,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-iydnf9ua/pan",
+        "/tmp/mas-spin-4e9gwsgo/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -807,7 +807,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-bupk2cs0/pan",
+        "/tmp/mas-spin-bmujbxs9/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -843,7 +843,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-8l4co1dd/pan",
+        "/tmp/mas-spin-ku4vfdux/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -876,14 +876,14 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-8rrz1634/pan",
+        "/tmp/mas-spin-nk620mto/pan",
         "-a",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t+ (remediation_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 28 byte, depth reached 94, errors: 0\n     9092 states, stored (18184 visited)\n     8265 states, matched\n    26449 transitions (= visited+matched)\n        0 atomic steps\nhash conflicts:        53 (resolved)\n\nStats on memory usage (in Megabytes):\n    0.486\tequivalent memory usage for states (stored*(State-vector + overhead))\n    0.556\tactual memory usage for states\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   13.829\ttotal actual memory usage\n\n\nunreached in proctype Remediation\n\t(0 of 184 states)\nunreached in claim remediation_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 0.01 seconds\n"
+      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t+ (remediation_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 28 byte, depth reached 94, errors: 0\n     9092 states, stored (18184 visited)\n     8265 states, matched\n    26449 transitions (= visited+matched)\n        0 atomic steps\nhash conflicts:        53 (resolved)\n\nStats on memory usage (in Megabytes):\n    0.486\tequivalent memory usage for states (stored*(State-vector + overhead))\n    0.556\tactual memory usage for states\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   13.829\ttotal actual memory usage\n\n\nunreached in proctype Remediation\n\t(0 of 184 states)\nunreached in claim remediation_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 0 seconds\n"
     }
   ],
   "remediation-settlement-no-reduction": [
@@ -911,7 +911,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-el1gasie/pan",
+        "/tmp/mas-spin-u2vei78j/pan",
         "-a",
         "-b",
         "-m100000",
@@ -948,7 +948,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-3gez9peu/pan",
+        "/tmp/mas-spin-esyo4012/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -997,7 +997,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-rmj78zvj/pan",
+        "/tmp/mas-spin-92relc79/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1046,7 +1046,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-440061bq/pan",
+        "/tmp/mas-spin-ft0q9b16/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1095,7 +1095,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-o86yi1qf/pan",
+        "/tmp/mas-spin-2h_i34t7/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1142,7 +1142,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-p8t7yh0i/pan",
+        "/tmp/mas-spin-og6ctpq_/pan",
         "-a",
         "-b",
         "-m100000",
@@ -1192,7 +1192,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-5xaehipv/pan",
+        "/tmp/mas-spin-nqge58bw/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1241,7 +1241,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-rpcs6_wa/pan",
+        "/tmp/mas-spin-rs4frkme/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1290,7 +1290,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-m7__3xw2/pan",
+        "/tmp/mas-spin-hsw0h7g5/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1360,13 +1360,13 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-pxkoe533/pan",
+        "/tmp/mas-spin-wohzo3f7/pan",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 0\n   556668 states, stored\n   309086 states, matched\n   865754 transitions (= stored+matched)\n   148372 atomic steps\nhash conflicts:     55309 (resolved)\n\nStats on memory usage (in Megabytes):\n   50.964\tequivalent memory usage for states (stored*(State-vector + overhead))\n   41.963\tactual memory usage for states (compression: 82.34%)\n         \tstate-vector as stored = 51 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.235\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\t(0 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(((((workers_done==2)&&expiry_done)&&publisher_done)&&(phase!=Applying))))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0.15 seconds\npan: rate   3711120 states/second\n"
+      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 0\n   556668 states, stored\n   309086 states, matched\n   865754 transitions (= stored+matched)\n   148372 atomic steps\nhash conflicts:     55309 (resolved)\n\nStats on memory usage (in Megabytes):\n   50.964\tequivalent memory usage for states (stored*(State-vector + overhead))\n   41.963\tactual memory usage for states (compression: 82.34%)\n         \tstate-vector as stored = 51 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.235\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\t(0 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(((((workers_done==2)&&expiry_done)&&publisher_done)&&(phase!=Applying))))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0.17 seconds\npan: rate 3274517.6 states/second\n"
     }
   ],
   "controller-safety-no-reduction": [
@@ -1396,13 +1396,13 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-srx3lq1h/pan",
+        "/tmp/mas-spin-7yae0rtd/pan",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "Depth=      97 States=    1e+06 Transitions= 3.57e+06 Memory=    80.449\tt=     0.49 R=   2e+06\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 0\n  1582164 states, stored\n  4024124 states, matched\n  5606288 transitions (= stored+matched)\n   719423 atomic steps\nhash conflicts:   1496795 (resolved)\n\nStats on memory usage (in Megabytes):\n  132.780\tequivalent memory usage for states (stored*(State-vector + overhead))\n  107.405\tactual memory usage for states (compression: 80.89%)\n         \tstate-vector as stored = 51 byte + 20 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    4.578\tmemory used for DFS stack (-m100000)\n  119.902\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\t(0 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(((((workers_done==2)&&expiry_done)&&publisher_done)&&(phase!=Applying))))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0.85 seconds\npan: rate 1861369.4 states/second\n"
+      "output": "Depth=      97 States=    1e+06 Transitions= 3.57e+06 Memory=    80.449\tt=     0.52 R=   2e+06\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 0\n  1582164 states, stored\n  4024124 states, matched\n  5606288 transitions (= stored+matched)\n   719423 atomic steps\nhash conflicts:   1496795 (resolved)\n\nStats on memory usage (in Megabytes):\n  132.780\tequivalent memory usage for states (stored*(State-vector + overhead))\n  107.405\tactual memory usage for states (compression: 80.89%)\n         \tstate-vector as stored = 51 byte + 20 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    4.578\tmemory used for DFS stack (-m100000)\n  119.902\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\t(0 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(((((workers_done==2)&&expiry_done)&&publisher_done)&&(phase!=Applying))))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0.9 seconds\npan: rate   1757960 states/second\n"
     }
   ],
   "controller-settlement": [
@@ -1429,14 +1429,14 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-3xedevxb/pan",
+        "/tmp/mas-spin-wkxrjugc/pan",
         "-a",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "Depth=     162 States=    1e+06 Transitions= 2.04e+06 Memory=    51.622\tt=     0.32 R=   3e+06\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t+ (controller_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 84 byte, depth reached 162, errors: 0\n   555547 states, stored (1.11109e+06 visited)\n  1164057 states, matched\n  2275151 transitions (= visited+matched)\n   296744 atomic steps\nhash conflicts:    228019 (resolved)\n\nStats on memory usage (in Megabytes):\n   59.339\tequivalent memory usage for states (stored*(State-vector + overhead))\n   42.541\tactual memory usage for states (compression: 71.69%)\n         \tstate-vector as stored = 52 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.821\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\tcontroller.pml:307, state 27, \"assert((effects<=1))\"\n\tcontroller.pml:308, state 28, \"assert((phase!=Applying))\"\n\tcontroller.pml:309, state 29, \"assert(((durable_report==NoReport)||(durable_report==first_report)))\"\n\tcontroller.pml:316, state 30, \"-end-\"\n\t(4 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 0.36 seconds\npan: rate 3086372.2 states/second\n"
+      "output": "Depth=     162 States=    1e+06 Transitions= 2.04e+06 Memory=    51.622\tt=     0.31 R=   3e+06\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t+ (controller_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 84 byte, depth reached 162, errors: 0\n   555547 states, stored (1.11109e+06 visited)\n  1164057 states, matched\n  2275151 transitions (= visited+matched)\n   296744 atomic steps\nhash conflicts:    228019 (resolved)\n\nStats on memory usage (in Megabytes):\n   59.339\tequivalent memory usage for states (stored*(State-vector + overhead))\n   42.541\tactual memory usage for states (compression: 71.69%)\n         \tstate-vector as stored = 52 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.821\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\tcontroller.pml:307, state 27, \"assert((effects<=1))\"\n\tcontroller.pml:308, state 28, \"assert((phase!=Applying))\"\n\tcontroller.pml:309, state 29, \"assert(((durable_report==NoReport)||(durable_report==first_report)))\"\n\tcontroller.pml:316, state 30, \"-end-\"\n\t(4 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 0.35 seconds\npan: rate 3174554.3 states/second\n"
     }
   ],
   "controller-settlement-no-reduction": [
@@ -1464,14 +1464,14 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-vvep2ykm/pan",
+        "/tmp/mas-spin-s5rbq21c/pan",
         "-a",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "Depth=     162 States=    1e+06 Transitions= 4.08e+06 Memory=    51.622\tt=     0.49 R=   2e+06\nDepth=     162 States=    2e+06 Transitions= 8.16e+06 Memory=    89.806\tt=     1.07 R=   2e+06\nDepth=     162 States=    3e+06 Transitions= 1.22e+07 Memory=   127.892\tt=      1.7 R=   2e+06\npan: resizing hashtable to -w22..  done\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t+ (controller_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 84 byte, depth reached 162, errors: 0\n  1567475 states, stored (3.13495e+06 visited)\n  9578925 states, matched\n 12713875 transitions (= visited+matched)\n  1438846 atomic steps\nhash conflicts:   3566835 (resolved)\n\nStats on memory usage (in Megabytes):\n  167.424\tequivalent memory usage for states (stored*(State-vector + overhead))\n  126.839\tactual memory usage for states (compression: 75.76%)\n         \tstate-vector as stored = 57 byte + 28 byte overhead\n   32.000\tmemory used for hash table (-w22)\n    5.341\tmemory used for DFS stack (-m100000)\n  164.091\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\tcontroller.pml:307, state 27, \"assert((effects<=1))\"\n\tcontroller.pml:308, state 28, \"assert((phase!=Applying))\"\n\tcontroller.pml:309, state 29, \"assert(((durable_report==NoReport)||(durable_report==first_report)))\"\n\tcontroller.pml:316, state 30, \"-end-\"\n\t(4 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 1.83 seconds\npan: rate 1713087.4 states/second\n"
+      "output": "Depth=     162 States=    1e+06 Transitions= 4.08e+06 Memory=    51.622\tt=      0.5 R=   2e+06\nDepth=     162 States=    2e+06 Transitions= 8.16e+06 Memory=    89.806\tt=     1.07 R=   2e+06\nDepth=     162 States=    3e+06 Transitions= 1.22e+07 Memory=   127.892\tt=     1.71 R=   2e+06\npan: resizing hashtable to -w22..  done\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t+ (controller_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 84 byte, depth reached 162, errors: 0\n  1567475 states, stored (3.13495e+06 visited)\n  9578925 states, matched\n 12713875 transitions (= visited+matched)\n  1438846 atomic steps\nhash conflicts:   3566835 (resolved)\n\nStats on memory usage (in Megabytes):\n  167.424\tequivalent memory usage for states (stored*(State-vector + overhead))\n  126.839\tactual memory usage for states (compression: 75.76%)\n         \tstate-vector as stored = 57 byte + 28 byte overhead\n   32.000\tmemory used for hash table (-w22)\n    5.341\tmemory used for DFS stack (-m100000)\n  164.091\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\tcontroller.pml:307, state 27, \"assert((effects<=1))\"\n\tcontroller.pml:308, state 28, \"assert((phase!=Applying))\"\n\tcontroller.pml:309, state 29, \"assert(((durable_report==NoReport)||(durable_report==first_report)))\"\n\tcontroller.pml:316, state 30, \"-end-\"\n\t(4 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 1.84 seconds\npan: rate 1703777.2 states/second\n"
     }
   ],
   "controller-lost-create-ack": [
@@ -1501,13 +1501,13 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-zhvp0vq_/pan",
+        "/tmp/mas-spin-8543w1jn/pan",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "pan:1: assertion violated  !(lost_create_ack[id]) (at depth 57)\npan: wrote controller.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 1\n   212788 states, stored\n   109979 states, matched\n   322767 transitions (= stored+matched)\n    52303 atomic steps\nhash conflicts:      5359 (resolved)\n\nStats on memory usage (in Megabytes):\n   19.481\tequivalent memory usage for states (stored*(State-vector + overhead))\n   16.174\tactual memory usage for states (compression: 83.02%)\n         \tstate-vector as stored = 52 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   29.454\ttotal actual memory usage\n\n\n\npan: elapsed time 0.05 seconds\npan: rate   4255760 states/second\n"
+      "output": "pan:1: assertion violated  !(lost_create_ack[id]) (at depth 57)\npan: wrote controller.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 1\n   212788 states, stored\n   109979 states, matched\n   322767 transitions (= stored+matched)\n    52303 atomic steps\nhash conflicts:      5359 (resolved)\n\nStats on memory usage (in Megabytes):\n   19.481\tequivalent memory usage for states (stored*(State-vector + overhead))\n   16.174\tactual memory usage for states (compression: 83.02%)\n         \tstate-vector as stored = 52 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   29.454\ttotal actual memory usage\n\n\n\npan: elapsed time 0.06 seconds\npan: rate 3546466.7 states/second\n"
     },
     {
       "command": [
@@ -1550,7 +1550,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-fdh2ddx6/pan",
+        "/tmp/mas-spin-fo618h9r/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1599,7 +1599,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-0zn0muw5/pan",
+        "/tmp/mas-spin-hnmjfocs/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1648,7 +1648,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-gcuti5us/pan",
+        "/tmp/mas-spin-x7nvekkn/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1697,7 +1697,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-ttu1g8lp/pan",
+        "/tmp/mas-spin-7_99pa_h/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1746,7 +1746,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-kbt2f9q2/pan",
+        "/tmp/mas-spin-bef7ep43/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1793,7 +1793,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-3grjmqt9/pan",
+        "/tmp/mas-spin-tzuip6m4/pan",
         "-a",
         "-b",
         "-m100000",
@@ -1843,7 +1843,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-071jqf47/pan",
+        "/tmp/mas-spin-p_jeonef/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1892,7 +1892,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-sbpscvdp/pan",
+        "/tmp/mas-spin-hyzkro31/pan",
         "-b",
         "-m100000",
         "-w20"

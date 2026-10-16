@@ -149,6 +149,7 @@ test('backend transport uses the fixed namespace Service, bounded snapshots and 
   await assert.rejects(transport.snapshot('redirect'));
   assert.ok(targets.every(target => target === 'http://mas-demo.mas-demo.svc:8080'));
   assert.equal(seen[0]!.auth, undefined);
+  assert.equal(seen[0]!.path, '/api/runs/event_one/remediation');
   assert.equal(seen[1]!.method, 'POST');
   assert.equal(seen[1]!.path, '/api/runs/event_one/resolution');
   assert.equal(seen[1]!.auth, `Bearer ${'a'.repeat(64)}`);

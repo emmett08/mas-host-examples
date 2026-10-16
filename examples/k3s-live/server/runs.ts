@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { HostRunFailure, type Host } from './host.js';
 import type { FailureDiagnostics } from './diagnostics.js';
 import { parseEvidence, type EvidenceBundle } from '../shared/evidence.js';
-import { parseRevisionAudit, type RevisionAudit } from '../shared/revision.mjs';
+import { parseRevisionAudit, verifySelectedOutput, type RevisionAudit } from '../shared/revision.mjs';
 
 import { validOutcomeCombination, type ResolutionReport, type ReconciliationObservation } from '../shared/resolution.js';
 export type { ResolutionReport, ReconciliationObservation };
@@ -231,6 +231,26 @@ export class Runs {
     const revision = observation?.revision ? parseRevisionAudit(observation.revision) : run.revision;
     return { run: revision ? { ...run, revision } : run, observation: observation ?? { messages: [] },
       observationAvailable: this.observations.has(id) };
+  }
+  async remediationSnapshot(id: string) {
+    const run = this.get(id);
+    if ((run.revisionEnabled || run.revision) && run.status === 'completed' &&
+        (run.revision?.status !== 'completed' || !run.revision.selected || run.output === undefined)) {
+      throw new RequestError(409, 'Completed revision evidence is required for remediation');
+    }
+    let revisionSelection;
+    if (run.revision?.selected && run.output !== undefined) {
+      await verifySelectedOutput(run.revision, run.output);
+      const candidate = run.revision.records.find(row => row.kind === 'candidate' && row.id === run.revision!.selected!.id)!;
+      revisionSelection = { status: run.revision.status, candidate: run.revision.selected,
+        output_sha256: candidate.record?.output_sha256 ?? candidate.output_sha256 };
+    }
+    // The controller needs the original incident and exact selected output, not
+    // observer history or repeated invocation contexts. Preserve its byte bound
+    // and every existing admission/recovery field without granting new authority.
+    return { run: { id: run.id, status: run.status, startedAt: run.startedAt, input: run.input,
+      output: run.output, resolution: run.resolution, reconciliations: run.reconciliations,
+      ...(revisionSelection ? { revisionSelection } : {}) } };
   }
   async shutdown() {
     this.stopping = true;
