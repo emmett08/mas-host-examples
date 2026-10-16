@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { request } from 'node:https';
 import { APIError, type DemoAPI, type EventEvidence, type KubernetesAPI, type RunState } from './controller.js';
+import type { EvidenceBundle } from '../shared/evidence.js';
 
 export class InClusterKubernetesClient implements KubernetesAPI {
   constructor(private readonly baseURL: string,
@@ -25,6 +26,9 @@ export class InClusterKubernetesClient implements KubernetesAPI {
   }
 
   get<T>(path: string): Promise<T> { return this.call('GET', new URL(path, this.baseURL)); }
+  text(path: string, maxBytes = 4096): Promise<string> {
+    return this.call<string>('GET', new URL(path, this.baseURL), undefined, true, Math.min(8192, maxBytes));
+  }
   create<T>(path: string, resource: unknown): Promise<T> {
     return this.call('POST', new URL(path, this.baseURL), resource);
   }
@@ -32,14 +36,14 @@ export class InClusterKubernetesClient implements KubernetesAPI {
     await this.call('PATCH', new URL(path, this.baseURL), { status });
   }
 
-  private call<T>(method: string, url: URL, body?: unknown): Promise<T> {
+  private call<T>(method: string, url: URL, body?: unknown, plainText = false, maxBytes = 8 * 1024 * 1024): Promise<T> {
     // Projected tokens rotate; read the current token for every request.
     const token = readFileSync(this.tokenPath, 'utf8').trim();
     const payload = body === undefined ? undefined : JSON.stringify(body);
     return new Promise((resolve, reject) => {
       const req = request(url, {
         method, ca: readFileSync(this.caPath), timeout: 10_000,
-        headers: { authorization: `Bearer ${token}`, accept: 'application/json',
+        headers: { authorization: `Bearer ${token}`, accept: plainText ? 'text/plain' : 'application/json',
           ...(payload ? { 'content-type': method === 'PATCH' ? 'application/merge-patch+json' : 'application/json',
             'content-length': Buffer.byteLength(payload) } : {}) },
       }, response => {
@@ -47,14 +51,14 @@ export class InClusterKubernetesClient implements KubernetesAPI {
         response.setEncoding('utf8');
         response.on('data', chunk => {
           data += chunk;
-          if (data.length > 8 * 1024 * 1024) req.destroy(new Error('Kubernetes response exceeds 8 MiB'));
+          if (Buffer.byteLength(data) > maxBytes) req.destroy(new Error('Kubernetes response exceeds byte limit'));
         });
         response.on('end', () => {
           if ((response.statusCode ?? 500) >= 400) {
             reject(new APIError(response.statusCode ?? 500, `Kubernetes API ${method} ${url.pathname}: ${response.statusCode}`));
             return;
           }
-          try { resolve(JSON.parse(data) as T); } catch (error) { reject(error); }
+          try { resolve((plainText ? data : JSON.parse(data)) as T); } catch (error) { reject(error); }
         });
         response.on('error', reject);
       });
@@ -82,7 +86,7 @@ export class LocalDemoClient implements DemoAPI {
     return await response.json() as RunState;
   }
 
-  async start(input: { id: string; scenario: 'pod-crash'; event?: EventEvidence }): Promise<RunState> {
+  async start(input: { id: string; scenario: 'pod-incident' | 'pod-crash'; event?: EventEvidence; evidence?: EvidenceBundle }): Promise<RunState> {
     const response = await fetch(new URL('/api/runs', this.baseURL), {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input), signal: AbortSignal.timeout(10_000),

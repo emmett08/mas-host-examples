@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the finite demo choreography with SPIN; keep raw, inspectable evidence."""
+"""Check finite demo choreography and remediation with SPIN; retain evidence."""
 from __future__ import annotations
 
 import argparse
@@ -12,6 +12,7 @@ import resource
 import shutil
 import subprocess
 import tempfile
+import zipfile
 
 ROOT = Path(__file__).resolve().parent
 TIMEOUT_SECONDS = 30
@@ -28,6 +29,16 @@ CASES = [
     ("observer-dispatch", "BUG_OBSERVER_DISPATCH", False, False, "(observed_dispatches==dispatches)"),
     ("provider-stall", "BUG_STALL", True, False, "acceptance cycle"),
     ("success-witness", "WITNESS_SUCCESS", False, False, "(state[0]!=Succeeded)"),
+    ("remediation-safety", None, False, False, None),
+    ("remediation-safety-no-reduction", None, False, True, None),
+    ("remediation-settlement", None, True, False, None),
+    ("remediation-settlement-no-reduction", None, True, True, None),
+    ("remediation-missing-uid-guard", "BUG_UID_GUARD", False, False, "patch_uid_matches"),
+    ("remediation-early-verified", "BUG_EARLY_VERIFIED", False, False, "fresh_metrics"),
+    ("remediation-stale-resource-version", "BUG_STALE_RV", False, False, "resource_version_matches"),
+    ("remediation-report-auth", "BUG_REPORT_AUTH", False, False, "(!(report_published)||report_authenticated)"),
+    ("remediation-api-stall", "BUG_REMEDIATION_STALL", True, False, "acceptance cycle"),
+    ("remediation-success-witness", "WITNESS_REMEDIATION_SUCCESS", False, False, "(outcome!=Verified)"),
 ]
 
 
@@ -59,13 +70,30 @@ def main() -> int:
     compiler = shutil.which(os.environ.get("CC", "cc"))
     source = ROOT / "hybrid.pml"
     summary = {
-        "schema": "mas-k3s-choreography-verification/1",
+        "schema": "mas-k3s-application-verification/2",
         "model_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "models": {
+            "hybrid.pml": {"sha256": hashlib.sha256(source.read_bytes()).hexdigest()},
+            "remediation.pml": {
+                "sha256": hashlib.sha256((ROOT / "remediation.pml").read_bytes()).hexdigest(),
+                "bounds": {"bundles": 1, "proposals": 1, "targets": 1, "tool_invocations": 1,
+                           "maximum_patch_effects": 1, "report_publications": 1},
+                "assumptions": [
+                    "Every API call and bounded recovery poll returns or reaches a finite failure deadline",
+                    "Exact comparisons and Kubernetes atomic JSON Patch tests are abstract Boolean predicates",
+                    "No crash, restart, retry, storage loss, cryptographic adversary or unrestricted exactly-once claim",
+                    "Recovery predicates represent actual checks, not the truth of LLM diagnosis",
+                    "No fairness option; positive transitions consume finite remaining work",
+                ],
+            },
+        },
         "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "reviewed_application_files": {
             name: hashlib.sha256((ROOT.parent / name).read_bytes()).hexdigest()
             for name in ("project/topology.yaml", "project/workflows/coordinator.yaml",
-                         "project/workflows/platform.yaml", "project/workflows/security.yaml")
+                         "project/workflows/platform.yaml", "project/workflows/security.yaml",
+                         "deploy/remediation.mjs", "deploy/remediation.test.mjs",
+                         "server/http.ts", "server/runs.ts", "server/runs.test.ts")
         },
         "bounds": {"actors": 7, "request_identities": 8, "runs": 1, "observer_reads": 2},
         "limits": {"seconds_per_command": TIMEOUT_SECONDS, "address_space_bytes": MEMORY_BYTES,
@@ -86,20 +114,25 @@ def main() -> int:
     summary["spin"] = run([spin, "-V"], ROOT, versions).strip()
     summary["compiler"] = run([compiler, "--version"], ROOT, versions).splitlines()[0]
     raw_commands = {"tool_versions": versions}
+    counterexamples = out / "counterexamples.zip"
+    counterexamples.unlink(missing_ok=True)
     for name, macro, liveness, no_reduction, violation in CASES:
+        source = ROOT / ("remediation.pml" if name.startswith("remediation-") else "hybrid.pml")
+        claim = "remediation_settles" if source.stem == "remediation" else "choreography_settles"
         commands = []
-        check = {"name": name, "macro": macro, "mode": "ltl" if liveness else "safety",
+        check = {"name": name, "model": source.name, "claim": claim if liveness else None,
+                 "macro": macro, "mode": "ltl" if liveness else "safety",
                  "partial_order_reduction": not no_reduction,
                  "expected": "counterexample" if violation else "zero_errors"}
         try:
             with tempfile.TemporaryDirectory(prefix="mas-spin-") as temporary:
                 build = Path(temporary)
-                shutil.copyfile(source, build / "hybrid.pml")
+                shutil.copyfile(source, build / source.name)
                 definitions = [f"-D{macro}"] if macro else []
-                if name == "safety":
+                if name in ("safety", "remediation-safety"):
                     for seed in (17, 29):
-                        run([spin, f"-n{seed}", "-u1000", "-p", *definitions, "hybrid.pml"], build, commands)
-                run([spin, *definitions, "-a", "hybrid.pml"], build, commands)
+                        run([spin, f"-n{seed}", "-u1000", "-p", *definitions, source.name], build, commands)
+                run([spin, *definitions, "-a", source.name], build, commands)
                 flags = ["-O2", "-DMEMLIM=512"]
                 if not liveness:
                     flags += ["-DSAFETY", "-DNOCLAIM"]
@@ -119,18 +152,29 @@ def main() -> int:
                 if violation:
                     if int(errors[1]) == 0:
                         raise RuntimeError("expected counterexample was not found")
-                    replay = run([spin, *definitions, "-t", "-p", "-g", "-l", "hybrid.pml"], build, commands)
+                    replay = run([spin, *definitions, "-t", "-p", "-g", "-l", source.name], build, commands)
                     if liveness:
-                        if "acceptance cycle" not in output or "START OF CYCLE" not in replay or "choreography_settles" not in output:
+                        if "acceptance cycle" not in output or "START OF CYCLE" not in replay or claim not in output:
                             raise RuntimeError("counterexample did not replay the selected LTL cycle")
                     else:
                         failed = re.search(r"text of failed assertion: (.+)", replay)
                         if not failed or re.sub(r"\s+", "", violation) not in re.sub(r"\s+", "", failed[1]):
                             raise RuntimeError(f"counterexample missed target assertion {violation}")
-                    trail = build / "hybrid.pml.trail"
+                    trail = build / f"{source.name}.trail"
                     if not trail.is_file():
                         raise RuntimeError("missing counterexample trail")
                     shutil.copyfile(trail, out / f"{name}.trail")
+                    # Preserve the exact generated verifier before deleting its
+                    # temporary build directory; one archive avoids many C files.
+                    with zipfile.ZipFile(counterexamples, "a", zipfile.ZIP_DEFLATED) as archive:
+                        for generated in [build / source.name, trail, *sorted(build.glob("pan.*"))]:
+                            archive.write(generated, f"{name}/{generated.name}")
+                        archive.writestr(f"{name}/configuration.json", json.dumps({
+                            "spin_definitions": definitions, "compiler_flags": flags,
+                            "verifier_options": [*options, "-b", f"-m{DEPTH}", "-w20"],
+                            "model_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                        }, indent=2) + "\n")
+                    check["counterexample_sources"] = f"counterexamples.zip/{name}/"
                     check["result"] = "EXPECTED_COUNTEREXAMPLE"
                 else:
                     if int(errors[1]) != 0:

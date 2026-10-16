@@ -2,9 +2,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
+import { timingSafeEqual } from 'node:crypto';
 import { RequestError, type Runs } from './runs.js';
 
-export function application(runs: Runs, topology: unknown, ui: string) {
+export function application(runs: Runs, topology: unknown, ui: string, verifierToken?: string) {
   let clients = 0;
   const server = createServer((req, res) => { void route(req, res).catch(error => {
     if (res.headersSent) { res.destroy(); return; }
@@ -21,21 +22,13 @@ export function application(runs: Runs, topology: unknown, ui: string) {
     if (req.method === 'GET' && path === '/api/health') return reply(res, 200, { status: 'ok', mode: runs.mode });
     if (req.method === 'GET' && path === '/api/topology') return reply(res, 200, topology);
     if (req.method === 'GET' && path === '/api/runs') return reply(res, 200, runs.list());
-    if (req.method === 'POST' && path === '/api/runs') {
-      if (!req.headers['content-type']?.startsWith('application/json')) throw new RequestError(415, 'Use application/json');
-      const origin = req.headers.origin;
-      if (req.headers['sec-fetch-site'] === 'cross-site' || (origin && new URL(origin).host !== req.headers.host)) throw new RequestError(403, 'Cross-origin run creation is disabled');
-      const chunks: Buffer[] = [];
-      let size = 0;
-      for await (const chunk of req) {
-        size += chunk.length;
-        if (size > 8192) throw new RequestError(413, 'Request exceeds 8 KiB');
-        chunks.push(chunk);
-      }
-      let body;
-      try { body = JSON.parse(Buffer.concat(chunks).toString()); } catch { throw new RequestError(400, 'Invalid JSON'); }
-      if (!body || typeof body !== 'object' || Array.isArray(body)) throw new RequestError(400, 'Expected JSON object');
-      return reply(res, 202, await runs.create(body));
+    if (req.method === 'POST' && path === '/api/runs') return reply(res, 202, await runs.create(await requestBody(req)));
+    const resolution = /^\/api\/runs\/([a-zA-Z0-9_-]{1,64})\/resolution$/.exec(path);
+    if (req.method === 'POST' && resolution) {
+      if (!verifierToken) throw new RequestError(503, 'External verifier reporting is not configured');
+      const expected = Buffer.from(`Bearer ${verifierToken}`), supplied = Buffer.from(req.headers.authorization ?? '');
+      if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) throw new RequestError(401, 'External verifier authentication is required');
+      return reply(res, 202, await runs.recordResolution(resolution[1]!, await requestBody(req)));
     }
     const match = /^\/api\/runs\/([a-zA-Z0-9_-]{1,64})(\/(?:events|snapshot))?$/.exec(path);
     if (req.method === 'GET' && match) {
@@ -75,6 +68,22 @@ export function application(runs: Runs, topology: unknown, ui: string) {
     res.end(data);
   }
   return server;
+}
+async function requestBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  if (!req.headers['content-type']?.startsWith('application/json')) throw new RequestError(415, 'Use application/json');
+  const origin = req.headers.origin;
+  if (req.headers['sec-fetch-site'] === 'cross-site' || (origin && new URL(origin).host !== req.headers.host)) throw new RequestError(403, 'Cross-origin run changes are disabled');
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 64 * 1024) throw new RequestError(413, 'Request exceeds 64 KiB');
+    chunks.push(chunk);
+  }
+  let body;
+  try { body = JSON.parse(Buffer.concat(chunks).toString()); } catch { throw new RequestError(400, 'Invalid JSON'); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new RequestError(400, 'Expected JSON object');
+  return body;
 }
 function reply(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'Content-Type': 'application/json' });

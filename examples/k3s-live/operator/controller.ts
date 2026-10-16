@@ -1,3 +1,7 @@
+import type { EvidenceBundle } from '../shared/evidence.js';
+import { redactEvidenceText } from '../shared/evidence.js';
+import { collectEvidence } from './evidence.js';
+
 export const GROUP = 'demo.mas.dev';
 export const VERSION = 'v1alpha1';
 export const PLURAL = 'masdemoruns';
@@ -35,7 +39,7 @@ export interface DemoRun {
   apiVersion: string;
   kind: string;
   metadata: Metadata;
-  spec: { scenario: 'pod-crash'; event?: EventEvidence };
+  spec: { scenario: 'pod-incident' | 'pod-crash'; event?: EventEvidence; evidence?: EvidenceBundle };
   status?: {
     phase: 'Pending' | 'Running' | 'Succeeded' | 'Failed';
     runId?: string;
@@ -47,6 +51,7 @@ export interface DemoRun {
 export interface KubernetesAPI {
   list<T>(path: string): Promise<T[]>;
   get<T>(path: string): Promise<T>;
+  text?(path: string, maxBytes?: number): Promise<string>;
   create<T>(path: string, resource: unknown): Promise<T>;
   status(path: string, status: unknown): Promise<void>;
 }
@@ -59,7 +64,7 @@ export interface RunState {
 
 export interface DemoAPI {
   get(id: string): Promise<RunState | undefined>;
-  start(input: { id: string; scenario: 'pod-crash'; event?: EventEvidence }): Promise<RunState>;
+  start(input: { id: string; scenario: 'pod-incident' | 'pod-crash'; event?: EventEvidence; evidence?: EvidenceBundle }): Promise<RunState>;
 }
 
 export class APIError extends Error {
@@ -131,12 +136,15 @@ export class DemoController {
       if (!event.metadata.uid || knownEvents.has(event.metadata.uid) || !this.isRecentWarning(event)) continue;
       if (!await this.isOptedIn(event)) continue;
       const evidence = this.evidence(event);
+      // Capture before admitting the immutable CR. Reconciliation always uses
+      // this retained snapshot, including after a lost backend response.
+      const collected = await collectEvidence(this.kube, evidence, { now: this.now });
       const name = `event-${event.metadata.uid}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63).replace(/-+$/, '');
       try {
         await this.kube.create(this.runPath, {
           apiVersion: `${GROUP}/${VERSION}`, kind: 'MASDemoRun',
           metadata: { name, namespace: this.options.namespace, labels: { [`${GROUP}/source`]: 'warning-event' } },
-          spec: { scenario: 'pod-crash', event: evidence },
+          spec: { scenario: 'pod-incident', event: evidence, ...(collected ? { evidence: collected } : {}) },
         });
         this.log(`Created MASDemoRun ${name} from opted-in Warning Event ${event.metadata.name}`);
       } catch (error) {
@@ -153,7 +161,8 @@ export class DemoController {
     let current = await this.demo.get(id);
     if (!current && !mayStart) return undefined;
     if (!current) current = await this.demo.start({ id, scenario: run.spec.scenario,
-      ...(run.spec.event ? { event: run.spec.event } : {}) });
+      ...(run.spec.event ? { event: run.spec.event } : {}),
+      ...(run.spec.evidence ? { evidence: run.spec.evidence } : {}) });
     const phase = current.status === 'completed' ? 'Succeeded'
       : current.status === 'failed' ? 'Failed' : 'Running';
     const next = { phase, runId: id,
@@ -188,7 +197,7 @@ export class DemoController {
   private evidence(event: KubernetesEvent): EventEvidence {
     return {
       namespace: this.options.namespace, name: event.metadata.name.slice(0, 253), uid: event.metadata.uid!,
-      reason: (event.reason ?? 'Warning').slice(0, 128), message: (event.message ?? '').slice(0, 2000),
+      reason: redactEvidenceText(event.reason ?? 'Warning', 128), message: redactEvidenceText(event.message ?? '', 2000),
       involvedObject: {
         kind: (event.involvedObject?.kind ?? '').slice(0, 128),
         name: (event.involvedObject?.name ?? '').slice(0, 253),

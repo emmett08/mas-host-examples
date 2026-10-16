@@ -1,4 +1,4 @@
-// This test executes the real pinned host and existing protocol with explicit mock provider output.
+// Execute the real pinned host and existing protocol with deterministic command-provider fixtures.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -10,9 +10,10 @@ import { Host, HostRunFailure } from './host.js';
 test('real MAS host exercises the hybrid branch, correlated replies, and durable replay', async t => {
   const binary = resolve(process.env.MAS_HOST_BIN ?? '../../.tools/mas-host/target/debug/mas-host');
   const sdk = resolve(process.env.MAS_SDK_ROOT ?? '../../.tools/mas-host');
-  const host = new Host({ binary, sdk, project: resolve('project'), payloads: true });
   const folder = await mkdtemp(join(tmpdir(), 'mas-hybrid-'));
   t.after(() => rm(folder, { recursive: true, force: true }));
+  const project = await fixtureProject(folder);
+  const host = new Host({ binary, sdk, project, payloads: true });
   const input = join(folder, 'input.json');
   await writeFile(input, JSON.stringify({ incident: { reason: 'BackOff', source: 'fixture' } }));
   const output = await host.run('hybrid-test', input, folder, 'fixture') as Record<string, unknown>;
@@ -34,14 +35,7 @@ test('recording fixture command providers produce schema-valid results with obse
   const sdk = resolve(process.env.MAS_SDK_ROOT ?? '../../.tools/mas-host');
   const folder = await mkdtemp(join(tmpdir(), 'mas-paced-fixture-'));
   t.after(() => rm(folder, { recursive: true, force: true }));
-  const project = join(folder, 'project');
-  await cp(resolve('project'), project, { recursive: true, filter: source => basename(source) !== '.mas' });
-  // The container supplies node on the host's fixed PATH. Development runtimes
-  // can install Node elsewhere; normalise only this temporary test project's
-  // argv to the running interpreter. CI recording uses the unmodified profile.
-  const profile = join(project, 'connections.recording.toml');
-  const connection = await readFile(profile, 'utf8');
-  await writeFile(profile, connection.replaceAll('command = ["node",', `command = [${JSON.stringify(process.execPath)},`));
+  const project = await fixtureProject(folder);
   const host = new Host({ binary, sdk, project, payloads: true, fixtureRecording: true });
   const state = join(folder, 'state');
   const input = join(folder, 'input.json');
@@ -66,6 +60,46 @@ test('recording fixture command providers produce schema-valid results with obse
   assert.ok(counts.size > 1, 'The active host trace must expose increasing message counts before completion');
   const snapshot = await host.observe('paced-fixture-test', state);
   assert.equal(snapshot.messages.length, 16);
+});
+
+async function fixtureProject(folder: string) {
+  const project = join(folder, 'project');
+  await cp(resolve('project'), project, { recursive: true, filter: source => basename(source) !== '.mas' });
+  // Container node is on the host's fixed PATH. Local runtimes may install it
+  // elsewhere; adapt only temporary integration-test projects.
+  for (const name of ['connections.fixture.toml', 'connections.recording.toml']) {
+    const profile = join(project, name), source = await readFile(profile, 'utf8');
+    await writeFile(profile, source.replaceAll('command = ["node",', `command = [${JSON.stringify(process.execPath)},`));
+  }
+  return project;
+}
+
+test('real host forwards evidence through both reviews and returns a schema-valid identity-bound readiness proposal', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'mas-evidence-flow-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const project = await fixtureProject(folder);
+  const host = new Host({ binary: resolve(process.env.MAS_HOST_BIN ?? '../../.tools/mas-host/target/debug/mas-host'),
+    sdk: resolve(process.env.MAS_SDK_ROOT ?? '../../.tools/mas-host'), project, payloads: true });
+  const input = join(folder, 'input.json'), state = join(folder, 'state');
+  const observedAt = new Date().toISOString();
+  await writeFile(input, JSON.stringify({ incident: { source: 'test-supplied-evidence', evidence: {
+    version: 'mas-k8s-evidence/1', capturedAt: observedAt, subject: { namespace: 'mas-demo', name: 'test-pod', uid: 'pod-test-uid' }, items: [
+      { id: 'workload-deployment', kind: 'workload', source: 'fixture', observedAt, status: 'collected', truncated: false, data: {
+        kind: 'Deployment', metadata: { namespace: 'mas-demo', name: 'mas-demo-checkout', uid: 'deployment-test-uid', resourceVersion: '12345' },
+        spec: { template: { spec: { containers: [{ name: 'checkout', readinessProbe: { httpGet: { path: '/readyz' } }, livenessProbe: { httpGet: { path: '/healthz' } } }] } } },
+      } },
+      { id: 'logs-checkout-current', kind: 'logs', source: 'fixture', observedAt, status: 'collected', truncated: false, data: {
+        container: 'checkout', previous: false, text: `${observedAt} {"method":"GET","path":"/readyz","status":404}\n${observedAt} {"method":"GET","path":"/healthz","status":200}`,
+      } },
+    ],
+  } } }));
+  const output = await host.run('evidence-flow', input, state, 'fixture') as { requires_human: boolean; remediation: { action: string; target: { uid: string; resource_version: string }; evidence_ids: string[] } };
+  assert.equal(output.requires_human, false);
+  assert.equal(output.remediation.action, 'replace_readiness_probe_path');
+  assert.equal(output.remediation.target.uid, 'deployment-test-uid');
+  assert.equal(output.remediation.target.resource_version, '12345');
+  assert.deepEqual(output.remediation.evidence_ids, ['workload-deployment', 'logs-checkout-current']);
+  assert.equal((await host.observe('evidence-flow', state)).messages.length, 16);
 });
 
 test('a real host HTTP rejection retains safe diagnostics without repeating model calls', { timeout: 60_000 }, async t => {

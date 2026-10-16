@@ -58,6 +58,7 @@ jobs:
           k3d cluster create mas-demo --image rancher/k3s:v1.32.3-k3s1 --wait --timeout 120s
           k3d image import mas-k3s-live:demo --cluster mas-demo
           kubectl config use-context k3d-mas-demo
+          kubectl -n kube-system wait --for=condition=Available deployment/metrics-server --timeout=180s
       - name: Deploy and exercise event-driven controller with credential-free provider fixture
         env:
           DEMO_MODE: fixture
@@ -76,6 +77,7 @@ jobs:
         env:
           DEMO_MODE: fixture
           DEMO_FIXTURE_RECORDING: 'true'
+          DEMO_AUTO_REMEDIATE: 'true'
           DEMO_ARTIFACT_DIR: ${{ runner.temp }}/mas-demo-artifacts
         run: node examples/k3s-live/deploy/record-demo.mjs
       - name: Package the same Vue dashboard with captured fixture observations
@@ -148,6 +150,7 @@ jobs:
           k3d image import mas-k3s-live:demo --cluster mas-demo
           kubectl config use-context k3d-mas-demo
           kubectl get nodes
+          kubectl -n kube-system wait --for=condition=Available deployment/metrics-server --timeout=180s
       - name: Deploy real LLM agents inside the runner's cluster
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -157,6 +160,7 @@ jobs:
       - name: Record the live canvas and retain the actual result
         env:
           DEMO_MODE: live
+          DEMO_AUTO_REMEDIATE: 'true'
           DEMO_ARTIFACT_DIR: ${{ runner.temp }}/mas-demo-artifacts
         run: node examples/k3s-live/deploy/record-demo.mjs
       - name: Package the same Vue dashboard with captured live observations

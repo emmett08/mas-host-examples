@@ -2,30 +2,49 @@
 # Run after apply.sh on an isolated fixture-mode cluster.
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-kubectl apply -f "$root/failing-pod.yaml"
+preparation="$(mktemp -d)"
+trap 'rm -rf "$preparation"; kubectl -n mas-demo delete deployment,service mas-demo-checkout --ignore-not-found --wait=false >/dev/null 2>&1 || true' EXIT
+node --input-type=module - "$root" "$preparation" <<'NODE'
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { writeFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+const execute = promisify(execFile);
+const { prepareIncident } = await import(pathToFileURL(`${process.argv[2]}/record-demo.mjs`));
+const { pod } = await prepareIncident(process.argv[3], async args =>
+  (await execute('kubectl', ['-n', 'mas-demo', ...args], { timeout: 200_000 })).stdout);
+await writeFile(`${process.argv[3]}/pod-name`, pod.metadata.name);
+await writeFile(`${process.argv[3]}/pod-uid`, pod.metadata.uid);
+NODE
+pod_name="$(cat "$preparation/pod-name")"
+pod_uid="$(cat "$preparation/pod-uid")"
 deadline=$((SECONDS + 180))
 run_name=''
 while (( SECONDS < deadline )); do
-  run_name="$(kubectl -n mas-demo get masdemoruns -l demo.mas.dev/source=warning-event -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  run_name="$(kubectl -n mas-demo get masdemoruns -l demo.mas.dev/source=warning-event -o json 2>/dev/null | node --input-type=module -e 'import {readFileSync} from "node:fs"; const rows=JSON.parse(readFileSync(0,"utf8")).items; console.log(rows.find(row=>row.spec?.event?.involvedObject?.uid===process.argv[1])?.metadata.name??"")' "$pod_uid" || true)"
   [[ -z "$run_name" ]] || break
   sleep 3
 done
 [[ -n "$run_name" ]] || { echo 'No MASDemoRun was created from the opted-in pod Warning Event' >&2; exit 1; }
+kubectl -n mas-demo label "pod/$pod_name" demo.mas.dev/trigger=false --overwrite
 kubectl -n mas-demo wait "masdemorun/$run_name" --for=jsonpath='{.status.phase}'=Succeeded --timeout=180s
 run_id="$(kubectl -n mas-demo get "masdemorun/$run_name" -o jsonpath='{.status.runId}')"
 kubectl -n mas-demo port-forward svc/mas-demo 18080:8080 > /tmp/mas-demo-port-forward.log 2>&1 &
 forward_pid=$!
-trap 'kill "$forward_pid" 2>/dev/null || true' EXIT
+trap 'kill "$forward_pid" 2>/dev/null || true; rm -rf "$preparation"; kubectl -n mas-demo delete deployment,service mas-demo-checkout --ignore-not-found --wait=false >/dev/null 2>&1 || true' EXIT
 for attempt in {1..30}; do
   if curl --fail --silent http://127.0.0.1:18080/api/health >/dev/null; then break; fi
   sleep 1
 done
 run_json="$(mktemp)"
-trap 'rm -f "$run_json"; kill "$forward_pid" 2>/dev/null || true' EXIT
+trap 'rm -f "$run_json"; kill "$forward_pid" 2>/dev/null || true; rm -rf "$preparation"; kubectl -n mas-demo delete deployment,service mas-demo-checkout --ignore-not-found --wait=false >/dev/null 2>&1 || true' EXIT
 curl --fail --silent "http://127.0.0.1:18080/api/runs/$run_id/snapshot" > "$run_json"
-node --input-type=module - "$run_json" <<'NODE'
+node --input-type=module - "$run_json" "$root" <<'NODE'
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+const { validatePracticalEvidence } = await import(pathToFileURL(`${process.argv[3]}/remediation.mjs`));
 const {run, observation} = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+validatePracticalEvidence({run});
 if (run.status !== 'completed') throw new Error('The backend did not retain the completed host run');
 if (observation.messages.length !== 16) throw new Error('Expected 16 admitted Request/Result messages from eight invocations');
 if (!observation.messages.some(message => message.sender === 'platform' && message.recipient === 'security')) {

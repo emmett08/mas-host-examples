@@ -101,3 +101,17 @@ test('a failed diagnostic read keeps the fixed generic failure and cannot replac
     return true;
   });
 });
+
+test('host subprocesses cannot inherit the external verifier reporting credential', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'mas-host-credential-scope-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const previous = process.env.DEMO_VERIFIER_TOKEN;
+  process.env.DEMO_VERIFIER_TOKEN = 'private-verifier-token';
+  t.after(() => { if (previous === undefined) delete process.env.DEMO_VERIFIER_TOKEN; else process.env.DEMO_VERIFIER_TOKEN = previous; });
+  const binary = join(directory, 'host');
+  await writeFile(binary, `#!${process.execPath}\nif (process.env.DEMO_VERIFIER_TOKEN) process.exit(2); if (process.argv[2] === 'run') process.stdout.write(JSON.stringify({output:{credentialAbsent:true}})); else process.stdout.write(JSON.stringify({version:'mas-host-observation/1',messages:[]}));\n`, { mode: 0o700 });
+  const host = new Host({ binary, sdk: directory, project: directory, payloads: true });
+  assert.deepEqual(await host.run('scoped', 'input.json', directory, 'fixture'), { credentialAbsent: true });
+  assert.deepEqual((await host.observe('scoped', directory)).messages, []);
+  await host.cancel('scoped', directory);
+});

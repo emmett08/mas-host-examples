@@ -86,6 +86,17 @@ const output = computed(() => currentRun.value?.output);
 const hasOutput = computed(
   () => output.value !== undefined && output.value !== null,
 );
+const evidence = computed(() => currentRun.value?.input?.incident?.evidence);
+const resolution = computed(() => currentRun.value?.resolution);
+const resolutionLabel = computed(() => resolution.value?.status === "verified"
+  ? "Verified recovery" : resolution.value?.status === "failed" ? "Recovery not verified" : "Needs engineer");
+const assessment = computed(() => output.value && typeof output.value === "object" && !Array.isArray(output.value)
+  ? output.value as Record<string, unknown> : undefined);
+const proposedRemediation = computed(() => {
+  const proposal = assessment.value?.remediation;
+  return proposal && typeof proposal === "object" && !Array.isArray(proposal) ? proposal as Record<string, unknown> : undefined;
+});
+const collectedEvidence = computed(() => evidence.value?.items.filter(item => item.status === "collected").length ?? 0);
 const elapsed = computed(() =>
   currentRun.value
     ? formatDuration(currentRun.value.startedAt, now.value)
@@ -593,7 +604,7 @@ onBeforeUnmount(() => {
                 : isLaunchFixture
                   ? "Run fixture"
                   : isLaunchLive
-                    ? "Start live investigation"
+                    ? "Run sample with LLMs"
                     : "Start investigation"
             }}
           </button>
@@ -614,6 +625,29 @@ onBeforeUnmount(() => {
         ><button class="text-button" @click="selectedRunId = newRunId">
           View new run →
         </button>
+      </div>
+
+      <section v-if="evidence" class="panel evidence-panel" aria-labelledby="evidence-title">
+        <div class="panel-heading">
+          <div>
+            <span class="section-kicker">CLUSTER EVIDENCE</span>
+            <h2 id="evidence-title">{{ evidence.subject.namespace }} / {{ evidence.subject.name }}</h2>
+          </div>
+          <span class="output-label">{{ collectedEvidence }} / {{ evidence.items.length }} collected</span>
+        </div>
+        <div class="evidence-body">
+          <p class="output-note">Captured {{ recordingDate(evidence.capturedAt) }} before agent execution. Pod UID: <code>{{ evidence.subject.uid }}</code>. Expand an evidence item to inspect exactly what the agents received.</p>
+          <details v-for="item in evidence.items" :key="item.id" class="evidence-item" :data-evidence-id="item.id" :data-evidence-status="item.status">
+            <summary><span class="evidence-id">{{ item.id }}</span><span class="evidence-state" :class="item.status">{{ item.status }}{{ item.truncated ? " · bounded / truncated" : "" }}</span></summary>
+            <p class="evidence-source">{{ item.source }} · {{ recordingDate(item.observedAt) }}</p>
+            <p v-if="item.reason" class="output-note">{{ item.reason }}</p>
+            <pre v-if="item.status === 'collected'">{{ display(item.data) }}</pre>
+          </details>
+          <p class="evidence-limitation">CPU and memory are sampled usage, not historical peaks. Unavailable evidence and redacted fields remain explicit.</p>
+        </div>
+      </section>
+      <div v-else-if="currentRun && currentRun.input?.incident?.source !== 'kubernetes-event'" class="notice" role="status">
+        <strong>Sample investigation</strong><span>No cluster evidence was attached to this sample. Label a workload to trigger an investigation of its real Kubernetes evidence.</span>
       </div>
 
       <section class="workspace" :aria-label="isArchive ? 'Recorded investigation workspace' : 'Live investigation workspace'">
@@ -978,11 +1012,27 @@ onBeforeUnmount(() => {
           }}</span>
         </div>
         <div class="output-body">
-          <p class="output-note">
-            Review the evidence and proposed actions before applying any change
-            to a cluster.
-          </p>
-          <pre>{{ display(output) }}</pre>
+          <p v-if="typeof assessment?.summary === 'string'" class="assessment-summary">{{ assessment.summary }}</p>
+          <p class="output-note">This is the agent assessment. A proposed change becomes a verified recovery only after the external tool's checks pass.</p>
+          <div v-if="proposedRemediation" class="proposal-summary">
+            <strong>{{ proposedRemediation.action === 'none' ? 'Further investigation required' : 'Proposed remediation' }}</strong>
+            <p v-if="typeof proposedRemediation.reason === 'string'">{{ proposedRemediation.reason }}</p>
+            <p v-if="proposedRemediation.action === 'replace_readiness_probe_path'"><code>{{ proposedRemediation.current_path }}</code> → <code>{{ proposedRemediation.proposed_path }}</code></p>
+          </div>
+          <details class="assessment-details"><summary>Full agent assessment and proposed action</summary><pre>{{ display(output) }}</pre></details>
+        </div>
+      </section>
+
+      <section v-if="resolution" class="panel resolution-panel" aria-labelledby="resolution-title" :data-resolution-status="resolution.status">
+        <div class="panel-heading">
+          <div><span class="section-kicker">TOOL EXECUTION AND VERIFICATION</span><h2 id="resolution-title">{{ resolution.target.namespace }} / {{ resolution.target.name }}</h2></div>
+          <span class="resolution-state" :class="resolution.status">{{ resolutionLabel }}</span>
+        </div>
+        <div class="output-body">
+          <p class="assessment-summary">{{ resolution.reason }}</p>
+          <p class="output-note">Recorded {{ recordingDate(resolution.recordedAt) }} by the constrained demo verifier. This result is separate from the LLM assessment.</p>
+          <ul class="verification-checks"><li v-for="check in resolution.checks" :key="check.name" :class="{ failed: !check.passed }"><strong>{{ check.passed ? 'Passed' : 'Failed' }} · {{ check.name }}</strong><span>{{ check.detail }}</span></li></ul>
+          <details class="assessment-details"><summary>Exact patch and before / after evidence</summary><pre>{{ display({ patch: resolution.patch, before: resolution.before, after: resolution.after }) }}</pre></details>
         </div>
       </section>
 
@@ -990,7 +1040,7 @@ onBeforeUnmount(() => {
         <span
           ><span class="footer-dot" />mas-host
           <span class="footer-separator">+</span> MAS protocol</span
-        ><span>{{ isArchive ? "Recorded observations · no cluster or provider connection" : "Server-side provider credentials · read-only investigation" }}</span>
+        ><span>{{ isArchive ? "Recorded observations · no cluster or provider connection" : "Read-only agent evidence · separately verified demo remediation" }}</span>
       </footer>
       <div class="sr-only" aria-live="polite" aria-atomic="true">
         {{

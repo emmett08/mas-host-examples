@@ -34,7 +34,39 @@ spec:
               properties:
                 scenario:
                   type: string
-                  enum: [pod-crash]
+                  enum: [pod-incident, pod-crash]
+                evidence:
+                  type: object
+                  required: [version, capturedAt, subject, items]
+                  properties:
+                    version: {type: string, enum: ['mas-k8s-evidence/1']}
+                    capturedAt: {type: string, format: date-time}
+                    subject:
+                      type: object
+                      required: [namespace, name, uid]
+                      properties:
+                        namespace: {type: string, minLength: 1, maxLength: 63}
+                        name: {type: string, minLength: 1, maxLength: 253}
+                        uid: {type: string, minLength: 1, maxLength: 128}
+                    items:
+                      type: array
+                      maxItems: 16
+                      x-kubernetes-list-type: map
+                      x-kubernetes-list-map-keys: [id]
+                      items:
+                        type: object
+                        required: [id, kind, source, status, observedAt, truncated, data]
+                        properties:
+                          id: {type: string, minLength: 1, maxLength: 128, pattern: '^[a-z0-9-]+$'}
+                          kind: {type: string, enum: [pod, workload, events, logs, metrics]}
+                          source: {type: string, minLength: 1, maxLength: 1000}
+                          status: {type: string, enum: [collected, unavailable, skipped]}
+                          observedAt: {type: string, format: date-time}
+                          truncated: {type: boolean}
+                          data:
+                            nullable: true
+                            x-kubernetes-preserve-unknown-fields: true
+                          reason: {type: string, maxLength: 500}
                 event:
                   type: object
                   required: [namespace, name, uid, reason, message, involvedObject]

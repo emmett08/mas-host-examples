@@ -7,6 +7,22 @@ import { Runs, RequestError } from './runs.js';
 import { HostRunFailure, type Host } from './host.js';
 import { projectFailure } from './diagnostics.js';
 import { application } from './http.js';
+import { EVIDENCE_VERSION, type EvidenceBundle } from '../shared/evidence.js';
+
+function incidentEvidence(): EvidenceBundle {
+  return { version: EVIDENCE_VERSION, capturedAt: '2026-10-16T12:00:00Z',
+    subject: { namespace: 'mas-demo', name: 'mas-demo-checkout-a', uid: 'pod-uid-a' }, items: [
+      { id: 'workload-deployment', kind: 'workload', source: 'Kubernetes API', status: 'collected', observedAt: '2026-10-16T12:00:00Z', truncated: false,
+        data: { apiVersion: 'apps/v1', kind: 'Deployment', templateHash: 'before-hash', metadata: { namespace: 'mas-demo', name: 'mas-demo-checkout', uid: 'deployment-a', resourceVersion: '42' },
+          spec: { template: { spec: { containers: [{ name: 'checkout', readinessProbe: { httpGet: { path: '/readyz' } }, livenessProbe: { httpGet: { path: '/healthz' } } }] } } } } },
+      { id: 'logs-checkout-current', kind: 'logs', source: 'Kubernetes logs API', status: 'collected', observedAt: '2026-10-16T12:00:00Z', truncated: false,
+        data: { container: 'checkout', previous: false, text: '{"method":"GET","path":"/readyz","status":404}\n{"method":"GET","path":"/healthz","status":200}' } },
+      { id: 'metrics', kind: 'metrics', source: 'Kubernetes Metrics API', status: 'unavailable', observedAt: '2026-10-16T12:00:00Z', truncated: false, data: null, reason: 'Metrics server is not installed' },
+    ] };
+}
+function evidenceRequest(id: string, evidence = incidentEvidence()) {
+  return { id, scenario: 'pod-incident', event: { reason: 'Unhealthy', involvedObject: { kind: 'Pod', ...evidence.subject } }, evidence };
+}
 
 test('idempotent event dispatch, conflicting input rejection, admission bound, and crash recovery', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'mas-live-'));
@@ -182,6 +198,112 @@ test('unexpected application errors retain a fixed message without copying arbit
   await waitFor(() => runs.get('unexpected').status === 'failed');
   assert.equal(runs.get('unexpected').diagnostics, undefined);
   assert.doesNotMatch(await readFile(join(dir, 'unexpected', 'run.json'), 'utf8'), /private-api-key/);
+});
+
+test('live evidence is identity-bound, copied into input and immutable across retries and restart', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-evidence-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  let calls = 0;
+  const host = { run: async () => { calls++; return {}; }, observe: async () => ({ messages: [] }) } as unknown as Host;
+  const runs = new Runs(dir, 'fixture', host);
+  await runs.initialise();
+  const body = evidenceRequest('live-evidence');
+  await assert.rejects(runs.create({ ...body, event: { involvedObject: { ...body.event.involvedObject, uid: 'replaced-pod' } } }), /Evidence subject must match/);
+  await assert.rejects(runs.create({ ...body, evidence: { ...body.evidence, version: 'unknown' } }), /Invalid evidence bundle/);
+  const original = structuredClone(body);
+  const run = await runs.create(body);
+  (body.evidence.items[1]!.data as { text: string }).text = 'mutated after admission';
+  const incident = run.input.incident as { evidence: EvidenceBundle; context: string };
+  assert.deepEqual(incident.evidence, original.evidence);
+  assert.match(incident.context, /Collected items: workload-deployment, logs-checkout-current/);
+  assert.match(incident.context, /metrics: unavailable/);
+  assert.doesNotMatch(incident.context, /No live Kubernetes logs/);
+  assert.equal(await runs.create({ ...original, scenario: 'pod-crash' }), run);
+  await assert.rejects(runs.create(body), (error: unknown) => error instanceof RequestError && error.status === 409);
+  await waitFor(() => run.status === 'completed');
+  const restarted = new Runs(dir, 'fixture', host);
+  await restarted.initialise();
+  assert.deepEqual((await restarted.create(original)).input, run.input);
+  assert.equal(calls, 1);
+});
+
+test('HTTP admits bounded evidence over 8 KiB and retains independently verified resolution reports', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-resolution-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const host = { run: async () => ({}), observe: async () => ({ messages: [] }) } as unknown as Host;
+  const runs = new Runs(dir, 'fixture', host);
+  await runs.initialise();
+  const verifierToken = 'test-verifier-credential';
+  const server = application(runs, {}, dir, verifierToken);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const url = `http://127.0.0.1:${address.port}`;
+  const post = (path: string, value: unknown, origin?: string, token: string | undefined = verifierToken) => fetch(url + path, { method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(value) });
+  const body = evidenceRequest('resolved');
+  (body.evidence.items[1]!.data as { text: string }).text += '\n' + 'a'.repeat(10_000);
+  assert.equal((await post('/api/runs', body)).status, 202);
+  await waitFor(() => runs.get('resolved').status === 'completed');
+  await runs.snapshot('resolved');
+  assert.equal(runs.observations.has('resolved'), true);
+  const report = { version: 'mas-k8s-resolution/1', status: 'verified', action: 'replace_readiness_probe_path',
+    target: { namespace: 'mas-demo', name: 'mas-demo-checkout', uid: 'deployment-a' }, recordedAt: '2026-10-16T12:01:00Z',
+    reason: 'Authenticated external verifier checked the successful rollout.', patch: [
+      { op: 'test', path: '/metadata/uid', value: 'deployment-a' }, { op: 'test', path: '/metadata/resourceVersion', value: '43' },
+      { op: 'test', path: '/spec/template/spec/containers/0/name', value: 'checkout' },
+      { op: 'test', path: '/spec/template/spec/containers/0/readinessProbe/httpGet/path', value: '/readyz' },
+      { op: 'replace', path: '/spec/template/spec/containers/0/readinessProbe/httpGet/path', value: '/healthz' },
+    ], before: { uid: 'deployment-a', resourceVersion: '43', generation: 2, templateHash: 'before-hash', observedAt: '2026-10-16T12:00:00Z', readinessPath: '/readyz', status: { readyReplicas: 0 } },
+    after: { uid: 'deployment-a', resourceVersion: '44', generation: 3, templateHash: 'after-hash', observedAt: '2026-10-16T12:01:00Z', readinessPath: '/healthz', status: { readyReplicas: 1 },
+      pod: { name: 'mas-demo-checkout-b', uid: 'pod-b', ready: true, restarts: 0 }, metrics: { timestamp: '2026-10-16T12:01:00Z', window: '15s', containers: [{ name: 'checkout', usage: { cpu: '1m', memory: '10Mi' } }] },
+      application: { source: 'Kubernetes Service API proxy HTTP GET /', status: 200, body: 'MAS checkout service ready\n' } },
+    checks: ['Admission', 'Patch applied', 'Rollout', 'Template scope', 'New Pod ready', 'Functional HTTP', 'Fresh metrics'].map(name => ({ name, passed: true, detail: 'Checked by the external verifier.' })) };
+  const path = '/api/runs/resolved/resolution';
+  assert.equal((await post(path, report, undefined, '')).status, 401);
+  assert.equal((await post(path, report, undefined, 'wrong-token')).status, 401);
+  assert.equal((await post(path, report, 'https://attacker.invalid')).status, 403);
+  assert.equal((await post(path, { ...report, target: { ...report.target, uid: 'other-deployment' } })).status, 400);
+  assert.equal((await post(path, { ...report, checks: [{ ...report.checks[0], passed: false }] })).status, 400);
+  assert.equal((await post(path, { ...report, checks: [{ name: 'forged', passed: true, detail: 'not verified' }] })).status, 400);
+  assert.equal((await post(path, { ...report, patch: [] })).status, 400);
+  assert.equal((await post(path, { ...report, before: { ...report.before, templateHash: 'changed-template' } })).status, 400);
+  assert.equal((await post(path, report)).status, 202);
+  assert.equal(runs.observations.has('resolved'), false, 'A retained tool outcome invalidates the old host observation timestamp');
+  assert.equal((await post(path, report)).status, 202);
+  assert.equal((await post(path, { ...report, reason: 'different outcome' })).status, 409);
+  const restarted = new Runs(dir, 'fixture', host);
+  await restarted.initialise();
+  assert.deepEqual((await restarted.snapshot('resolved')).run.resolution, report);
+  assert.deepEqual(await restarted.recordResolution('resolved', report), restarted.get('resolved'));
+  assert.equal((await post('/api/runs', { ...body, id: 'too-large', ignored: 'a'.repeat(65536) })).status, 413);
+});
+
+test('resolution reporting is disabled without an independently configured verifier credential', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-no-verifier-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const runs = new Runs(dir, 'fixture', {} as Host);
+  const server = application(runs, {}, dir);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/runs/forged/resolution`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal(response.status, 503);
+});
+
+test('legacy retained event-only runs keep idempotency without rewriting their historical input', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-legacy-run-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const input = { incident: { scenario: 'pod-crash', source: 'kubernetes-event', event: { reason: 'BackOff' },
+    context: 'Demonstration only. No logs, metrics or live resource specifications have been collected.' } };
+  await mkdir(join(dir, 'old-run'));
+  await writeFile(join(dir, 'old-run', 'run.json'), JSON.stringify({ id: 'old-run', mode: 'fixture', status: 'completed', startedAt: '2026-10-16T12:00:00Z', input, fingerprint: 'legacy-hash' }));
+  const host = { run: async () => { throw new Error('must not repeat'); } } as unknown as Host;
+  const runs = new Runs(dir, 'fixture', host);
+  await runs.initialise();
+  assert.deepEqual((await runs.create({ id: 'old-run', scenario: 'pod-crash', event: { reason: 'BackOff' } })).input, input);
 });
 
 async function waitFor(predicate: () => boolean) {

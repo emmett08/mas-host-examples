@@ -1,1 +1,33 @@
-{"type":"object","properties":{"summary":{"type":"string","maxLength":3000},"confidence":{"type":"string","enum":["low","medium","high"]},"next_checks":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":1000}},"requires_human":{"type":"boolean","enum":[true]}},"required":["summary","confidence","next_checks","requires_human"],"additionalProperties":false}
+{
+  "type": "object",
+  "properties": {
+    "summary": {"type": "string", "maxLength": 3000},
+    "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+    "next_checks": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 1000}},
+    "requires_human": {"type": "boolean"},
+    "evidence_ids": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 253}},
+    "remediation": {
+      "type": "object",
+      "properties": {
+        "action": {"type": "string", "enum": ["replace_readiness_probe_path", "none"]},
+        "target": {
+          "type": "object",
+          "properties": {
+            "kind": {"type": "string"}, "namespace": {"type": "string"}, "name": {"type": "string"},
+            "uid": {"type": "string"}, "resource_version": {"type": "string"}, "container": {"type": "string"}
+          },
+          "required": ["kind", "namespace", "name", "uid", "resource_version", "container"],
+          "additionalProperties": false
+        },
+        "current_path": {"type": "string"}, "proposed_path": {"type": "string"}, "reason": {"type": "string", "maxLength": 2000},
+        "evidence_ids": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 253}},
+        "verification": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 1000}},
+        "rollback": {"type": "string", "maxLength": 1000}
+      },
+      "required": ["action", "target", "current_path", "proposed_path", "reason", "evidence_ids", "verification", "rollback"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["summary", "confidence", "next_checks", "requires_human", "evidence_ids", "remediation"],
+  "additionalProperties": false
+}

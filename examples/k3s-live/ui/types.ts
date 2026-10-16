@@ -1,3 +1,5 @@
+import type { EvidenceBundle } from "../shared/evidence";
+
 export interface TopologyNode {
   id: string;
   label: string;
@@ -30,6 +32,19 @@ export interface Run {
   startedAt: string;
   error?: string | null;
   output?: unknown;
+  input?: { incident?: { source?: string; scenario?: string; context?: string; evidence?: EvidenceBundle } };
+  resolution?: {
+    version: "mas-k8s-resolution/1";
+    status: "verified" | "failed" | "not-attempted";
+    action: string;
+    target: { namespace: string; name: string; uid: string };
+    recordedAt: string;
+    reason: string;
+    patch: unknown[];
+    before: unknown;
+    after: unknown;
+    checks: { name: string; passed: boolean; detail: string }[];
+  };
 }
 
 export interface Snapshot {

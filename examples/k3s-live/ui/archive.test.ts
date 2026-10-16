@@ -111,3 +111,23 @@ test("equal observed times keep capture order and an existing first-sample envel
   assert.equal(clock.seek(0).index, 0);
   assert.equal(clock.final().index, 2);
 });
+
+test("seeking restores captured evidence but never reveals a future tool recovery", () => {
+  const data = archive();
+  const evidence = { version: "mas-k8s-evidence/1", capturedAt: "2026-10-16T11:59:59Z",
+    subject: { namespace: "mas-demo", name: "checkout-1", uid: "pod-1" },
+    items: [{ id: "metrics", kind: "metrics", status: "unavailable", source: "/apis/metrics.k8s.io", observedAt: "2026-10-16T11:59:59Z", truncated: false, data: null, reason: "No current sample" }] };
+  for (const sample of data.snapshots) Object.assign(sample.run, { input: { incident: { evidence } } });
+  Object.assign(data.snapshots.at(-1)!.run, { resolution: { version: "mas-k8s-resolution/1", status: "verified",
+    action: "replace_readiness_probe_path", recordedAt: "2026-10-16T12:00:02Z", reason: "Recovery checks passed",
+    target: { namespace: "mas-demo", name: "mas-demo-checkout", uid: "deployment-1" },
+    patch: [], before: {}, after: {},
+    checks: [{ name: "functional-http", passed: true, detail: "HTTP 200" }] } });
+  const clock = new ArchivePlayback(parseArchive(data));
+  assert.deepEqual(clock.current().snapshot.run.input?.incident?.evidence, evidence);
+  assert.equal(clock.current().snapshot.run.resolution, undefined);
+  assert.equal(clock.final().snapshot.run.resolution?.status, "verified");
+  const earlier = clock.seek(200).snapshot.run;
+  assert.equal(earlier.resolution, undefined);
+  assert.deepEqual(earlier.input?.incident?.evidence, evidence);
+});

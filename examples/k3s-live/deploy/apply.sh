@@ -12,6 +12,15 @@ kubectl apply -f "$root/namespace.yaml"
 kubectl apply -f "$root/crd.yaml"
 kubectl wait --for=condition=Established crd/masdemoruns.demo.mas.dev --timeout=60s
 kubectl apply -f "$root/rbac.yaml"
+if ! kubectl -n mas-demo get secret mas-demo-verifier >/dev/null 2>&1; then
+  verifier_file="$(mktemp)"
+  trap 'rm -f "$verifier_file"' EXIT
+  chmod 600 "$verifier_file"
+  node --input-type=module -e "import { randomBytes } from 'node:crypto'; process.stdout.write(randomBytes(32).toString('hex'));" > "$verifier_file"
+  kubectl -n mas-demo create secret generic mas-demo-verifier --from-file="DEMO_VERIFIER_TOKEN=$verifier_file" --dry-run=client -o yaml | kubectl apply -f -
+  rm -f "$verifier_file"
+  trap - EXIT
+fi
 kubectl -n mas-demo create configmap mas-demo-settings --from-literal="provider=$mode" --from-literal="showPayloads=$show_payloads" --dry-run=client -o yaml | kubectl apply -f -
 if [[ -n "${GHCR_PULL_TOKEN:-}" ]]; then
   registry_file="$(mktemp)"
