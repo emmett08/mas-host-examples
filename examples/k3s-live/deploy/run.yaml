@@ -1,0 +1,7 @@
+apiVersion: demo.mas.dev/v1alpha1
+kind: MASDemoRun
+metadata:
+  name: manual-pod-review
+  namespace: mas-demo
+spec:
+  scenario: pod-crash

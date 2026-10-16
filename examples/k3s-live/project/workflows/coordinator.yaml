@@ -1,0 +1,21 @@
+type: sequence
+steps:
+  - type: parallel
+    steps:
+      - type: request
+        key: platform
+        target: platform
+        input:
+          incident: {$input: /incident}
+      - type: request
+        key: independent-security
+        target: security
+        input:
+          incident: {$input: /incident}
+          stage: independent
+  - type: request
+    key: decision
+    target: decision
+    input:
+      incident: {$input: /incident}
+      reviews: {$previous: /results}

@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mas-demo-crash
+  namespace: mas-demo
+  labels:
+    app.kubernetes.io/name: mas-demo-crash
+    demo.mas.dev/trigger: 'true'
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Always
+  containers:
+    - name: intentional-failure
+      image: busybox:1.37.0
+      command: [sh, -c, 'echo "Demonstration: application configuration is missing"; exit 1']
+      resources:
+        requests: {cpu: 5m, memory: 8Mi}
+        limits: {cpu: 50m, memory: 16Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        runAsNonRoot: true
+        runAsUser: 10001
+        capabilities: {drop: [ALL]}

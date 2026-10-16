@@ -1,0 +1,10 @@
+type: sequence
+steps:
+  - type: request
+    key: assess
+    target: security_review
+    input: {$input: ''}
+  - type: value
+    output:
+      context: {$input: ''}
+      review: {$previous: ''}
