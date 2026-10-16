@@ -1,0 +1,8 @@
+change:
+  id: orders-42
+  description: Retry order submission after transient network failures.
+  idempotency_key_present: true
+  duplicate_charge_tested: true
+  rollback_available: true
+  telemetry_available: true
+delegate: true

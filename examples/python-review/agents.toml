@@ -1,0 +1,44 @@
+version = "mas-agents/3"
+
+[[agents]]
+name = "reviewer"
+operation = "review_release/1"
+[agents.implementation]
+kind = "native"
+language = "python"
+source = "review.py"
+handler = "review"
+
+[[agents]]
+name = "capacity"
+operation = "assess_capacity/1"
+[agents.implementation]
+kind = "native"
+language = "python"
+source = "review.py"
+handler = "capacity"
+
+[[agents]]
+name = "security"
+operation = "assess_security/1"
+[agents.implementation]
+kind = "native"
+language = "python"
+source = "review.py"
+handler = "security"
+
+[[agents]]
+name = "acceptance"
+operation = "accept_release/1"
+[agents.implementation]
+kind = "native"
+language = "python"
+source = "review.py"
+handler = "accept"
+
+[limits]
+wall_seconds = 60
+max_calls = 1
+max_messages = 32
+max_bytes = 262144
+mailbox_capacity = 8

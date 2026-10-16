@@ -1,0 +1,8 @@
+version: mas-topology/1
+edges:
+  - [client, policy_check]
+  - [policy_check, client]
+  - [client, reviewer]
+  - [reviewer, client]
+  - [reviewer, policy_check]
+  - [policy_check, reviewer]

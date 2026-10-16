@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "service": {"type": "string"},
+    "approved": {"type": "boolean"},
+    "critical_findings": {"type": "integer", "minimum": 0},
+    "maximum_critical": {"type": "integer", "minimum": 0}
+  },
+  "required": ["service", "approved", "critical_findings", "maximum_critical"],
+  "additionalProperties": false
+}

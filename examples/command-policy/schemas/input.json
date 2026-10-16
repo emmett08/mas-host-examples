@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "service": {"type": "string", "minLength": 1, "maxLength": 128},
+    "critical_findings": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "receipt_path": {"type": "string", "minLength": 1},
+    "crash_after_receipt": {"type": "boolean"}
+  },
+  "required": ["service", "critical_findings"],
+  "additionalProperties": false
+}

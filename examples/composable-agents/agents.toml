@@ -1,0 +1,158 @@
+# Human-authored settings; the host resolves these into a strict MAS bundle.
+version = "mas-agents/3"
+
+[[agents]]
+name = "star"
+operation = "review_workflow/1"
+
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/star.yaml"
+
+[[agents]]
+name = "tree"
+operation = "review_workflow/1"
+
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/tree.yaml"
+
+[[agents]]
+name = "technical"
+operation = "review_workflow/1"
+
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/technical.yaml"
+
+[[agents]]
+name = "governance"
+operation = "review_workflow/1"
+
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/governance.yaml"
+
+[[agents]]
+name = "mesh_a"
+operation = "review_workflow/1"
+
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/mesh_a.yaml"
+
+[[agents]]
+name = "mesh_b"
+operation = "review_workflow/1"
+
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/mesh_b.yaml"
+
+[[agents]]
+name = "mesh_c"
+operation = "review_workflow/1"
+
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/mesh_c.yaml"
+
+[[agents]]
+name = "composed"
+operation = "review_workflow/1"
+
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/composed.yaml"
+
+[[agents]]
+name = "security"
+operation = "review_change/1"
+
+output_schema = "schemas/review.json"
+
+[agents.implementation]
+kind = "llm"
+connection = "security_provider"
+model = "fixture-security/1"
+instructions = "prompts/security.md"
+max_output_tokens = 1024
+
+[[agents]]
+name = "delivery"
+operation = "review_change/1"
+
+output_schema = "schemas/review.json"
+
+[agents.implementation]
+kind = "llm"
+connection = "delivery_provider"
+model = "fixture-delivery/1"
+instructions = "prompts/delivery.md"
+max_output_tokens = 1024
+
+[[agents]]
+name = "operations"
+operation = "review_change/1"
+
+output_schema = "schemas/review.json"
+
+[agents.implementation]
+kind = "llm"
+connection = "operations_provider"
+model = "fixture-operations/1"
+instructions = "prompts/operations.md"
+max_output_tokens = 1024
+
+[[agents]]
+name = "decision"
+operation = "decide_release/1"
+
+output_schema = "schemas/decision.json"
+
+[agents.implementation]
+kind = "llm"
+connection = "decision_provider"
+model = "fixture-decision/1"
+instructions = "prompts/decision.md"
+max_output_tokens = 1024
+
+[connections]
+
+[connections.security_provider]
+kind = "mock"
+
+[connections.security_provider.output]
+role = "security"
+approved = true
+findings = []
+
+[connections.delivery_provider]
+kind = "mock"
+
+[connections.delivery_provider.output]
+role = "delivery"
+approved = true
+findings = []
+
+[connections.operations_provider]
+kind = "mock"
+
+[connections.operations_provider.output]
+role = "operations"
+approved = true
+findings = []
+
+[connections.decision_provider]
+kind = "mock"
+
+[connections.decision_provider.output]
+approved = true
+reason = "All configured fixture reviews approve the change."
+
+[limits]
+wall_seconds = 300
+max_calls = 32
+max_messages = 256
+max_bytes = 4194304
+mailbox_capacity = 64

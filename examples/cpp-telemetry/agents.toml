@@ -1,0 +1,10 @@
+version = "mas-agents/3"
+
+[[agents]]
+name = "telemetry"
+operation = "Analyse"
+[agents.implementation]
+kind = "native"
+language = "cpp"
+source = "telemetry.cpp"
+handler = "Analyse"

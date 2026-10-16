@@ -6,10 +6,12 @@ SHELL := /bin/bash
 
 export MAS_HOST_SDK_ROOT := $(CURDIR)/.tools/mas-host
 export MAS_HOST_BIN := $(MAS_HOST_SDK_ROOT)/target/debug/mas-host
+export PYTHONPATH := $(MAS_HOST_SDK_ROOT)/sdk/python
+export PYTHONDONTWRITEBYTECODE := 1
 export GOWORK := off
 export GOTOOLCHAIN := local
 
-.PHONY: setup check test acceptance recovery verify go rust cpp mixed star tree mesh composed
+.PHONY: setup check test acceptance recovery verify go rust cpp python python-client command command-agent star tree mesh composed
 
 setup:
 	bash scripts/setup.sh
@@ -19,8 +21,9 @@ check:
 
 test: check
 	cd examples/go-release && go test -race ./...
-	cd examples/mixed-review && go test -race ./...
 	bash scripts/test-native.sh
+	cd examples/python-review && python3 -m unittest discover -s tests -v
+	cd examples/command-policy && python3 -m unittest discover -s tests -v
 
 acceptance:
 	cd tests && go test -count=1 -v ./...
@@ -31,19 +34,30 @@ recovery:
 verify: test acceptance
 
 go:
-	"$(MAS_HOST_BIN)" run --project examples/go-release --agent planner --input examples/go-release/input.json --state .state --run go-release
+	"$(MAS_HOST_BIN)" run --project examples/go-release --agent planner --input examples/go-release/input.yaml --state .state --run go-release
 
 rust:
-	"$(MAS_HOST_BIN)" run --project examples/rust-order --agent order --input examples/rust-order/input.json --state .state --run rust-order
+	"$(MAS_HOST_BIN)" run --project examples/rust-order --agent order --input examples/rust-order/input.yaml --state .state --run rust-order
 
 cpp:
-	"$(MAS_HOST_BIN)" run --project examples/cpp-telemetry --agent telemetry --input examples/cpp-telemetry/input.json --state .state --run cpp-telemetry
+	"$(MAS_HOST_BIN)" run --project examples/cpp-telemetry --agent telemetry --input examples/cpp-telemetry/input.yaml --state .state --run cpp-telemetry
 
-mixed:
-	"$(MAS_HOST_BIN)" run --project examples/mixed-review --agent reviewer --input examples/mixed-review/input.json --state .state --run mixed-review
+python:
+	"$(MAS_HOST_BIN)" run --project examples/python-review --agent reviewer --input examples/python-review/input.yaml --state .state --run python-review
+
+python-client:
+	python3 examples/python-review/call.py
+
+command:
+	"$(MAS_HOST_BIN)" run --project examples/command-policy --agent policy_check --input examples/command-policy/input.yaml --state .state --run command-policy
+
+# Explicit live opt-in; excluded from verify and credential-free CI commands.
+command-agent:
+	@: "$${OPENAI_API_KEY:?Set OPENAI_API_KEY for this billed live model example}"
+	"$(MAS_HOST_BIN)" run --project examples/command-policy --agent reviewer --input examples/command-policy/input.yaml --state .state --run command-policy-agent
 
 star tree composed:
-	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent $@ --input examples/composable-agents/input.json --state .state --run review-$@
+	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent $@ --input examples/composable-agents/input.yaml --state .state --run review-$@
 
 mesh:
-	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent mesh_a --input examples/composable-agents/input.json --state .state --run review-mesh
+	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent mesh_a --input examples/composable-agents/input.yaml --state .state --run review-mesh

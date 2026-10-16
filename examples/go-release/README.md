@@ -12,7 +12,7 @@ implementations; it cannot establish that the supplied measurements are true.
 
 ## Input and policy
 
-Every field in `input.json` is required. Missing fields, `null` and unknown names
+Every field in `input.yaml` is required. Missing fields, `null` and unknown names
 are rejected so absent measurements cannot silently become zero.
 
 | Field | Meaning and accepted values |

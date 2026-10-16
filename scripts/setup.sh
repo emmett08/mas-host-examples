@@ -7,15 +7,17 @@ if [[ "$(uname -s)" != Linux ]]; then
   echo 'The pinned MAS host requires Linux; use a Linux VM or the GitHub Actions workflow.' >&2
   exit 1
 fi
-for command in git cargo rustc go c++ make; do
+for command in git cargo rustc go c++ make python3; do
   command -v "$command" >/dev/null || { echo "Missing prerequisite: $command" >&2; exit 1; }
 done
+python3 -c 'import sys; sys.exit("Python 3.11 or later is required" if sys.version_info < (3, 11) else 0)'
 revision="$(cat host-revision.txt)"
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid host revision.' >&2; exit 1; }
 distribution="$root/.tools/mas-host"
 mkdir -p "$root/.tools"
 if [[ ! -e "$distribution" ]]; then
   git clone --no-checkout https://github.com/emmett08/mas-host.git "$distribution"
+  git -C "$distribution" fetch origin "$revision"
   git -C "$distribution" checkout --detach "$revision"
 fi
 [[ "$(git -C "$distribution" rev-parse HEAD)" == "$revision" ]] || {

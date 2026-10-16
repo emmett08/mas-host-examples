@@ -1,0 +1,53 @@
+version = "mas-agents/3"
+
+[[agents]]
+name = "policy_check"
+operation = "check_policy/1"
+input_schema = "schemas/input.json"
+output_schema = "schemas/output.json"
+working_directory = "."
+
+[agents.implementation]
+kind = "command"
+executable = "tools/policy-check"
+arguments = [
+    { literal = "--service" },
+    { input = "/service" },
+    { literal = "--max-critical" },
+    { literal = "0" },
+    { literal = "--invocation-id" },
+    { invocation_id = true },
+]
+stdin = "json"
+stdout = "json-object"
+success_exit_codes = [0]
+timeout_seconds = 10
+max_output_bytes = 8192
+
+[[agents]]
+name = "reviewer"
+operation = "review_policy/1"
+input_schema = "schemas/input.json"
+output_schema = "schemas/output.json"
+
+[agents.implementation]
+kind = "llm"
+connection = "reviewer_provider"
+model = "gpt-5.4-2026-03-05"
+instructions = "prompts/reviewer.md"
+max_output_tokens = 1024
+max_turns = 2
+delegates = ["policy_check"]
+
+# Only the explicitly selected reviewer entry uses this live connection.
+[connections.reviewer_provider]
+kind = "openai"
+endpoint = "https://api.openai.com/v1/responses"
+api_key_env = "OPENAI_API_KEY"
+
+[limits]
+wall_seconds = 120
+max_calls = 3
+max_messages = 16
+max_bytes = 131072
+mailbox_capacity = 4

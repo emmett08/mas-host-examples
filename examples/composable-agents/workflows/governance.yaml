@@ -1,0 +1,5 @@
+type: request
+key: delivery
+target: delivery
+input:
+  $input: ''
