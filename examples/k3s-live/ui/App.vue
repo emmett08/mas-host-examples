@@ -891,8 +891,9 @@ onBeforeUnmount(() => {
                   >{{ display(selectedMessage.payload) }}</pre
                 >
                 <p v-else class="payload-hidden">
-                  Payloads are hidden for this session. Routing and correlation
-                  remain visible.
+                  {{ isArchive
+                    ? "Payloads were omitted when this recording was captured. Routing and correlation remain visible."
+                    : "Payloads are hidden for this session. Restart the backend with SHOW_PAYLOADS=true to include them." }}
                 </p></template
               ><template v-else-if="selectedNode"
                 ><div class="node-type" :class="selectedNode.kind">

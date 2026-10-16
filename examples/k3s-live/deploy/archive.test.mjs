@@ -41,6 +41,24 @@ test('archive preserves actual observations and filters unavailable pre-observat
   assert.equal(archive.capturedAt, new Date(2000).toISOString());
 });
 
+test('recorded request and result payloads survive packaging without executing embedded markup', async t => {
+  const hostile = '</script><script>globalThis.injected=true</script>&<>\u2028\u2029';
+  const request = { ...message, payload: { operation: 'incident_review/1', task_id: 'task-1',
+    input: { incident: { event: { message: hostile }, evidence: [null, false, { attempts: 3 }] } } } };
+  const result = { id: 'result-1', sequence: 2, sender: 'coordinator', recipient: 'client', kind: 'result',
+    correlation: request.id, payload: { task_id: 'task-1', reply_to: request.id,
+      output: { summary: hostile, next_checks: ['Inspect status', 'Compare logs'] } } };
+  const samples = [snapshot(1000, [request]), snapshot(2000, [request, result], 'completed')]
+    .map(sample => ({ ...sample, observation: { ...sample.observation, payloads_included: true } }));
+  const directory = await capture(t, samples);
+  const html = await readFile(await createArchive(directory), 'utf8');
+  const embedded = JSON.parse(html.match(/<script id="mas-demo-archive" type="application\/json">([\s\S]*?)<\/script>/)[1]);
+  assert.deepEqual(embedded.snapshots, samples);
+  assert.deepEqual(embedded.snapshots.at(-1).observation.messages.map(item => item.payload), [request.payload, result.payload]);
+  assert.equal([...html.matchAll(/^<script\b/gim)].length, 2);
+  assert.equal(html.includes(hostile), false);
+});
+
 test('missing capture files and unavailable observations skip without fabricating timestamps', async t => {
   const directory = await capture(t, [{ run, observationAvailable: false }]);
   assert.equal(await readArchive(directory), undefined);

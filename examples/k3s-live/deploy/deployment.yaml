@@ -25,6 +25,8 @@ spec:
       app.kubernetes.io/name: mas-demo
   template:
     metadata:
+      annotations:
+        demo.mas.dev/show-payloads: 'false'
       labels:
         app.kubernetes.io/name: mas-demo
     spec:
@@ -52,6 +54,9 @@ spec:
             - name: DEMO_MODE
               valueFrom:
                 configMapKeyRef: {name: mas-demo-settings, key: provider}
+            - name: SHOW_PAYLOADS
+              valueFrom:
+                configMapKeyRef: {name: mas-demo-settings, key: showPayloads, optional: true}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef: {name: mas-demo-provider, key: OPENAI_API_KEY, optional: true}

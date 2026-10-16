@@ -27,6 +27,10 @@ export function validateSnapshot(snapshot, mode, id) {
     throw new Error('The completed investigation has no available observation');
   }
   const messages = snapshot.observation.messages;
+  if (snapshot.observation.payloads_included !== true ||
+      messages.some(message => !Object.hasOwn(message, 'payload'))) {
+    throw new Error('The demonstration recording requires message payloads; deploy with SHOW_PAYLOADS=true before capturing');
+  }
   if (messages.length !== 16 || new Set(messages.map(message => message.id)).size !== 16) {
     throw new Error('Expected sixteen distinct recorded request/result envelopes');
   }
@@ -274,6 +278,7 @@ export async function main() {
       'The video records the real Vue canvas while the runner-local k3s cluster exists.',
       'The cluster is removed when the workflow finishes; this artifact is a recording, not a running dashboard.',
       'JSON and NDJSON contain observed server snapshots. Envelope sequences and timestamps are retained unchanged.',
+      'Successful demonstration capture requires application payloads in every envelope. These are embedded in the offline inspector.',
       'NDJSON polling captures changing snapshots; it does not establish network send times or exact packet timing.', '',
       ...(resultError ? [`Failure classification: ${failure.classification}.`, `Failure: ${failure.error}`, ''] : []),
       'Successful capture requires a selected queued/running canvas and a later increase in its envelope count while still active.',

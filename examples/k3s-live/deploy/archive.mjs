@@ -135,6 +135,9 @@ export async function createArchive(captureDirectory) {
     'Open `index.html` in a browser. The Vue application, styles and captured observations are embedded in this one file.',
     'No server, npm install, CDN or network connection is required.', '',
     `Run: ${archive.runId}. Provider mode: ${archive.snapshots.at(-1).run.mode}.`,
+    archive.snapshots.at(-1).observation.payloads_included === true
+      ? 'Payloads are included. Select a message in the log to inspect its recorded request input or agent result.'
+      : 'Payloads were omitted when this recording was captured. A new capture with SHOW_PAYLOADS=true is required to include them.',
     'This is a replay of retained observations. It performs no inference and sends no cluster commands.',
     'Replay uses the recorded observation times; intervals between samples do not establish network message timing.',
     'The same Vue application connects to the live host when deployed to a cluster without embedded archive data.', '',
