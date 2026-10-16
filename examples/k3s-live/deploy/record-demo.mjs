@@ -30,6 +30,9 @@ export function validateControllerResolution(snapshot, journal, sourceRunUID) {
   const resolution = snapshot?.run?.resolution;
   if (!resolution) return false;
   if (resolution.status !== 'verified') throw new Error(`Practical recovery was ${resolution.status}: ${resolution.reason}`);
+  if (resolution.version === 'mas-k8s-resolution/2' && (resolution.effectOutcome !== 'applied' || resolution.verificationOutcome !== 'passed')) {
+    throw new Error('Practical recovery requires an acknowledged applied effect and passed verification');
+  }
   if (journal?.spec?.runId !== snapshot.run.id || journal.spec.sourceRunUID !== sourceRunUID ||
       journal.status?.phase !== 'Finished' || !journal.status.reportJson) {
     throw new Error('The verified recovery has no matching finished controller journal');

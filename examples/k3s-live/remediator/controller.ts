@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { DemoRun, EventEvidence, Metadata } from '../operator/controller.js';
 import { evidenceFromStorage } from '../operator/evidence.js';
 import type { EvidenceBundle } from '../shared/evidence.js';
-import type { ResolutionReport } from '../server/runs.js';
+import { validOutcomeCombination, type ResolutionReport, type ReconciliationObservation } from '../shared/resolution.js';
 
 export type { ResolutionReport };
 export const POLICY_VERSION = 'mas-k8s-remediation/1';
@@ -15,7 +15,7 @@ export interface Snapshot {
   run: {
     id: string; status: string; startedAt?: string;
     input: { incident: { scenario?: string; source?: string; event?: EventEvidence; evidence?: EvidenceBundle } };
-    output?: unknown; resolution?: ResolutionReport;
+    output?: unknown; resolution?: ResolutionReport; reconciliations?: ReconciliationObservation[];
   };
 }
 export interface RemediationKubernetesAPI {
@@ -27,6 +27,7 @@ export interface RemediationKubernetesAPI {
 export interface RemediationBackendAPI {
   snapshot(id: string): Promise<Snapshot | undefined>;
   report(id: string, report: ResolutionReport): Promise<void>;
+  reconcile(id: string, observation: ReconciliationObservation): Promise<void>;
 }
 export interface JournalSpec {
   version: typeof POLICY_VERSION; runId: string; sourceRunUID: string;
@@ -35,14 +36,14 @@ export interface JournalSpec {
 export interface JournalStatus {
   phase: 'Pending' | 'Applying' | 'Finished';
   ownerId?: string; ownerPodUID?: string; ownerPodName?: string;
-  startedAt?: string; reportJson?: string;
+  startedAt?: string; reportJson?: string; reconciliations?: string[];
 }
 export interface RemediationJournal {
   apiVersion: string; kind: string; metadata: Metadata;
   spec: JournalSpec; status?: JournalStatus;
 }
 export interface ResolveOptions {
-  namespaceUID: string;
+  namespaceUID: string; operationId: string; attemptId: string;
   beforePatch(report: ResolutionReport): Promise<void>;
 }
 export type Resolver = (snapshot: Snapshot, options: ResolveOptions) => Promise<ResolutionReport>;
@@ -118,7 +119,10 @@ export class RemediationController {
       for (const journal of journals) {
         try {
           if (journal.status?.phase === 'Applying') await this.recoverApplying(journal);
-          else if (journal.status?.phase === 'Finished') await this.publish(journal);
+          else if (journal.status?.phase === 'Finished') {
+            const observed = await this.observeFinished(journal);
+            await this.publish(observed);
+          }
         } catch (error) { this.log(`Retained remediation ${journal.metadata.name} will retry: ${this.safeError(error)}`); }
       }
       const runs = await this.kube.list<DemoRun>(RUN_PATH);
@@ -206,6 +210,8 @@ export class RemediationController {
       try {
         this.assertFresh(bundle);
         this.assertReport(report, journal);
+        assert(report.version !== 'mas-k8s-resolution/2' || report.attemptId === this.options.ownerId,
+          'The admitted report attempt must match the reserving controller');
         assert(report.patch.length > 0 && report.before !== null, 'An admitted pre-patch report is required');
         // Creating a journal is itself ambiguous if its acknowledgement is
         // lost. This invocation stops on both create conflicts and I/O errors;
@@ -226,7 +232,7 @@ export class RemediationController {
       } catch (error) { reservationFailed = true; throw error; }
     };
     let report: ResolutionReport;
-    try { report = await this.resolve(admittedSnapshot, { namespaceUID: spec.namespaceUID, beforePatch }); }
+    try { report = await this.resolve(admittedSnapshot, { namespaceUID: spec.namespaceUID, operationId: name, attemptId: this.options.ownerId, beforePatch }); }
     catch {
       report = this.failureReport(applying ?? journal,
         claimed ? 'The executor stopped after reserving a possible effect; inspect the live workload. No automatic retry is permitted.'
@@ -235,7 +241,7 @@ export class RemediationController {
     // The shared resolver turns hook exceptions into failed reports. A worker
     // that did not obtain the reservation must never publish that local report.
     if (reservationFailed) return;
-    this.assertReport(report, journal);
+    this.assertReport(report, applying ?? journal);
     assert(report.status !== 'verified' || claimed, 'Verified recovery requires an acknowledged effect reservation');
     if (!hookEntered) {
       // A preflight rejection spends no authority and creates no permanent
@@ -299,7 +305,10 @@ export class RemediationController {
 
   private failureReport(journal: RemediationJournal, reason: string): ResolutionReport {
     const saved = journal.status?.reportJson ? this.parseReport(journal) : undefined;
-    return { version: 'mas-k8s-resolution/1', status: 'failed', action: 'replace_readiness_probe_path',
+    return { version: 'mas-k8s-resolution/2', operationId: journal.metadata.name,
+      attemptId: saved?.version === 'mas-k8s-resolution/2' ? saved.attemptId : journal.status?.ownerId ?? this.options.ownerId,
+      effectOutcome: journal.status?.phase === 'Applying' ? 'unknown' : 'not_started', verificationOutcome: 'not_run',
+      status: 'failed', action: 'replace_readiness_probe_path',
       target: { namespace: NAMESPACE, name: 'mas-demo-checkout', uid: journal.spec.targetUID },
       recordedAt: new Date(this.now()).toISOString(), reason, patch: saved?.patch ?? [],
       before: saved?.before ?? null, after: null,
@@ -307,7 +316,10 @@ export class RemediationController {
   }
 
   private assertReport(report: ResolutionReport, journal: RemediationJournal) {
-    assert(report && report.version === 'mas-k8s-resolution/1' &&
+    assert(report && ['mas-k8s-resolution/1', 'mas-k8s-resolution/2'].includes(report.version) &&
+      validOutcomeCombination(report as unknown as Record<string, unknown>) &&
+      (report.version !== 'mas-k8s-resolution/2' || report.operationId === journal.metadata.name &&
+        (!journal.status?.ownerId || report.attemptId === journal.status.ownerId)) &&
       ['not-attempted', 'failed', 'verified'].includes(report.status) && report.action === 'replace_readiness_probe_path' &&
       report.target?.namespace === NAMESPACE && report.target.name === 'mas-demo-checkout' && report.target.uid === journal.spec.targetUID &&
       Array.isArray(report.patch) && Array.isArray(report.checks) && Buffer.byteLength(canonicalJSON(report)) <= MAX_REPORT_BYTES,
@@ -320,14 +332,71 @@ export class RemediationController {
     assert(canonicalJSON(report) === journal.status.reportJson, 'The durable report is not canonical JSON');
     return report;
   }
+  private async observeFinished(journal: RemediationJournal): Promise<RemediationJournal> {
+    const report = this.parseReport(journal);
+    if (report.version !== 'mas-k8s-resolution/2' || report.status !== 'failed' ||
+        !['unknown', 'applied'].includes(report.effectOutcome)) return journal;
+    const retained = journal.status?.reconciliations ?? [];
+    const last = retained.length ? JSON.parse(retained.at(-1)!) as ReconciliationObservation : undefined;
+    // Finite evidence growth, including API failures. Reconciliation is a later
+    // observation, not a decision to repeat or attribute the original effect.
+    if (retained.length >= 8 || last && this.now() - Date.parse(last.observedAt) < 30_000) return journal;
+    const before = report.before as Record<string, unknown> | null;
+    if (!before || typeof before.expectedTemplateHash !== 'string') return journal;
+    let state: ReconciliationObservation['state'] = 'unavailable';
+    let evidence: ReconciliationObservation['evidence'] = null;
+    let reason = 'The live workload could not be observed; the original effect remains unchanged.';
+    try {
+      const namespace = await this.kube.get<{ metadata: Metadata }>(`/api/v1/namespaces/${NAMESPACE}`);
+      const deployment = await this.kube.get<{ metadata: Metadata & { generation: number }; spec: {
+        template: { spec: { containers: { name: string; readinessProbe?: { httpGet?: { path?: string } } }[] } } };
+        status?: { observedGeneration?: number; readyReplicas?: number } }>(
+        `/apis/apps/v1/namespaces/${NAMESPACE}/deployments/mas-demo-checkout`);
+      assert(namespace.metadata.uid && deployment.metadata.uid && deployment.metadata.resourceVersion &&
+        Number.isSafeInteger(deployment.metadata.generation), 'The live workload identity is incomplete');
+      evidence = { namespaceUID: namespace.metadata.uid, uid: deployment.metadata.uid,
+        resourceVersion: deployment.metadata.resourceVersion, generation: deployment.metadata.generation,
+        templateHash: digest(deployment.spec.template),
+        readinessPath: deployment.spec.template.spec.containers.find(item => item.name === 'checkout')?.readinessProbe?.httpGet?.path ?? null,
+        observedGeneration: deployment.status?.observedGeneration ?? null, readyReplicas: deployment.status?.readyReplicas ?? 0 };
+      const sameTarget = evidence.namespaceUID === journal.spec.namespaceUID && evidence.uid === journal.spec.targetUID;
+      state = sameTarget && evidence.templateHash === before.expectedTemplateHash && evidence.readinessPath === '/healthz' ? 'desired'
+        : sameTarget && evidence.templateHash === journal.spec.templateHash && evidence.readinessPath === '/readyz' ? 'original' : 'changed';
+      reason = state === 'desired' ? 'The admitted template is present at this observation time. This does not establish who applied it or verify application recovery.'
+        : state === 'original' ? 'The original template is present at this observation time. A delayed request or later actor can still change it.'
+          : 'The namespace, target identity or workload template differs from the admitted before and after states.';
+    } catch { /* Do not copy API response bodies or infer non-application from an unavailable read. */ }
+    const content = { version: 'mas-k8s-reconciliation/1' as const, sequence: retained.length + 1,
+      runId: journal.spec.runId, operationId: report.operationId, attemptId: report.attemptId, reportDigest: digest(report),
+      target: report.target, originalTemplateHash: journal.spec.templateHash,
+      observedAt: new Date(this.now()).toISOString(), state, reason, evidence };
+    const observation: ReconciliationObservation = { ...content, id: digest(content) };
+    try { return await this.casStatus(journal, { ...journal.status!, reconciliations: [...retained, canonicalJSON(observation)] }); }
+    catch (error) {
+      // A lost append acknowledgement is resolved by reading durable authority.
+      // Never publish a locally observed value that did not win the status CAS.
+      const current = await this.kube.get<RemediationJournal>(`${JOURNAL_PATH}/${encodeURIComponent(journal.metadata.name)}`);
+      assert(same(current.spec, journal.spec) && current.status?.phase === 'Finished' &&
+        current.status.reportJson === journal.status?.reportJson, 'Reconciliation read-back changed the immutable attempt');
+      if (code(error) === 409 || (current.status.reconciliations?.length ?? 0) > retained.length) return current;
+      throw error;
+    }
+  }
   private async publish(journal: RemediationJournal): Promise<void> {
     assert(journal.status?.phase === 'Finished', 'Only a durable terminal report may be published');
     const report = this.parseReport(journal);
     const publication = digest([journal.metadata.uid, journal.spec, report]);
-    if (this.published.has(publication)) return;
-    // The backend performs its own exact target/report validation and retains
-    // this report idempotently. A failed POST never re-enters the effect path.
-    await this.backend.report(journal.spec.runId, report);
-    this.published.add(publication);
+    if (!this.published.has(publication)) {
+      // A failed publication retries exactly the retained report; no effect path.
+      await this.backend.report(journal.spec.runId, report);
+      this.published.add(publication);
+    }
+    for (const encoded of journal.status.reconciliations ?? []) {
+      const observation = JSON.parse(encoded) as ReconciliationObservation;
+      const identity = `observation:${observation.id}`;
+      if (this.published.has(identity)) continue;
+      await this.backend.reconcile(journal.spec.runId, observation);
+      this.published.add(identity);
+    }
   }
 }

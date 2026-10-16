@@ -1,4 +1,5 @@
 import { deduplicateMessages } from "./topology";
+import { validOutcomeCombination } from "../shared/resolution";
 import type { ArchiveSnapshot, Message, RunArchive } from "./types";
 
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -36,6 +37,8 @@ export function parseArchive(value: unknown): RunArchive {
   let mode: string | undefined, startedAt: string | undefined;
   const retained = new Map<string, string>();
   const snapshots: ArchiveSnapshot[] = [];
+  let retainedResolution: string | undefined;
+  let retainedObservations: string[] = [];
   for (const item of source.snapshots) {
     if (!object(item) || !object(item.run) || item.run.id !== source.runId ||
         !["live", "fixture"].includes(String(item.run.mode)) || !date(item.run.startedAt) ||
@@ -43,6 +46,26 @@ export function parseArchive(value: unknown): RunArchive {
     if (mode !== undefined && (item.run.mode !== mode || item.run.startedAt !== startedAt)) fail("snapshot run identity changed");
     mode = item.run.mode as string;
     startedAt = item.run.startedAt;
+    if (item.run.resolution !== undefined) {
+      if (!object(item.run.resolution) || !validOutcomeCombination(item.run.resolution) ||
+          !['mas-k8s-resolution/1', 'mas-k8s-resolution/2'].includes(String(item.run.resolution.version))) fail("resolution outcomes are invalid");
+      const serialised = JSON.stringify(item.run.resolution);
+      if (retainedResolution && retainedResolution !== serialised) fail("the immutable attempt report changed");
+      retainedResolution = serialised;
+    } else if (retainedResolution) fail("the retained attempt report disappeared");
+    const observations = item.run.reconciliations ?? [];
+    if (!Array.isArray(observations) || observations.length > 8 || observations.length < retainedObservations.length) fail("reconciliation observations are invalid");
+    const report = item.run.resolution;
+    const encoded = observations.map((observation: unknown, index: number) => {
+      if (!object(observation) || observation.version !== 'mas-k8s-reconciliation/1' || observation.sequence !== index + 1 ||
+          observation.runId !== source.runId || !text(observation.id, 64) || !date(observation.observedAt) ||
+          !object(report) || report.version !== 'mas-k8s-resolution/2' || observation.operationId !== report.operationId ||
+          observation.attemptId !== report.attemptId || !['desired', 'original', 'changed', 'unavailable'].includes(String(observation.state))) fail("reconciliation identity differs");
+      const serialised = JSON.stringify(observation);
+      if (retainedObservations[index] !== undefined && retainedObservations[index] !== serialised) fail("a retained reconciliation changed");
+      return serialised;
+    });
+    retainedObservations = encoded;
     if (item.observationAvailable !== undefined && typeof item.observationAvailable !== "boolean") fail("observation availability is invalid");
     if (!object(item.observation) || !Number.isSafeInteger(item.observation.observed_at_ms) ||
         Number(item.observation.observed_at_ms) < 0 || Number(item.observation.observed_at_ms) < previousTime ||

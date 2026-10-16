@@ -79,7 +79,8 @@ attempt through a resource-version-conditional status update. The journal
 retains the admitted patch and original observation before the effect can
 occur. A reservation whose acknowledgement is lost grants no execution
 authority. A retained `Applying` attempt is never patched again after restart.
-An uncertain effect becomes a failed report requiring inspection.
+An uncertain effect retains `effectOutcome: unknown` and
+`verificationOutcome: not_run`; no automatic retry is permitted.
 
 The journal identity binds the namespace UID, Deployment UID, original Pod
 template hash and policy version. Retaining it suppresses automatic repetition
@@ -104,6 +105,48 @@ does not express that field restriction. The controller can read the Pods,
 ReplicaSets, metrics and named Service proxy needed for verification, and the
 demo namespace UID. It receives neither the provider key nor permission to
 read Secrets, execute in Pods or mutate other Deployments.
+
+## Execution outcomes and later observations
+
+New `mas-k8s-resolution/2` reports bind an operation ID (the durable journal
+name) and attempt ID (the reserving controller process). They record two
+independent properties:
+
+| Property | Values and meaning |
+| --- | --- |
+| Effect outcome | `not_started`: no dispatch; `rejected`: a definite authenticated API rejection; `applied`: the exact admitted change was acknowledged; `unknown`: retained evidence cannot establish whether the change was applied |
+| Verification outcome | `not_run`, `passed`, `failed` (an observed postcondition failed), or `inconclusive` (the available evidence could not establish the postconditions) |
+
+A generic subprocess error, timeout or malformed patch response remains
+`unknown`. The in-cluster adapter recognises only explicit pre-commit API
+rejections; HTTP 5xx responses remain uncertain. An acknowledged patch followed
+by unavailable metrics is `applied` and `inconclusive`. Verified recovery requires
+`applied` and `passed`. Existing version 1 reports retain their original bytes;
+the dashboard labels their missing independent outcomes as unrecorded.
+
+`deploy/guarded-operation.mjs` supplies the shared reserve, execute and verify
+sequence. The readiness adapter owns its Kubernetes admission predicates,
+patch and recovery checks. The controller owns durable reservation and replay
+refusal. A second deterministic adapter in `guarded-operation.test.mjs` replaces
+a versioned key/value entry through the same execution contract, including lost
+acknowledgements and process reconstruction. The deployed Kubernetes controller
+continues to admit the single readiness-path action described above.
+
+For an uncertain or unverified version 2 attempt, the controller can append up
+to eight read-only workload observations, at least 30 seconds apart, to the
+finished journal. Each observation binds the run, operation, attempt, original
+report digest, namespace and target identities, and original template hash. A
+resource-version CAS admits exactly one appended record; competing or lost
+acknowledgements read the retained record before publication. The authenticated
+backend retains observations in the same order and returns a compact receipt
+for the exact submitted record.
+
+These observations classify the current template as `desired`, `original`,
+`changed` or `unavailable`. A desired template establishes its presence at the
+recorded time. It does not attribute that state to the uncertain attempt,
+establish application recovery, rule out a delayed original request, or grant
+a repeat attempt. The original execution report remains immutable. Archives
+preserve both records and reveal each observation only at its recorded time.
 
 ## Collected evidence
 

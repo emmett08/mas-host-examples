@@ -1,4 +1,5 @@
 import type { EvidenceBundle } from "../shared/evidence";
+import type { ResolutionReport, ReconciliationObservation } from "../shared/resolution";
 
 export interface TopologyNode {
   id: string;
@@ -33,18 +34,8 @@ export interface Run {
   error?: string | null;
   output?: unknown;
   input?: { incident?: { source?: string; scenario?: string; context?: string; evidence?: EvidenceBundle } };
-  resolution?: {
-    version: "mas-k8s-resolution/1";
-    status: "verified" | "failed" | "not-attempted";
-    action: string;
-    target: { namespace: string; name: string; uid: string };
-    recordedAt: string;
-    reason: string;
-    patch: unknown[];
-    before: unknown;
-    after: unknown;
-    checks: { name: string; passed: boolean; detail: string }[];
-  };
+  resolution?: ResolutionReport;
+  reconciliations?: ReconciliationObservation[];
 }
 
 export interface Snapshot {

@@ -6,18 +6,15 @@ import { HostRunFailure, type Host } from './host.js';
 import type { FailureDiagnostics } from './diagnostics.js';
 import { parseEvidence, type EvidenceBundle } from '../shared/evidence.js';
 
-export interface ResolutionReport {
-  version: 'mas-k8s-resolution/1'; status: 'verified' | 'failed' | 'not-attempted';
-  action: 'replace_readiness_probe_path'; target: { namespace: string; name: string; uid: string };
-  recordedAt: string; reason: string; patch: unknown[]; before: unknown; after: unknown;
-  checks: { name: string; passed: boolean; detail: string }[];
-}
+import { validOutcomeCombination, type ResolutionReport, type ReconciliationObservation } from '../shared/resolution.js';
+export type { ResolutionReport, ReconciliationObservation };
 
 export interface Run {
   id: string; status: 'queued' | 'running' | 'completed' | 'failed';
   mode: 'live' | 'fixture'; startedAt: string; error?: string; output?: unknown;
   diagnostics?: FailureDiagnostics;
   resolution?: ResolutionReport;
+  reconciliations?: ReconciliationObservation[];
   input: { incident: unknown }; fingerprint: string;
 }
 export class RequestError extends Error { constructor(public status: number, message: string) { super(message); } }
@@ -25,6 +22,7 @@ export class Runs {
   readonly records = new Map<string, Run>();
   readonly observations = new Map<string, unknown>();
   private resolutionWrites = new Map<string, { identity: string; completion: Promise<Run> }>();
+  private reconciliationWrites = new Map<string, Promise<Run>>();
   private active?: Run;
   private stopping = false;
   constructor(readonly directory: string, readonly mode: Run['mode'], readonly host: Host) {}
@@ -141,6 +139,29 @@ export class Runs {
     try { return await completion; }
     finally { this.resolutionWrites.delete(id); }
   }
+  async recordReconciliation(id: string, value: unknown): Promise<Run> {
+    const pending = this.reconciliationWrites.get(id);
+    if (pending) { await pending; return this.recordReconciliation(id, value); }
+    const run = this.get(id);
+    const observation = validateReconciliation(value, run);
+    const retained = run.reconciliations ?? [];
+    const existing = retained.find(item => item.id === observation.id);
+    if (existing) {
+      if (stableJson(existing) !== stableJson(observation)) throw new RequestError(409, 'Reconciliation identity already has different evidence');
+      return run;
+    }
+    if (observation.sequence !== retained.length + 1 || retained.length >= 8) throw new RequestError(409, 'Reconciliation observations must append in order, at most eight per attempt');
+    if (retained.length && Date.parse(observation.observedAt) < Date.parse(retained.at(-1)!.observedAt)) throw new RequestError(409, 'Reconciliation time cannot move backwards');
+    const updated = { ...run, reconciliations: [...retained, observation] };
+    const completion = this.persist(updated).then(() => {
+      Object.assign(run, updated);
+      this.observations.delete(id);
+      return run;
+    });
+    this.reconciliationWrites.set(id, completion);
+    try { return await completion; }
+    finally { this.reconciliationWrites.delete(id); }
+  }
   private async execute(run: Run) {
     const folder = this.folder(run.id), state = join(folder, 'host');
     let pendingObservation: Promise<boolean> | undefined;
@@ -213,8 +234,9 @@ function inputFingerprint(input: { incident: unknown }) {
 function validateResolution(value: unknown, run: Run): ResolutionReport {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Buffer.byteLength(JSON.stringify(value)) > 16 * 1024) throw new RequestError(400, 'Resolution report must be an object of at most 16 KiB');
   const report = value as Record<string, unknown>;
-  const required = ['version', 'status', 'action', 'target', 'recordedAt', 'reason', 'patch', 'before', 'after', 'checks'];
-  if (Object.keys(report).length !== required.length || required.some(key => !(key in report)) || report.version !== 'mas-k8s-resolution/1' ||
+  const required = ['version', 'status', 'action', 'target', 'recordedAt', 'reason', 'patch', 'before', 'after', 'checks',
+    ...(report.version === 'mas-k8s-resolution/2' ? ['operationId', 'attemptId', 'effectOutcome', 'verificationOutcome'] : [])];
+  if (Object.keys(report).length !== required.length || required.some(key => !(key in report)) || !['mas-k8s-resolution/1', 'mas-k8s-resolution/2'].includes(String(report.version)) || !validOutcomeCombination(report) ||
       !['verified', 'failed', 'not-attempted'].includes(String(report.status)) || report.action !== 'replace_readiness_probe_path' ||
       typeof report.recordedAt !== 'string' || !Number.isFinite(Date.parse(report.recordedAt)) || typeof report.reason !== 'string' || report.reason.length > 2000 ||
       !Array.isArray(report.patch) || report.patch.length > 16 || !Array.isArray(report.checks) || report.checks.length > 16) throw new RequestError(400, 'Invalid resolution report');
@@ -228,6 +250,10 @@ function validateResolution(value: unknown, run: Run): ResolutionReport {
   const resource = deployment?.data as { kind?: string; metadata?: Record<string, unknown>; templateHash?: string } | undefined;
   if (!target || Array.isArray(target) || Object.keys(target).length !== 3 || resource?.kind !== 'Deployment' ||
       ['namespace', 'name', 'uid'].some(key => typeof target[key] !== 'string' || target[key] !== resource.metadata?.[key])) throw new RequestError(400, 'Resolution target must match the collected Deployment namespace, name and UID');
+  if (report.version === 'mas-k8s-resolution/2' && report.effectOutcome === 'applied' &&
+      !report.checks.some(check => check.name === 'Patch applied' && check.passed === true)) {
+    throw new RequestError(400, 'An applied effect requires an acknowledged patch check');
+  }
   if (report.status === 'verified' && (!report.checks.length || report.checks.some(check => check.passed !== true))) throw new RequestError(400, 'A verified resolution requires successful verification checks');
   if (report.status === 'verified') {
     const verificationChecks = report.checks as ResolutionReport['checks'];
@@ -250,6 +276,7 @@ function validateResolution(value: unknown, run: Run): ResolutionReport {
         before.readinessPath !== '/readyz' || after.readinessPath !== '/healthz' || typeof before.templateHash !== 'string' || !before.templateHash || before.templateHash !== resource.templateHash || typeof after.templateHash !== 'string' || !after.templateHash ||
         typeof before.observedAt !== 'string' || !Number.isFinite(Date.parse(before.observedAt)) || typeof after.observedAt !== 'string' || !Number.isFinite(Date.parse(after.observedAt)) || Date.parse(after.observedAt) < Date.parse(before.observedAt) || Date.parse(report.recordedAt) < Date.parse(after.observedAt) ||
         !Number.isSafeInteger(before.generation) || !Number.isSafeInteger(after.generation) || Number(after.generation) !== Number(before.generation) + 1 ||
+        report.version === 'mas-k8s-resolution/2' && (typeof before.namespaceUID !== 'string' || !before.namespaceUID || before.expectedTemplateHash !== after.templateHash) ||
         !pod || typeof pod.name !== 'string' || !pod.name || typeof pod.uid !== 'string' || !pod.uid || pod.ready !== true || pod.restarts !== 0 ||
         !metrics || typeof metrics.timestamp !== 'string' || !Number.isFinite(Date.parse(metrics.timestamp)) || typeof metrics.window !== 'string' || !metrics.window ||
         !Array.isArray(metrics.containers) || !metrics.containers.length || metrics.containers.some(container => !container || typeof container.name !== 'string' || typeof container.usage?.cpu !== 'string' || typeof container.usage?.memory !== 'string') ||
@@ -284,4 +311,37 @@ function validateEvent(value: unknown) {
     copy.involvedObject = object;
   }
   return copy;
+}
+
+function validateReconciliation(value: unknown, run: Run): ReconciliationObservation {
+  const report = run.resolution;
+  if (!report || report.version !== 'mas-k8s-resolution/2' || report.status !== 'failed' ||
+      !['unknown', 'applied'].includes(report.effectOutcome)) throw new RequestError(409, 'Reconciliation requires a retained uncertain or unverified effect');
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Buffer.byteLength(JSON.stringify(value)) > 4096) throw new RequestError(400, 'Reconciliation must be a bounded observation');
+  const row = value as Record<string, unknown>;
+  const fields = ['version', 'id', 'sequence', 'runId', 'operationId', 'attemptId', 'reportDigest', 'target', 'originalTemplateHash', 'observedAt', 'state', 'reason', 'evidence'];
+  const before = report.before as Record<string, unknown> | null;
+  const digest = (data: unknown) => createHash('sha256').update(stableJson(data)).digest('hex');
+  const { id: _id, ...content } = row;
+  if (Object.keys(row).length !== fields.length || fields.some(key => !(key in row)) ||
+      row.version !== 'mas-k8s-reconciliation/1' || row.id !== digest(content) ||
+      !Number.isSafeInteger(row.sequence) || Number(row.sequence) < 1 || Number(row.sequence) > 8 ||
+      row.runId !== run.id || row.operationId !== report.operationId || row.attemptId !== report.attemptId || row.reportDigest !== digest(report) ||
+      stableJson(row.target) !== stableJson(report.target) || row.originalTemplateHash !== before?.templateHash ||
+      typeof row.originalTemplateHash !== 'string' || !/^[a-f0-9]{64}$/.test(row.originalTemplateHash) ||
+      typeof row.observedAt !== 'string' || !Number.isFinite(Date.parse(row.observedAt)) || Date.parse(row.observedAt) < Date.parse(report.recordedAt) ||
+      !['desired', 'original', 'changed', 'unavailable'].includes(String(row.state)) || typeof row.reason !== 'string' || row.reason.length > 1000) throw new RequestError(400, 'Reconciliation must bind to the exact immutable attempt report');
+  if (row.state === 'unavailable') {
+    if (row.evidence !== null) throw new RequestError(400, 'Unavailable reconciliation must not invent workload evidence');
+  } else {
+    const data = row.evidence as ReconciliationObservation['evidence'];
+    if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length !== 8 ||
+        !['namespaceUID', 'uid', 'resourceVersion', 'templateHash'].every(key => typeof data[key as keyof typeof data] === 'string' && String(data[key as keyof typeof data]).length > 0 && String(data[key as keyof typeof data]).length <= 128) ||
+        !/^[a-f0-9]{64}$/.test(data.templateHash) || !(data.readinessPath === null || typeof data.readinessPath === 'string' && data.readinessPath.length <= 253) ||
+        !Number.isSafeInteger(data.generation) || data.generation < 1 || !Number.isSafeInteger(data.readyReplicas) || data.readyReplicas < 0 ||
+        !(data.observedGeneration === null || Number.isSafeInteger(data.observedGeneration) && data.observedGeneration >= 0)) throw new RequestError(400, 'Reconciliation workload evidence is invalid');
+    if (row.state === 'desired' && (data.namespaceUID !== before?.namespaceUID || data.uid !== report.target.uid || data.templateHash !== before?.expectedTemplateHash || data.readinessPath !== '/healthz')) throw new RequestError(400, 'Desired-state observation must match the exact admitted template');
+    if (row.state === 'original' && (data.namespaceUID !== before?.namespaceUID || data.uid !== report.target.uid || data.templateHash !== before?.templateHash || data.readinessPath !== '/readyz')) throw new RequestError(400, 'Original-state observation must match the original target and template');
+  }
+  return structuredClone(row) as unknown as ReconciliationObservation;
 }

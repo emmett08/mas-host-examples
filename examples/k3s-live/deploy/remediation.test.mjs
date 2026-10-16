@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { admitReadinessPatch, APPLICATION_BODY, canonicalTemplateHash, recovered, resolveIncident, validatePracticalEvidence } from './remediation.mjs';
+import { admitReadinessPatch, APPLICATION_BODY, canonicalTemplateHash, recovered, resolveIncident as executeIncident, validatePracticalEvidence } from './remediation.mjs';
+const resolveIncident = (snapshot, options) => executeIncident(snapshot, { operationId: 'test-operation', attemptId: 'test-attempt', beforePatch: async () => {}, ...options });
 
 function candidate() {
   const deployment = { apiVersion: 'apps/v1', kind: 'Deployment', metadata: { name: 'mas-demo-checkout', namespace: 'mas-demo',
@@ -94,6 +95,7 @@ test('resolution retains exact admitted patch and independently verifies fresh P
       patched = true;
       deployment.spec.template.spec.containers[0].readinessProbe.httpGet.path = '/healthz';
       deployment.metadata.generation = 3;
+      deployment.metadata.resourceVersion = 'patch-ack-version';
       deployment.status = { observedGeneration: 3, updatedReplicas: 1, replicas: 1, readyReplicas: 1, availableReplicas: 1 };
       return JSON.stringify(deployment);
     }
@@ -121,6 +123,9 @@ test('resolution retains exact admitted patch and independently verifies fresh P
     } });
   assert.equal(patched, true);
   assert.equal(report.status, 'verified');
+  assert.equal(report.version, 'mas-k8s-resolution/2');
+  assert.equal(report.effectOutcome, 'applied');
+  assert.equal(report.verificationOutcome, 'passed');
   assert.equal(report.after.pod.uid, 'new-pod-uid');
   assert.equal(report.after.application.status, 200);
   assert.equal(report.patch.at(-1).value, '/healthz');
@@ -188,11 +193,42 @@ test('uncertain patch responses and conflicts never retry or claim verified reco
     };
     const report = await resolveIncident(snapshot, { kubectl, namespaceUID: 'namespace-uid', enabled: true });
     assert.equal(report.status, 'failed', failure);
+    assert.equal(report.effectOutcome, failure === 'wrong-endpoint' || failure === 'partial-rollout' || failure === 'metrics-unavailable' ? 'applied' : 'unknown', failure);
+    assert.equal(report.verificationOutcome, failure === 'wrong-endpoint' ? 'failed' : failure === 'partial-rollout' || failure === 'metrics-unavailable' ? 'inconclusive' : 'not_run', failure);
     assert.equal(patchCalls, 1, failure);
     assert.equal(applied, failure !== 'stale-resource-version', failure);
     assert.equal(report.after, null, failure);
     assert.equal(report.checks.some(check => check.name === 'Functional HTTP' && check.passed), false, failure);
   }
+});
+
+test('only an explicit target rejection distinguishes rejected from an unknown patch outcome', async () => {
+  const { snapshot, deployment } = candidate();
+  const rejection = new Error('Authenticated API returned Conflict');
+  let patches = 0;
+  const report = await resolveIncident(snapshot, { namespaceUID: 'namespace-uid', enabled: true,
+    isDefiniteRejection: error => error === rejection,
+    kubectl: async args => {
+      if (args[1] === 'namespace') return JSON.stringify({ metadata: { uid: 'namespace-uid' } });
+      if (args[0] === 'patch') { patches++; throw rejection; }
+      return JSON.stringify(deployment);
+    } });
+  assert.equal(patches, 1);
+  assert.equal(report.effectOutcome, 'rejected');
+  assert.equal(report.verificationOutcome, 'not_run');
+});
+
+test('the readiness adapter cannot execute without a durable reservation callback', async () => {
+  const { snapshot, deployment } = candidate();
+  let patches = 0;
+  const report = await resolveIncident(snapshot, { namespaceUID: 'namespace-uid', enabled: true, beforePatch: undefined,
+    kubectl: async args => {
+      if (args[0] === 'patch') patches++;
+      return JSON.stringify(args[1] === 'namespace' ? { metadata: { uid: 'namespace-uid' } } : deployment);
+    } });
+  assert.equal(patches, 0);
+  assert.equal(report.effectOutcome, 'not_started');
+  assert.equal(report.verificationOutcome, 'not_run');
 });
 
 test('a wrong HTTP response, incomplete rollout or absent metrics cannot establish verified recovery', async () => {
@@ -206,6 +242,7 @@ test('a wrong HTTP response, incomplete rollout or absent metrics cannot establi
         patchCalls++;
         deployment.spec.template.spec.containers[0].readinessProbe.httpGet.path = '/healthz';
         deployment.metadata.generation = 3;
+      deployment.metadata.resourceVersion = 'patch-ack-version';
         deployment.status = { observedGeneration: 3, updatedReplicas: 1, replicas: 1,
           readyReplicas: failure === 'partial-rollout' ? 0 : 1, availableReplicas: failure === 'partial-rollout' ? 0 : 1 };
         return JSON.stringify(deployment);
@@ -227,6 +264,8 @@ test('a wrong HTTP response, incomplete rollout or absent metrics cannot establi
     const report = await resolveIncident(snapshot, { kubectl, namespaceUID: 'namespace-uid', enabled: true,
       timeoutMs: 10, delay: async () => {} });
     assert.equal(report.status, 'failed', failure);
+    assert.equal(report.effectOutcome, failure === 'wrong-endpoint' || failure === 'partial-rollout' || failure === 'metrics-unavailable' ? 'applied' : 'unknown', failure);
+    assert.equal(report.verificationOutcome, failure === 'wrong-endpoint' ? 'failed' : failure === 'partial-rollout' || failure === 'metrics-unavailable' ? 'inconclusive' : 'not_run', failure);
     assert.equal(patchCalls, 1, failure);
     assert.equal(report.after, null, failure);
     assert.equal(bodyCalls, failure === 'wrong-endpoint' ? 1 : 0, failure);

@@ -1,12 +1,12 @@
 {
-  "schema": "mas-k3s-application-verification/3",
+  "schema": "mas-k3s-application-verification/4",
   "model_sha256": "6973a6aafb8f4984cb029fe6dc285e58118bea7bd03cf51aff98f6f4050ec515",
   "models": {
     "hybrid.pml": {
       "sha256": "6973a6aafb8f4984cb029fe6dc285e58118bea7bd03cf51aff98f6f4050ec515"
     },
     "remediation.pml": {
-      "sha256": "4dcca2508de87408aa64ee885c573879e2ffba687e2fd5ac3487e6c44724b0dc",
+      "sha256": "b9dcff08d5db2b01656e580317097a7dcb61fbabd2c1fd4a37ede06cd3fb0126",
       "bounds": {
         "bundles": 1,
         "proposals": 1,
@@ -49,25 +49,29 @@
       ]
     }
   },
-  "runner_sha256": "39ccb861e11c784ba3fa4f186afbe5923539b03d6f1a4d40d2da743ce26e918a",
+  "runner_sha256": "dce7f7f040943df502f279ee2036257545bc1a92b86ec7daf534596f5d3ea058",
   "reviewed_application_files": {
     "project/topology.yaml": "8f64e6f77753dbe91b0b9b42da8f8742919ba4b17eb725304a8ed324c32d9bda",
     "project/workflows/coordinator.yaml": "7b6f2ca621f5f7602026f5c645bd88dfbbe4015b0bdbaf56bbb87326282d82bb",
     "project/workflows/platform.yaml": "273fe4a748d6ceb68281c9edfaa89ca4af1b61f7f8b7e61038bcacdd41f2cb61",
     "project/workflows/security.yaml": "4027256127bb3337a86f86efcf5357298ebbceebb2c6fa57b2e6af87ae2047a0",
-    "deploy/remediation.mjs": "4d4422a1f39ce54f0cad2c7f70c95c707066652279ccdfac9eb01c747115ae07",
-    "deploy/remediation.test.mjs": "5029b95e23861ddcbadfa8b7ac8a976a3986e2553444038fa3da05d83b428770",
-    "server/http.ts": "3592f6995134ba6bdb1fef66d3f1055fba994031a6211acb12f9feeb6b4ecc74",
-    "server/runs.ts": "8f00d0517566865be3b4554cd79fd572f30b46df282c758609a7d9c219418471",
-    "server/runs.test.ts": "3275cf10af6fe4ea481a40fcbeb5c1ef2feae9eb208ed689908b3e74d0dd0696",
-    "remediator/controller.ts": "34bd2694f04a11c448826901fb6cc13e98792d852bc51e896d41eb7fa8922612",
-    "remediator/controller.test.ts": "4ea491b3f6af79e342ef81c63073574e047a1e14b3760e021e6948f597d745c6",
-    "remediator/index.ts": "c51a5f4baa7981d7bb3b05b50d5dfc774b37ce1c8968f3608414e40bebf7e70e",
-    "remediator/transport.ts": "95dc2dcf3cf2af43ec37019d32d7b4cce79b12961160efb6e0c6ae3b931698f4",
-    "remediator/transport.test.ts": "770cdda00628b7f55aae6cd7a26c983b78dd12069ca7e4f33708a7ad0ac72d75",
+    "deploy/remediation.mjs": "a0ccf2a8c4f9ea65ca9cb39f124df787fe9dfbc41222589a1bb130ee26e8285a",
+    "deploy/remediation.test.mjs": "f8f1172dd7546c112ace223c81167db7454a78421a125188a0fddd997dc40414",
+    "deploy/guarded-operation.mjs": "510fb6f625c561f0129ce47744a49a22bb1ee0ce402be6943d5cacef0eedd229",
+    "deploy/guarded-operation.test.mjs": "723b8278ecc3f9124ccb4fe5c4668a725ab89cb78fa9e46aa9676f9f4e157a3f",
+    "shared/resolution.ts": "a2908982ddfa1c42c9f72e6771e433e1e9a06b1df6438a9aa668f05fe383d66d",
+    "remediator/outcomes.test.ts": "d22fa6864397a0855b9faa12d2f09d97a3b49f7a9b0ca579e3b026989fe59ee1",
+    "server/http.ts": "989574c769ae28b066171da1577ac3727d1e2530d0690f3c6c4268e1c92fc205",
+    "server/runs.ts": "111bd56803d3a671960c1c83122cbbdd405269467ae9c3369556316c679f59ff",
+    "server/runs.test.ts": "33eff09e34ca1b9ae6a23dfa6cc424235e1d13826e32c40349e4645bcc327c9e",
+    "remediator/controller.ts": "e440c3a5e30318e9a5faadd8c555e56235878e45a69f169fbc9750692db06cee",
+    "remediator/controller.test.ts": "8c0c28c85c473ec6e654b952c62174dd3ab02efc10ae399a605d3dfb068efeaf",
+    "remediator/index.ts": "05b95bbad63a78d6fdcb6ff709417c42a747d9fe0befc3e427a7b3f46330d785",
+    "remediator/transport.ts": "7da4e0fffcb067ec77ed220d478eb901a42310df0a9d4d984291686786c1fc4a",
+    "remediator/transport.test.ts": "995baa91d21323a44eff7fa25ef2c264c63f6bc09996a077f6766db5349de1ed",
     "operator/client.ts": "9821399465bd338b211d24e1955b96d1185b6164c050c52e6984552c17cb4ac7",
     "deploy/rbac.yaml": "90bd9b03bfc3a068a9d5c53b3d3a803a11a34b174969dcbd0878fcd8982b4525",
-    "deploy/remediation-crd.yaml": "314033e66df3da1c2ce44f1837d6b586865fdf81f0e8137ae1e3c7e746ec76aa",
+    "deploy/remediation-crd.yaml": "a046373c4b4e629c3ae9a5c1f52617f65c92e29cff388108592b2f9ebe0ca42a",
     "deploy/remediator.yaml": "16b69c21cf57c910654db3e650cd847d70a57f4427fa999dd3dc45c354962ca9"
   },
   "bounds": {
@@ -233,7 +237,7 @@
       "partial_order_reduction": true,
       "expected": "zero_errors",
       "result": "COMPLETE_ZERO_ERRORS",
-      "stored_states": "6878",
+      "stored_states": "9918",
       "errors": 0,
       "raw_commands_key": "remediation-safety"
     },
@@ -246,7 +250,7 @@
       "partial_order_reduction": false,
       "expected": "zero_errors",
       "result": "COMPLETE_ZERO_ERRORS",
-      "stored_states": "6878",
+      "stored_states": "9918",
       "errors": 0,
       "raw_commands_key": "remediation-safety-no-reduction"
     },
@@ -259,7 +263,7 @@
       "partial_order_reduction": true,
       "expected": "zero_errors",
       "result": "COMPLETE_ZERO_ERRORS",
-      "stored_states": "6208",
+      "stored_states": "9092",
       "errors": 0,
       "raw_commands_key": "remediation-settlement"
     },
@@ -272,7 +276,7 @@
       "partial_order_reduction": false,
       "expected": "zero_errors",
       "result": "COMPLETE_ZERO_ERRORS",
-      "stored_states": "6208",
+      "stored_states": "9092",
       "errors": 0,
       "raw_commands_key": "remediation-settlement-no-reduction"
     },
@@ -286,7 +290,7 @@
       "expected": "counterexample",
       "counterexample_sources": "counterexamples.zip/remediation-missing-uid-guard/",
       "result": "EXPECTED_COUNTEREXAMPLE",
-      "stored_states": "1508",
+      "stored_states": "3436",
       "errors": 1,
       "raw_commands_key": "remediation-missing-uid-guard"
     },
@@ -300,7 +304,7 @@
       "expected": "counterexample",
       "counterexample_sources": "counterexamples.zip/remediation-early-verified/",
       "result": "EXPECTED_COUNTEREXAMPLE",
-      "stored_states": "46",
+      "stored_states": "54",
       "errors": 1,
       "raw_commands_key": "remediation-early-verified"
     },
@@ -314,7 +318,7 @@
       "expected": "counterexample",
       "counterexample_sources": "counterexamples.zip/remediation-stale-resource-version/",
       "result": "EXPECTED_COUNTEREXAMPLE",
-      "stored_states": "1466",
+      "stored_states": "3336",
       "errors": 1,
       "raw_commands_key": "remediation-stale-resource-version"
     },
@@ -328,7 +332,7 @@
       "expected": "counterexample",
       "counterexample_sources": "counterexamples.zip/remediation-report-auth/",
       "result": "EXPECTED_COUNTEREXAMPLE",
-      "stored_states": "40",
+      "stored_states": "48",
       "errors": 1,
       "raw_commands_key": "remediation-report-auth"
     },
@@ -356,9 +360,37 @@
       "expected": "counterexample",
       "counterexample_sources": "counterexamples.zip/remediation-success-witness/",
       "result": "EXPECTED_COUNTEREXAMPLE",
-      "stored_states": "38",
+      "stored_states": "46",
       "errors": 1,
       "raw_commands_key": "remediation-success-witness"
+    },
+    {
+      "name": "remediation-effect-attribution",
+      "model": "remediation.pml",
+      "claim": null,
+      "macro": "BUG_EFFECT_ATTRIBUTION",
+      "mode": "safety",
+      "partial_order_reduction": true,
+      "expected": "counterexample",
+      "counterexample_sources": "counterexamples.zip/remediation-effect-attribution/",
+      "result": "EXPECTED_COUNTEREXAMPLE",
+      "stored_states": "3525",
+      "errors": 1,
+      "raw_commands_key": "remediation-effect-attribution"
+    },
+    {
+      "name": "remediation-uncertain-effect-witness",
+      "model": "remediation.pml",
+      "claim": null,
+      "macro": "WITNESS_EFFECT_UNCERTAINTY",
+      "mode": "safety",
+      "partial_order_reduction": true,
+      "expected": "counterexample",
+      "counterexample_sources": "counterexamples.zip/remediation-uncertain-effect-witness/",
+      "result": "EXPECTED_COUNTEREXAMPLE",
+      "stored_states": "3531",
+      "errors": 1,
+      "raw_commands_key": "remediation-uncertain-effect-witness"
     },
     {
       "name": "controller-safety",
@@ -541,5 +573,6 @@
   ],
   "spin": "Spin Version 6.5.2 -- 6 December 2019",
   "compiler": "cc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+  "source_changed_during_verification": [],
   "status": "PASS"
 }

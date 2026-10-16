@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { APIError } from '../operator/controller.js';
 import { readFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHTTPServer } from 'node:http';
 import { createServer as createHTTPSServer } from 'node:https';
@@ -113,7 +115,8 @@ test('backend transport uses the fixed namespace Service, bounded snapshots and 
     if (request.url!.includes('denied')) { response.writeHead(403); response.end('{"private":"do-not-leak"}'); return; }
     if (request.url!.includes('redirect')) { response.writeHead(302, { location: 'https://external.test/' }); response.end('{}'); return; }
     response.writeHead(request.method === 'POST' ? 202 : 200);
-    response.end(request.method === 'POST' ? '{}' : JSON.stringify(snapshot));
+    response.end(request.method === 'POST' ? JSON.stringify({ accepted: true, runId: 'event_one', kind: 'resolution',
+      recordId: createHash('sha256').update(body).digest('hex') }) : JSON.stringify(snapshot));
   });
   t.after(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -131,6 +134,10 @@ test('backend transport uses the fixed namespace Service, bounded snapshots and 
   const options = { client: { get: noKubernetes, list: noKubernetes, text: noKubernetes, patchJSON: noKubernetes },
     namespace: 'mas-demo', verifierToken: 'a'.repeat(64), fetch: localFetch };
   const transport = createRemediationTransport(options);
+  for (const status of [400, 401, 403, 404, 405, 409, 415, 422, 429]) assert.equal(transport.isDefiniteRejection(new APIError(status, 'Rejected')), true);
+  for (const status of [408, 500, 502, 503, 504]) assert.equal(transport.isDefiniteRejection(new APIError(status, 'Uncertain')), false);
+  assert.equal(transport.isDefiniteRejection(new Error('kubectl exited with status 1')), false);
+  assert.equal(transport.isDefiniteRejection({ statusCode: 409 }), false);
   assert.deepEqual(await transport.snapshot('event_one'), snapshot);
   await transport.report('event_one', report);
   assert.equal(await transport.snapshot('absent'), undefined);

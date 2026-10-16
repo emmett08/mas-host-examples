@@ -39,6 +39,8 @@ CASES = [
     ("remediation-report-auth", "BUG_REPORT_AUTH", False, False, "(!(report_published)||report_authenticated)"),
     ("remediation-api-stall", "BUG_REMEDIATION_STALL", True, False, "acceptance cycle"),
     ("remediation-success-witness", "WITNESS_REMEDIATION_SUCCESS", False, False, "(outcome!=Verified)"),
+    ("remediation-effect-attribution", "BUG_EFFECT_ATTRIBUTION", False, False, "patch_acknowledged"),
+    ("remediation-uncertain-effect-witness", "WITNESS_EFFECT_UNCERTAINTY", False, False, "EffectUnknown"),
     ("controller-safety", None, False, False, None),
     ("controller-safety-no-reduction", None, False, True, None),
     ("controller-settlement", None, True, False, None),
@@ -79,11 +81,12 @@ def main() -> int:
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
+    (out / "summary.json").write_text('{"status":"RUNNING_OR_INTERRUPTED"}\n')
     spin = shutil.which("spin")
     compiler = shutil.which(os.environ.get("CC", "cc"))
     source = ROOT / "hybrid.pml"
     summary = {
-        "schema": "mas-k3s-application-verification/3",
+        "schema": "mas-k3s-application-verification/4",
         "model_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "models": {
             "hybrid.pml": {"sha256": hashlib.sha256(source.read_bytes()).hexdigest()},
@@ -127,6 +130,8 @@ def main() -> int:
             for name in ("project/topology.yaml", "project/workflows/coordinator.yaml",
                          "project/workflows/platform.yaml", "project/workflows/security.yaml",
                          "deploy/remediation.mjs", "deploy/remediation.test.mjs",
+                         "deploy/guarded-operation.mjs", "deploy/guarded-operation.test.mjs",
+                         "shared/resolution.ts", "remediator/outcomes.test.ts",
                          "server/http.ts", "server/runs.ts", "server/runs.test.ts",
                          "remediator/controller.ts", "remediator/controller.test.ts", "remediator/index.ts", "remediator/transport.ts",
                          "remediator/transport.test.ts", "operator/client.ts", "deploy/rbac.yaml",
@@ -227,7 +232,15 @@ def main() -> int:
         check["raw_commands_key"] = name
         summary["checks"].append(check)
         print(f"{name}: {check['result']}")
-    summary["status"] = "PASS" if all(c["result"] != "FAILED_OR_INCOMPLETE" for c in summary["checks"]) else "FAIL"
+    # A long run must not certify source hashes captured before concurrent edits.
+    changed = [name for name, digest in summary["reviewed_application_files"].items()
+               if not (ROOT.parent / name).is_file() or hashlib.sha256((ROOT.parent / name).read_bytes()).hexdigest() != digest]
+    changed += [name for name, model in summary["models"].items()
+                if not (ROOT / name).is_file() or hashlib.sha256((ROOT / name).read_bytes()).hexdigest() != model["sha256"]]
+    if hashlib.sha256(Path(__file__).read_bytes()).hexdigest() != summary["runner_sha256"]:
+        changed.append("verification/verify.py")
+    summary["source_changed_during_verification"] = changed
+    summary["status"] = "PASS" if not changed and all(c["result"] != "FAILED_OR_INCOMPLETE" for c in summary["checks"]) else "FAIL"
     (out / "commands.json").write_text(json.dumps(raw_commands, indent=2) + "\n")
     (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return 0 if summary["status"] == "PASS" else 1

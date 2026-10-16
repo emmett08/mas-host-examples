@@ -130,6 +130,7 @@ catch (error) {
   throw error;
 }
 if (run.status !== 'completed') throw new Error('The backend did not retain the completed host run');
+if (run.resolution.version !== 'mas-k8s-resolution/2' || run.resolution.effectOutcome !== 'applied' || run.resolution.verificationOutcome !== 'passed') throw new Error('New execution must retain independent effect and verification outcomes');
 if (observation.messages.length !== 16) throw new Error('Expected 16 admitted Request/Result messages from eight invocations');
 if (!observation.messages.some(message => message.sender === 'platform' && message.recipient === 'security')) {
   throw new Error('Expected the hybrid platform-to-security peer request');
@@ -174,3 +175,30 @@ if (run.status !== 'completed' || observation.messages.length !== 16 || run.reso
 }
 NODE
 printf 'Event trigger, host run, controller repair, scoped RBAC, retained recovery and restart deduplication passed.\n'
+
+# Exercise ordered append-only status admission against the actual API server.
+# This isolated schema fixture grants no workload permission and runs no executor.
+kubectl create namespace mas-schema-check
+kubectl create -f - <<'YAML'
+apiVersion: demo.mas.dev/v1alpha1
+kind: MASRemediation
+metadata: {name: append-check, namespace: mas-schema-check}
+spec:
+  version: mas-k8s-remediation/1
+  runId: schema-check
+  sourceRunUID: schema-check
+  namespaceUID: schema-check
+  targetUID: schema-check
+  templateHash: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  evidenceHash: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+YAML
+kubectl -n mas-schema-check patch masremediation/append-check --subresource=status --type=merge -p '{"status":{"phase":"Finished","reportJson":"{}"}}'
+kubectl -n mas-schema-check patch masremediation/append-check --subresource=status --type=merge -p '{"status":{"reconciliations":["first"]}}'
+kubectl -n mas-schema-check patch masremediation/append-check --subresource=status --type=merge -p '{"status":{"reconciliations":["first","second"]}}'
+for invalid in '{"status":{"reconciliations":["second","first"]}}' '{"status":{"reconciliations":["first"]}}' '{"status":{"reportJson":"changed"}}'; do
+  if kubectl -n mas-schema-check patch masremediation/append-check --subresource=status --dry-run=server --type=merge -p "$invalid"; then
+    echo 'The API accepted rewriting retained attempt or observation evidence' >&2; exit 1
+  fi
+done
+kubectl delete namespace mas-schema-check --wait=false
+printf 'Version 2 execution outcomes and ordered append-only observation admission passed.\n'

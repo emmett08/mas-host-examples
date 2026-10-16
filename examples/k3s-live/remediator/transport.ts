@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import { APIError } from '../operator/controller.js';
 import type { InClusterKubernetesClient } from '../operator/client.js';
 import type { ResolutionReport, Snapshot } from './controller.js';
+import type { ReconciliationObservation } from '../shared/resolution.js';
 
 const NAMESPACE = 'mas-demo';
 const DEPLOYMENT = 'mas-demo-checkout';
@@ -127,7 +129,26 @@ export function createRemediationTransport(options: RemediationTransportOptions)
     if (!RUN_ID.test(id)) throw new Error('Invalid demo run identity');
     return `/api/runs/${id}`;
   };
+  const publish = async (id: string, kind: 'resolution' | 'reconciliations', report: ResolutionReport | ReconciliationObservation): Promise<void> => {
+    const path = `${runPath(id)}/${kind}`;
+    const body = JSON.stringify(report);
+    if (Buffer.byteLength(body) > MAX_REPORT_BYTES) throw new Error('Resolution report exceeds byte limit');
+    const response = await request(`${baseURL}${path}`, {
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
+      headers: { accept: 'application/json', 'content-type': 'application/json', authorization: `Bearer ${options.verifierToken}` }, body,
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new APIError(response.status, `Demo resolution API returned ${response.status}`);
+    }
+    const receipt = await boundedJSON(response, 1024) as Record<string, unknown>;
+    if (!receipt || receipt.accepted !== true || receipt.runId !== id || receipt.kind !== kind ||
+        receipt.recordId !== createHash('sha256').update(body).digest('hex')) throw new Error('Demo publication acknowledgement did not match the exact record');
+  };
   return {
+    // Only an authenticated API response known to reject before mutation can
+    // establish rejection. Timeouts, 5xx and arbitrary CLI exits remain unknown.
+    isDefiniteRejection: (error: unknown) => error instanceof APIError && [400, 401, 403, 404, 405, 409, 415, 422, 429].includes(error.statusCode),
     kubectl: createKubernetesExecutor(options.client),
     async snapshot(id: string): Promise<Snapshot | undefined> {
       const response = await request(`${baseURL}${runPath(id)}/snapshot`, {
@@ -140,19 +161,7 @@ export function createRemediationTransport(options: RemediationTransportOptions)
       }
       return await boundedJSON(response, MAX_SNAPSHOT_BYTES) as Snapshot;
     },
-    async report(id: string, report: ResolutionReport): Promise<void> {
-      const path = `${runPath(id)}/resolution`;
-      const body = JSON.stringify(report);
-      if (Buffer.byteLength(body) > MAX_REPORT_BYTES) throw new Error('Resolution report exceeds byte limit');
-      const response = await request(`${baseURL}${path}`, {
-        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
-        headers: { accept: 'application/json', 'content-type': 'application/json', authorization: `Bearer ${options.verifierToken}` }, body,
-      });
-      if (!response.ok) {
-        await response.body?.cancel();
-        throw new APIError(response.status, `Demo resolution API returned ${response.status}`);
-      }
-      await boundedJSON(response, MAX_REPORT_BYTES);
-    },
+    report: (id: string, report: ResolutionReport) => publish(id, 'resolution', report),
+    reconcile: (id: string, observation: ReconciliationObservation) => publish(id, 'reconciliations', observation),
   };
 }

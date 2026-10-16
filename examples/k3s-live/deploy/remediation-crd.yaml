@@ -45,8 +45,16 @@ spec:
               x-kubernetes-validations:
                 - rule: oldSelf.phase == 'Pending' || self.phase == oldSelf.phase || (oldSelf.phase == 'Applying' && self.phase == 'Finished')
                   message: Remediation phases cannot move backwards.
-                - rule: oldSelf.phase != 'Finished' || self == oldSelf
-                  message: A finished remediation report is immutable.
+                - rule: oldSelf.phase != 'Finished' || self.reportJson == oldSelf.reportJson
+                  message: The original finished remediation report is immutable.
+                - rule: "oldSelf.phase != 'Finished' || (has(self.ownerId) == has(oldSelf.ownerId) && has(self.ownerPodUID) == has(oldSelf.ownerPodUID) && has(self.ownerPodName) == has(oldSelf.ownerPodName) && has(self.startedAt) == has(oldSelf.startedAt))"
+                  message: Finished attempt ownership and time cannot be introduced or removed.
+                - rule: '!has(oldSelf.reconciliations) || (has(self.reconciliations) && (self.reconciliations == oldSelf.reconciliations || (self.reconciliations.size() == oldSelf.reconciliations.size() + 1 && self.reconciliations == oldSelf.reconciliations + [self.reconciliations[self.reconciliations.size() - 1]])))'
+                  message: Reconciliation observations are append-only.
+                - rule: 'has(oldSelf.reconciliations) || !has(self.reconciliations) || self.reconciliations.size() <= 1'
+                  message: Append one observation per acknowledged status update.
+                - rule: '!has(self.reconciliations) || self.phase == "Finished"'
+                  message: Observations cannot authorise an unfinished attempt.
                 - rule: '!has(oldSelf.ownerId) || (has(self.ownerId) && self.ownerId == oldSelf.ownerId)'
                   message: Remediation attempt ownership is immutable.
                 - rule: '!has(oldSelf.ownerPodUID) || (has(self.ownerPodUID) && self.ownerPodUID == oldSelf.ownerPodUID)'
@@ -66,3 +74,8 @@ spec:
                 ownerPodName: {type: string, minLength: 1, maxLength: 253}
                 startedAt: {type: string, format: date-time}
                 reportJson: {type: string, minLength: 2, maxLength: 16384}
+                reconciliations:
+                  type: array
+                  maxItems: 8
+                  x-kubernetes-list-type: atomic
+                  items: {type: string, minLength: 2, maxLength: 4096}
