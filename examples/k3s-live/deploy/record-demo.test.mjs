@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { failureReport, observeCanvasProgress, prepareIncident, selectRemediationForRun, selectRunForPod, validateCanvasProgress, validateControllerResolution, validateSnapshot } from './record-demo.mjs';
+import { canonicalJson, verifyRevisionDigests, verifySelectedOutput } from '../shared/revision.mjs';
 
 function completed() {
   const routes = [
@@ -54,6 +56,35 @@ test('recording requires actual completed observations in the requested provider
   const failed = completed();
   failed.run.status = 'failed';
   assert.throws(() => validateSnapshot(failed, 'live', 'k8s-uid'), /did not complete/);
+});
+
+test('assessed smoke and recording traces use retained invocation pairs and exact selected assessment identities', async () => {
+  const snapshot = completed();
+  const sha = value => createHash('sha256').update(canonicalJson(value)).digest('hex');
+  const reference = record => ({ id: record.id, sha256: sha(record) });
+  const candidate = { schema_version: 1, id: 'candidate-1', output: snapshot.run.output, output_sha256: sha(snapshot.run.output), parent: null, feedback: [] };
+  const evidence = { schema_version: 1, id: 'evidence-1', content: { observed: true }, content_sha256: sha({ observed: true }) };
+  const rubric = { schema_version: 1, id: 'rubric-1', criteria: [{ id: 'check', measurement: 'deterministic', minimum: 0, maximum: 1 }] };
+  const assessment = { schema_version: 1, id: 'assessment-1', candidate: reference(candidate),
+    evaluator: { id: 'incident_checks', kind: 'deterministic', version: '1' }, rubric: reference(rubric), status: 'completed', error: null,
+    findings: [{ criterion_id: 'check', verdict: 'pass', score: 1, evidence: [reference(evidence)], explanation: 'Fixture check' }] };
+  for (let index = 8; index < 13; index++) snapshot.observation.messages.push(
+    { id: `request-${index}`, sequence: index * 2 + 1, sender: 'client', recipient: 'incident_checks', kind: 'request', payload: {} },
+    { id: `result-${index}`, sequence: index * 2 + 2, sender: 'incident_checks', recipient: 'client', kind: 'result', correlation: `request-${index}`, payload: {} });
+  snapshot.run.revision = { version: 'mas-host-revision-audit/1', status: 'completed', selected: reference(candidate),
+    candidates: [candidate], assessments: [assessment], records: [['candidate', candidate], ['evidence', evidence], ['rubric', rubric], ['assessment', assessment]].map(([kind, record]) =>
+      ({ kind, id: record.id, sha256: sha(record), readers: ['*'], record })),
+    contexts: Array.from({ length: 13 }, (_, index) => ({ id: `invocation-${index}`, actor: 'incident_checks', input: {}, policy: {}, readers: ['*'] })) };
+  assert.equal(snapshot.observation.messages.length, 26);
+  assert.doesNotThrow(() => validateSnapshot(snapshot, 'live', 'k8s-uid'));
+  await verifyRevisionDigests(snapshot.run.revision);
+  await verifySelectedOutput(snapshot.run.revision, snapshot.run.output);
+  const missingPair = structuredClone(snapshot); missingPair.observation.messages.splice(-2);
+  assert.throws(() => validateSnapshot(missingPair, 'live', 'k8s-uid'), /pair for every retained invocation/);
+  const missingAssessment = structuredClone(snapshot); missingAssessment.run.revision.assessments = [];
+  assert.throws(() => validateSnapshot(missingAssessment, 'live', 'k8s-uid'), /assessment of the exact selected candidate/);
+  const changed = structuredClone(snapshot); changed.run.output = { altered: true };
+  assert.throws(() => validateSnapshot(changed, 'live', 'k8s-uid'), /exact selected candidate/);
 });
 
 test('recording rejects metadata-only observations and missing or inherited envelope payloads', () => {

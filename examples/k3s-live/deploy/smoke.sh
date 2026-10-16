@@ -106,8 +106,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const { validatePracticalEvidence } = await import(pathToFileURL(`${process.argv[3]}/remediation.mjs`));
-const { selectRemediationForRun, validateControllerResolution } = await import(pathToFileURL(`${process.argv[3]}/record-demo.mjs`));
-const {run, observation} = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const { selectRemediationForRun, validateControllerResolution, validateSnapshot } = await import(pathToFileURL(`${process.argv[3]}/record-demo.mjs`));
+const { verifyRevisionDigests, verifySelectedOutput } = await import(pathToFileURL(`${process.argv[3]}/../shared/revision.mjs`));
+const snapshot = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const {run, observation} = snapshot;
 const journal = selectRemediationForRun(JSON.parse(readFileSync(process.argv[4], 'utf8')).items, run.id);
 if (!validateControllerResolution({run}, journal, process.argv[5])) throw new Error('No controller recovery report was retained');
 const evidence = run.input?.incident?.evidence;
@@ -131,15 +133,14 @@ catch (error) {
 }
 if (run.status !== 'completed') throw new Error('The backend did not retain the completed host run');
 if (run.resolution.version !== 'mas-k8s-resolution/2' || run.resolution.effectOutcome !== 'applied' || run.resolution.verificationOutcome !== 'passed') throw new Error('New execution must retain independent effect and verification outcomes');
-if (observation.messages.length !== 16) throw new Error('Expected 16 admitted Request/Result messages from eight invocations');
-if (!observation.messages.some(message => message.sender === 'platform' && message.recipient === 'security')) {
-  throw new Error('Expected the hybrid platform-to-security peer request');
-}
-if (observation.messages.filter(message => message.sender === 'security' && message.recipient === 'security_review').length !== 2) {
-  throw new Error('Expected two independent security review requests');
+validateSnapshot(snapshot, 'fixture', run.id);
+if (run.revision) {
+  await verifyRevisionDigests(run.revision);
+  await verifySelectedOutput(run.revision, run.output);
 }
 console.log(`Completed real MAS host execution ${run.id} in fixture provider mode`);
 NODE
+cp "$run_json" "$preparation/completed-snapshot.json"
 # A restarted remediator must replay the durable report without another patch.
 generation_before="$(kubectl -n mas-demo get deployment mas-demo-checkout -o jsonpath='{.metadata.generation}')"
 journals_before="$(kubectl -n mas-demo get masremediations -o jsonpath='{range .items[*]}{.metadata.uid}{" "}{.status.phase}{"\n"}{end}')"
@@ -167,10 +168,18 @@ for attempt in {1..30}; do
   if curl --fail --silent "http://127.0.0.1:18080/api/runs/$run_id/snapshot" > "$run_json"; then break; fi
   sleep 1
 done
-node --input-type=module - "$run_json" <<'NODE'
+node --input-type=module - "$run_json" "$root" "$preparation/completed-snapshot.json" <<'NODE'
 import { readFileSync } from 'node:fs';
-const {run, observation} = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-if (run.status !== 'completed' || observation.messages.length !== 16 || run.resolution?.status !== 'verified') {
+import { isDeepStrictEqual } from 'node:util';
+import { pathToFileURL } from 'node:url';
+const { validateSnapshot } = await import(pathToFileURL(`${process.argv[3]}/record-demo.mjs`));
+const snapshot = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const before = JSON.parse(readFileSync(process.argv[4], 'utf8'));
+const {run, observation} = snapshot;
+validateSnapshot(snapshot, 'fixture', before.run.id);
+if (run.resolution?.status !== 'verified' || !isDeepStrictEqual(observation.messages, before.observation.messages) ||
+    !isDeepStrictEqual(run.output, before.run.output) || !isDeepStrictEqual(run.revision, before.run.revision) ||
+    !isDeepStrictEqual(run.resolution, before.run.resolution)) {
   throw new Error('Restart did not retain the completed host execution and its original messages');
 }
 NODE

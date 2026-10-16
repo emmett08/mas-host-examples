@@ -59,6 +59,10 @@ export function validateSnapshot(snapshot, mode, id) {
     if (audit.status !== 'completed' || !selected || canonicalJson(selected.output) !== canonicalJson(snapshot.run.output)) {
       throw new Error('The recording requires a completed assessment of its exact selected candidate');
     }
+    if (!audit.contexts.length || !audit.assessments.some(assessment =>
+      assessment.candidate.id === audit.selected.id && assessment.candidate.sha256 === audit.selected.sha256)) {
+      throw new Error('The assessed trace requires retained invocations and an assessment of the exact selected candidate');
+    }
   }
   if (snapshot.observation.payloads_included !== true ||
       messages.some(message => !Object.hasOwn(message, 'payload'))) {
@@ -75,7 +79,7 @@ export function validateSnapshot(snapshot, mode, id) {
   const requests = messages.filter(message => message.kind === 'request');
   const results = messages.filter(message => message.kind === 'result');
   if (requests.length !== expected / 2 || results.length !== expected / 2) {
-    throw new Error('Expected eight recorded requests and eight recorded results');
+    throw new Error(audit ? 'Expected one request and one result per retained invocation' : 'Expected eight recorded requests and eight recorded results');
   }
   for (const request of requests) {
     const replies = results.filter(result => result.correlation === request.id);
