@@ -351,7 +351,11 @@ func copyProject(t *testing.T, source, destination string) {
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(target, raw, 0600)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, raw, info.Mode().Perm())
 	})
 	if err != nil {
 		t.Fatal(err)

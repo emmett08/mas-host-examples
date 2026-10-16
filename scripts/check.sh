@@ -22,7 +22,7 @@ bash -n scripts/setup.sh scripts/check.sh scripts/test-native.sh
 python3 - <<'PYTHON'
 import ast
 from pathlib import Path
-for source in Path("examples/python-review").rglob("*.py"):
+for source in Path("examples").rglob("*.py"):
     if ".mas" not in source.parts:
         ast.parse(source.read_text(), filename=str(source))
 PYTHON

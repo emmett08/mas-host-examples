@@ -1,5 +1,5 @@
 # Human-authored settings; the host resolves these into a strict MAS bundle.
-version = "mas-agents/2"
+version = "mas-agents/3"
 
 [[agents]]
 name = "star"
@@ -69,48 +69,52 @@ plan = "workflows/composed.yaml"
 name = "security"
 operation = "review_change/1"
 
+output_schema = "schemas/review.json"
+
 [agents.implementation]
 kind = "llm"
 connection = "security_provider"
 model = "fixture-security/1"
 instructions = "prompts/security.md"
-output_schema = "schemas/review.json"
 max_output_tokens = 1024
 
 [[agents]]
 name = "delivery"
 operation = "review_change/1"
 
+output_schema = "schemas/review.json"
+
 [agents.implementation]
 kind = "llm"
 connection = "delivery_provider"
 model = "fixture-delivery/1"
 instructions = "prompts/delivery.md"
-output_schema = "schemas/review.json"
 max_output_tokens = 1024
 
 [[agents]]
 name = "operations"
 operation = "review_change/1"
 
+output_schema = "schemas/review.json"
+
 [agents.implementation]
 kind = "llm"
 connection = "operations_provider"
 model = "fixture-operations/1"
 instructions = "prompts/operations.md"
-output_schema = "schemas/review.json"
 max_output_tokens = 1024
 
 [[agents]]
 name = "decision"
 operation = "decide_release/1"
 
+output_schema = "schemas/decision.json"
+
 [agents.implementation]
 kind = "llm"
 connection = "decision_provider"
 model = "fixture-decision/1"
 instructions = "prompts/decision.md"
-output_schema = "schemas/decision.json"
 max_output_tokens = 1024
 
 [connections]

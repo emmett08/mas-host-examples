@@ -11,7 +11,7 @@ export PYTHONDONTWRITEBYTECODE := 1
 export GOWORK := off
 export GOTOOLCHAIN := local
 
-.PHONY: setup check test acceptance recovery verify go rust cpp python python-client star tree mesh composed
+.PHONY: setup check test acceptance recovery verify go rust cpp python python-client command star tree mesh composed
 
 setup:
 	bash scripts/setup.sh
@@ -23,6 +23,7 @@ test: check
 	cd examples/go-release && go test -race ./...
 	bash scripts/test-native.sh
 	cd examples/python-review && python3 -m unittest discover -s tests -v
+	cd examples/command-policy && python3 -m unittest discover -s tests -v
 
 acceptance:
 	cd tests && go test -count=1 -v ./...
@@ -46,6 +47,9 @@ python:
 
 python-client:
 	python3 examples/python-review/call.py
+
+command:
+	"$(MAS_HOST_BIN)" run --project examples/command-policy --agent policy_check --input examples/command-policy/input.yaml --state .state --run command-policy
 
 star tree composed:
 	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent $@ --input examples/composable-agents/input.yaml --state .state --run review-$@

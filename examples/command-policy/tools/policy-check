@@ -1,0 +1,57 @@
+#!/usr/bin/python3
+"""Standalone policy CLI with argv/stdin/stdout and optional durable receipts."""
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+
+
+def assess(service, critical_findings, maximum_critical):
+    if type(critical_findings) is not int or not 0 <= critical_findings <= 1000000:
+        raise ValueError("critical_findings must be an integer in 0..1000000")
+    if maximum_critical < 0:
+        raise ValueError("max-critical must be nonnegative")
+    return {"service": service, "approved": critical_findings <= maximum_critical,
+            "critical_findings": critical_findings, "maximum_critical": maximum_critical}
+
+
+def publish(path, invocation_id, output):
+    path = Path(path)
+    if not path.is_absolute():
+        raise ValueError("receipt_path must be absolute")
+    with path.open("x") as stream:
+        json.dump({"invocation_id": invocation_id, "output": output}, stream, sort_keys=True)
+        stream.flush()
+        os.fsync(stream.fileno())
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--service", required=True)
+    parser.add_argument("--max-critical", type=int, default=0)
+    parser.add_argument("--invocation-id", required=True)
+    args = parser.parse_args()
+    task = json.load(sys.stdin)
+    if task.get("service") != args.service:
+        raise ValueError("service argument and input disagree")
+    output = assess(args.service, task["critical_findings"], args.max_critical)
+    if task.get("receipt_path"):
+        publish(task["receipt_path"], args.invocation_id, output)
+        if task.get("crash_after_receipt"):
+            return 7
+    print(json.dumps(output, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (KeyError, ValueError, OSError) as error:
+        print(str(error), file=sys.stderr)
+        sys.exit(2)

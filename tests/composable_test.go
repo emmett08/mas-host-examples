@@ -157,7 +157,7 @@ func TestExplicitProviderConfigurations(t *testing.T) {
 	assertEqual(t, len(liveActors), len(baseActors))
 	for i, actor := range liveActors {
 		base := baseActors[i]
-		assertFields(t, actor, object{"name": base["name"], "handler": base["handler"]})
+		assertFields(t, actor, object{"name": base["name"], "operation": base["operation"]})
 		binding := child(t, actor, "configuration")
 		baseBinding := child(t, base, "configuration")
 		if binding["kind"] == "llm" {

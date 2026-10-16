@@ -32,4 +32,4 @@ jobs:
       - name: Application checks and real host acceptance
         run: make verify
       - name: Run documented commands
-        run: make go rust cpp python python-client star tree mesh composed
+        run: make go rust cpp python python-client command star tree mesh composed
