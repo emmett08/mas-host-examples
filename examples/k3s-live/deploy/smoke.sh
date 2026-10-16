@@ -57,10 +57,29 @@ trap 'rm -f "$run_json"; kill "$forward_pid" 2>/dev/null || true; rm -rf "$prepa
 curl --fail --silent "http://127.0.0.1:18080/api/runs/$run_id/snapshot" > "$run_json"
 node --input-type=module - "$run_json" "$root" <<'NODE'
 import { readFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const { validatePracticalEvidence } = await import(pathToFileURL(`${process.argv[3]}/remediation.mjs`));
 const {run, observation} = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-validatePracticalEvidence({run});
+const evidence = run.input?.incident?.evidence;
+const diagnostics = { runId: run.id, capturedAt: evidence?.capturedAt,
+  items: evidence?.items?.slice(0, 16).map(item => ({ id: item.id, status: item.status,
+    reason: item.reason, observedAt: item.observedAt, truncated: item.truncated,
+    dataBytes: Buffer.byteLength(JSON.stringify(item.data ?? null)) })) ?? [] };
+// Retain the already scrubbed, bounded evidence independently of a later recording.
+const artifacts = process.env.DEMO_ARTIFACT_DIR ?? (process.env.RUNNER_TEMP ? join(process.env.RUNNER_TEMP, 'mas-demo-artifacts') : undefined);
+if (artifacts) {
+  await mkdir(artifacts, { recursive: true });
+  await writeFile(join(artifacts, 'smoke-evidence.json'), `${JSON.stringify(evidence ?? null, null, 2)}\n`);
+  await writeFile(join(artifacts, 'smoke-evidence-status.json'), `${JSON.stringify(diagnostics, null, 2)}\n`);
+}
+try { validatePracticalEvidence({run}); }
+catch (error) {
+  // API status/reason and sizes diagnose collection failures without logging payloads.
+  console.error(`Practical evidence validation failed: ${JSON.stringify(diagnostics)}`);
+  throw error;
+}
 if (run.status !== 'completed') throw new Error('The backend did not retain the completed host run');
 if (observation.messages.length !== 16) throw new Error('Expected 16 admitted Request/Result messages from eight invocations');
 if (!observation.messages.some(message => message.sender === 'platform' && message.recipient === 'security')) {

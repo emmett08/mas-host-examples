@@ -65,7 +65,10 @@ export class InClusterKubernetesClient implements KubernetesAPI {
     return new Promise((resolve, reject) => {
       const req = request(url, {
         method, ca: readFileSync(this.caPath), timeout: 10_000,
-        headers: { authorization: `Bearer ${token}`, accept: plainText ? 'text/plain' : 'application/json',
+        // The API server negotiates an API serializer before handing pods/log
+        // to its text streamer. text/plain alone can fail that negotiation
+        // with HTTP 406; wildcard accepts both streamed logs and API errors.
+        headers: { authorization: `Bearer ${token}`, accept: plainText ? '*/*' : 'application/json',
           ...(payload ? { 'content-type': method === 'PATCH' ? 'application/merge-patch+json' : 'application/json',
             'content-length': Buffer.byteLength(payload) } : {}) },
       }, response => {
@@ -73,7 +76,11 @@ export class InClusterKubernetesClient implements KubernetesAPI {
         response.setEncoding('utf8');
         response.on('data', chunk => {
           data += chunk;
-          if (Buffer.byteLength(data) > maxBytes) req.destroy(new Error('Kubernetes response exceeds byte limit'));
+          if (Buffer.byteLength(data) > maxBytes) {
+            reject(new Error('Kubernetes response exceeds byte limit'));
+            response.destroy();
+            req.destroy();
+          }
         });
         response.on('end', () => {
           if ((response.statusCode ?? 500) >= 400) {
@@ -85,7 +92,7 @@ export class InClusterKubernetesClient implements KubernetesAPI {
         });
         response.on('error', reject);
       });
-      req.on('timeout', () => req.destroy(new Error('Kubernetes request timed out')));
+      req.on('timeout', () => { reject(new Error('Kubernetes request timed out')); req.destroy(); });
       req.on('error', reject);
       if (payload) req.write(payload);
       req.end();

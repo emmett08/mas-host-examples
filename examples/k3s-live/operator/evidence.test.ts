@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:https';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { canonicalTemplateHash, collectEvidence, evidenceForStorage, evidenceFromStorage, projectResource } from './evidence.js';
-import { safeKubernetesErrorDetails } from './client.js';
+import { InClusterKubernetesClient, safeKubernetesErrorDetails } from './client.js';
 import { EVIDENCE_VERSION, MAX_EVIDENCE_BYTES, parseEvidence, redactEvidenceText, type EvidenceBundle } from '../shared/evidence.js';
 import { APIError, type EventEvidence, type KubernetesAPI } from './controller.js';
 
@@ -196,4 +201,40 @@ test('Kubernetes validation diagnostics retain reason and field codes without re
   assert.match(result, /spec.evidence.items\[0\].data \(required field missing\)/);
   assert.doesNotMatch(result, /private-full-response|private-log-value/);
   assert.equal(safeKubernetesErrorDetails('not JSON'), 'Unparseable API error response');
+});
+
+test('HTTPS log transport negotiates an API serializer and retains plain-text streaming with rotating credentials', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'mas-kube-transport-'));
+  const key = join(folder, 'key.pem'), certificate = join(folder, 'certificate.pem'), token = join(folder, 'token');
+  const authorisations: string[] = [];
+  const log = '2026-10-16T15:00:00Z {"method":"GET","path":"/readyz","status":404}\n';
+  let server: ReturnType<typeof createServer> | undefined;
+  try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-keyout', key,
+      '-out', certificate, '-subj', '/CN=localhost', '-addext', 'subjectAltName=IP:127.0.0.1'], { stdio: 'ignore' });
+    await writeFile(token, 'first-test-token', { mode: 0o600 });
+    server = createServer({ key: await readFile(key), cert: await readFile(certificate) }, (request, response) => {
+      authorisations.push(request.headers.authorization ?? '');
+      // Kubernetes negotiates its API serializers before invoking LogREST's
+      // text/plain LocationStreamer. An exclusive text/plain Accept fails.
+      if (request.headers.accept !== '*/*') {
+        response.writeHead(406, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ reason: 'NotAcceptable' })); return;
+      }
+      response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+      response.end(request.url?.includes('oversized') ? 'x'.repeat(5000) : log);
+    });
+    await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const client = new InClusterKubernetesClient(`https://127.0.0.1:${address.port}`, token, certificate);
+    assert.equal(await client.text('/api/v1/namespaces/mas-demo/pods/checkout/log'), log);
+    await writeFile(token, 'rotated-test-token');
+    assert.equal(await client.text('/api/v1/namespaces/mas-demo/pods/checkout/log'), log);
+    assert.deepEqual(authorisations, ['Bearer first-test-token', 'Bearer rotated-test-token']);
+    await assert.rejects(client.text('/oversized', 4096), /response exceeds byte limit/);
+  } finally {
+    if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));
+    await rm(folder, { recursive: true, force: true });
+  }
 });
