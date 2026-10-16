@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { selectRunForPod, validateSnapshot } from './record-demo.mjs';
+
+function completed() {
+  const routes = [
+    ['client', 'coordinator'], ['coordinator', 'platform'], ['coordinator', 'security'],
+    ['platform', 'platform_diagnosis'], ['platform', 'security'],
+    ['security', 'security_review'], ['security', 'security_review'], ['coordinator', 'decision'],
+  ];
+  const messages = routes.flatMap(([sender, recipient], index) => [
+    { id: `request-${index}`, sequence: index * 2 + 1, sender, recipient, kind: 'request' },
+    { id: `result-${index}`, sequence: index * 2 + 2, sender: recipient, recipient: sender,
+      kind: 'result', correlation: `request-${index}` },
+  ]);
+  return { run: { id: 'k8s-uid', mode: 'live', status: 'completed', output: {} },
+    observationAvailable: true, observation: { messages } };
+}
+
+test('recording selects this Pod UID and rejects duplicate admitted investigations', () => {
+  const old = { spec: { event: { involvedObject: { uid: 'old-pod' } } } };
+  const current = { spec: { event: { involvedObject: { uid: 'new-pod' } } } };
+  assert.equal(selectRunForPod([old, current], 'new-pod'), current);
+  assert.equal(selectRunForPod([old], 'new-pod'), undefined);
+  assert.throws(() => selectRunForPod([current, current], 'new-pod'), /More than one/);
+});
+
+test('recording requires actual completed observations in the requested provider mode', () => {
+  assert.doesNotThrow(() => validateSnapshot(completed(), 'live', 'k8s-uid'));
+  assert.throws(() => validateSnapshot(completed(), 'fixture', 'k8s-uid'), /mode/);
+  const absent = completed();
+  absent.observationAvailable = false;
+  assert.throws(() => validateSnapshot(absent, 'live', 'k8s-uid'), /no available observation/);
+  const failed = completed();
+  failed.run.status = 'failed';
+  assert.throws(() => validateSnapshot(failed, 'live', 'k8s-uid'), /did not complete/);
+});
+
+test('recording rejects missing hybrid flow, reordered sequence and duplicate envelope identity', () => {
+  const noPeer = completed();
+  noPeer.observation.messages[8].sender = 'coordinator';
+  noPeer.observation.messages[9].recipient = 'coordinator';
+  assert.throws(() => validateSnapshot(noPeer, 'live', 'k8s-uid'), /peer exchange/);
+  const reordered = completed();
+  reordered.observation.messages[5].sequence = 3;
+  assert.throws(() => validateSnapshot(reordered, 'live', 'k8s-uid'), /strictly increasing/);
+  const duplicated = completed();
+  duplicated.observation.messages[5].id = duplicated.observation.messages[4].id;
+  assert.throws(() => validateSnapshot(duplicated, 'live', 'k8s-uid'), /distinct/);
+});
+
+test('recording rejects a wrong reply ID, a wrong reply direction and an unbalanced message count', () => {
+  const wrongID = completed();
+  wrongID.observation.messages[5].correlation = 'another-request';
+  assert.throws(() => validateSnapshot(wrongID, 'live', 'k8s-uid'), /correlated to its request ID/);
+  const wrongDirection = completed();
+  wrongDirection.observation.messages[5].recipient = 'platform';
+  assert.throws(() => validateSnapshot(wrongDirection, 'live', 'k8s-uid'), /reverse-routed/);
+  const unbalanced = completed();
+  unbalanced.observation.messages[5].kind = 'request';
+  assert.throws(() => validateSnapshot(unbalanced, 'live', 'k8s-uid'), /eight recorded requests and eight recorded results/);
+});
