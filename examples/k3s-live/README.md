@@ -207,6 +207,15 @@ send timestamp. Separate host/protocol database snapshots can briefly disagree.
 
 After a backend restart, incomplete runs become failed and remain available for
 inspection; this demo does not automatically repeat uncertain provider effects.
+When a host run fails, the backend reads its retained inference evidence once
+using the read-only observation command. The run record, workflow summary and
+`failure-diagnostics.json` artefact report the failed agent, effect ID, execution
+state, provider/model, HTTP status and recognised provider error identifiers.
+The public diagnostic projection accepts fixed identifiers and enum values;
+it excludes raw provider messages, prompts, outputs, CLI stderr and credentials.
+For example, HTTP 400 with `invalid_json_schema` identifies a rejected structured
+output schema, while HTTP 401 identifies authentication rejection. Unknown
+provider outcomes still require host reconciliation before any manual retry.
 The PVC retains run IDs, results and host state. The host's normal reconciliation
 tools govern uncertain effects. This deployment is a single-owner demonstration,
 not a distributed or highly available host. Preserve the original image and

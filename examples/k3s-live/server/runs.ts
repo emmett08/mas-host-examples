@@ -2,11 +2,13 @@
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { Host } from './host.js';
+import { HostRunFailure, type Host } from './host.js';
+import type { FailureDiagnostics } from './diagnostics.js';
 
 export interface Run {
   id: string; status: 'queued' | 'running' | 'completed' | 'failed';
   mode: 'live' | 'fixture'; startedAt: string; error?: string; output?: unknown;
+  diagnostics?: FailureDiagnostics;
   input: { incident: unknown }; fingerprint: string;
 }
 export class RequestError extends Error { constructor(public status: number, message: string) { super(message); } }
@@ -103,15 +105,17 @@ export class Runs {
       return pendingObservation;
     };
     const timer = setInterval(() => void observe(), 250);
-    let outcome: { status: 'completed'; output: unknown } | { status: 'failed'; error: string };
+    let outcome: { status: 'completed'; output: unknown } | { status: 'failed'; error: string; diagnostics?: FailureDiagnostics };
     try {
       run.status = 'running';
       await this.persist(run);
       const input = join(folder, 'input.json');
       await writeFile(input, JSON.stringify(run.input), { mode: 0o600 });
       outcome = { status: 'completed', output: await this.host.run(run.id, input, state, run.mode) };
-    } catch {
-      outcome = { status: 'failed', error: 'Host did not complete. Inspect retained state before retrying an uncertain provider outcome.' };
+    } catch (error) {
+      outcome = error instanceof HostRunFailure
+        ? { status: 'failed', error: error.message, diagnostics: error.diagnostics }
+        : { status: 'failed', error: 'Host did not complete. Inspect retained state before retrying an uncertain provider outcome.' };
     } finally {
       clearInterval(timer);
     }

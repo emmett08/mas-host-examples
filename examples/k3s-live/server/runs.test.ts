@@ -4,7 +4,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Runs, RequestError } from './runs.js';
-import type { Host } from './host.js';
+import { HostRunFailure, type Host } from './host.js';
+import { projectFailure } from './diagnostics.js';
 import { application } from './http.js';
 
 test('idempotent event dispatch, conflicting input rejection, admission bound, and crash recovery', async t => {
@@ -141,6 +142,46 @@ test('a failed terminal write is handled and releases the execution slot without
   await runs.create({ id: 'next-run', scenario: 'pod-crash' });
   await waitFor(() => runs.get('next-run').status === 'completed');
   assert.equal(calls, 2);
+});
+
+test('uncertain inference diagnostics survive restart and the same admission never retries the provider', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-retained-failure-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  let calls = 0;
+  const diagnostics = projectFailure({ version: 'mas-host-observation/1', run_id: 'uncertain', steps: [
+    { kind: 'effect', key: 'inference-0', id: `eff-${'b'.repeat(64)}`, actor: 'security_review', state: 'unknown',
+      input: { prompt: 'private-api-key' }, evidence: { error: 'private-api-key' } },
+  ] }, 'uncertain');
+  const host = { run: async () => { calls++; throw new HostRunFailure(diagnostics); },
+    observe: async () => ({ messages: [] }) } as unknown as Host;
+  const runs = new Runs(dir, 'fixture', host);
+  await runs.initialise();
+  const input = { id: 'uncertain', scenario: 'pod-crash' };
+  await runs.create(input);
+  await waitFor(() => runs.get('uncertain').status === 'failed');
+  assert.match(runs.get('uncertain').error ?? '', /uncertain outcome.*reconcile/);
+  assert.deepEqual(runs.get('uncertain').diagnostics, diagnostics);
+  assert.equal(diagnostics.automaticRetry, false);
+  const manifest = await readFile(join(dir, 'uncertain', 'run.json'), 'utf8');
+  assert.doesNotMatch(manifest, /private-api-key/);
+  const restarted = new Runs(dir, 'fixture', host);
+  await restarted.initialise();
+  assert.deepEqual((await restarted.snapshot('uncertain')).run.diagnostics, diagnostics);
+  assert.equal((await restarted.create(input)).status, 'failed');
+  assert.equal(calls, 1);
+});
+
+test('unexpected application errors retain a fixed message without copying arbitrary details', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-generic-failure-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const host = { run: async () => { throw new Error('private-api-key'); },
+    observe: async () => ({ messages: [] }) } as unknown as Host;
+  const runs = new Runs(dir, 'fixture', host);
+  await runs.initialise();
+  await runs.create({ id: 'unexpected', scenario: 'pod-crash' });
+  await waitFor(() => runs.get('unexpected').status === 'failed');
+  assert.equal(runs.get('unexpected').diagnostics, undefined);
+  assert.doesNotMatch(await readFile(join(dir, 'unexpected', 'run.json'), 'utf8'), /private-api-key/);
 });
 
 async function waitFor(predicate: () => boolean) {
