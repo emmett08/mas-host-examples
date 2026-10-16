@@ -1,5 +1,6 @@
 import { deduplicateMessages } from "./topology";
 import { validOutcomeCombination } from "../shared/resolution";
+import { checkSelectedOutput, parseRevisionAudit, type RevisionAudit } from "../shared/revision.mjs";
 import type { ArchiveSnapshot, Message, RunArchive } from "./types";
 
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -22,7 +23,7 @@ export function parseArchive(value: unknown): RunArchive {
   const nodes = new Set<string>();
   for (const node of graph.nodes) {
     if (!object(node) || !text(node.id) || !text(node.label) ||
-        !["client", "workflow", "llm"].includes(String(node.kind)) || nodes.has(node.id)) fail("topology node identity is invalid");
+        !["client", "workflow", "llm", "tool"].includes(String(node.kind)) || nodes.has(node.id)) fail("topology node identity is invalid");
     if (node.group !== undefined && !text(node.group)) fail("topology group is invalid");
     if (node.model !== undefined && !text(node.model)) fail("topology model is invalid");
     nodes.add(node.id);
@@ -38,6 +39,7 @@ export function parseArchive(value: unknown): RunArchive {
   const retained = new Map<string, string>();
   const snapshots: ArchiveSnapshot[] = [];
   let retainedResolution: string | undefined;
+  let retainedRevision: RevisionAudit | undefined;
   let retainedObservations: string[] = [];
   for (const item of source.snapshots) {
     if (!object(item) || !object(item.run) || item.run.id !== source.runId ||
@@ -46,6 +48,10 @@ export function parseArchive(value: unknown): RunArchive {
     if (mode !== undefined && (item.run.mode !== mode || item.run.startedAt !== startedAt)) fail("snapshot run identity changed");
     mode = item.run.mode as string;
     startedAt = item.run.startedAt;
+    if (item.run.revision !== undefined) {
+      retainedRevision = parseRevisionAudit(item.run.revision, retainedRevision);
+      if (item.run.output !== undefined) checkSelectedOutput(retainedRevision, item.run.output);
+    } else if (retainedRevision) fail("the retained revision audit disappeared");
     if (item.run.resolution !== undefined) {
       if (!object(item.run.resolution) || !validOutcomeCombination(item.run.resolution) ||
           !['mas-k8s-resolution/1', 'mas-k8s-resolution/2'].includes(String(item.run.resolution.version))) fail("resolution outcomes are invalid");

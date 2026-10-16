@@ -267,7 +267,7 @@ reservation recovery. Each must yield its intended replayable counterexample.
 Two further deliberately false assertions witness durable verified recovery
 and an actual effect followed by an uncertain retained terminal. The witnesses
 show those paths are reachable; they do not claim that every incident reaches
-either outcome. All 35 choreography, tool and controller checks use the same
+either outcome. All choreography, tool, controller and revision checks use the same
 runner, resource limits and retained evidence format above.
 
 `remediator/controller.test.ts` exercises the controller's actual admission,
@@ -309,3 +309,34 @@ local `remediation.pml` checks the two outcome axes. The upstream generic model
 checks appended observation semantics; actual TypeScript tests provide separate
 implementation evidence. None of these models establishes a refinement proof
 for the complete deployed system.
+
+## Assessment selection and remediation admission
+
+`revision.pml` checks the example's boundary between an assessed candidate,
+its selected output and the existing remediation controller. It enumerates two
+candidates, at most one revision, two assessments and one optional controller
+effect. A revision consumes feedback tied to its parent. Cancellation and a
+blocked effect produce no controller authority. Exhaustion retains a selected
+candidate but cannot pass the completed-run admission condition. A completed
+internal assessment still requires the independent remediation preconditions.
+
+Four complete safety/liveness searches cover partial-order reduction both enabled
+and disabled. Injected selection mismatch and exhausted-run authority faults must
+produce their targeted counterexamples. A separate false assertion witnesses a
+passing revision followed by independently admitted remediation. With the original
+35 checks, the runner executes 42 cases.
+
+`server/host.integration.ts` executes the real Rust host with a deliberately
+unsupported fixture citation, checks exact candidate/feedback references, verifies
+that the independent evaluator receives no earlier assessment, and reopens a
+completed journal after simulating loss of the API's final persistence step.
+`server/runs.test.ts` checks that exhausted assessment output cannot enter the
+remediation reporting path. `ui/revision.test.ts` checks exact references, immutable
+history, disclosure omission, numeric precision and playback visibility.
+
+Identity/hash comparison and remediation admission are abstract predicates in
+this local model. The MAS contract and host repositories carry separate Promela
+models for assessment authority, immutable identity, budgets and disclosure.
+Neither these models nor internal deterministic criteria establish that feedback
+improves diagnosis correctness; that requires the separately frozen incident
+experiment and independent outcome measurements.

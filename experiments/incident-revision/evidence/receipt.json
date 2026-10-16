@@ -1,0 +1,70 @@
+{
+  "version": "incident-rehearsal-receipt/1",
+  "mode": "fixture-rehearsal",
+  "freeze_id": "7136b51c2e57138d0ea553bbfb88a1d0a57adf02227e439b6b65cff9e8ee640c",
+  "frozen_at_utc": "2026-10-16T20:55:44.759486+00:00",
+  "host_sha256": "2d9cb2a2716e3fdc30bd2562eca8e533055b59a4ca5cad67b0067c3cb8311479",
+  "bundle_sha256": "446bdd5f9448b8fac22041788cc10bc9b4095973cc6249752dc02a74316c0bc2",
+  "source_sha256": {
+    "INV-MAS-INCIDENT-001.json": "45543ff6b797ec51ca60f93b240ccfa32d86214a88fb906b7080db59074d8718",
+    "answers.json": "9d436fd3f8782df8938550a3c3ac4e93eb65cb29468bd6a279480d6865108e70",
+    "incidents.json": "4be92a9b8d687f584190f62bcbd63bc31243969c104074b3fb367206f22c095c",
+    "plan.json": "b19f11e9a8f5cf2da47bfebfe0a290ce1772360a9c3657c03132c9afa2ed17d4",
+    "project/agents.toml": "d257dfc2701715a67628fd03ad7b9cd54bab1ea04666675217c9a125e5f694b4",
+    "project/connections.fixture.toml": "83bd95d0f948e32b6b4252404d2ee89efde29697c32ecaa108fb208a74cb698f",
+    "project/fixture_provider.py": "956afe995e1d7ac69150194a17adc1778a9eea35e11a0f3f604495d8e746c522",
+    "project/prompts/critic.md": "d1af155c01493664a159c013e9a91f561bab3c5449dac16f981915ed592bfc4b",
+    "project/prompts/diagnose.md": "a47335f0994402aed800a9d7d43d0606fb3a631077e5891e264ad4e0365b480f",
+    "project/revision.json": "92f22a07603d431ea970af60c2576d967adce27d01a6f1fbbc0608dd1883b3a4",
+    "project/schemas/candidate.json": "7cfb482f0939dd22de8e3987d5930626125bc5f4b32f90db601aaf52ee752ec7",
+    "project/schemas/critique.json": "73cf30e6f9cbd97bf19098e01e850059b94ccf9f849d2094aebd0f5e7d6afdb9",
+    "project/topology.yaml": "79872e0118952a525ab1549d6a979140f1ee9f64f9734d1df1f79bb04f19b70a",
+    "run.py": "52aca09ddd8ffe2ae4cf5ec71a1c1a873bbcb43f974274b974497b580f894574"
+  },
+  "archive": {
+    "path": "fixture-rehearsal.tar.xz",
+    "sha256": "7d453439ac8d521a526e34377cae9b26f4abb4c9098762fefd21bc1cb2f8c1be",
+    "bytes": 162384,
+    "members": 1085,
+    "manifest": "manifest.json"
+  },
+  "verification": {
+    "arm_runs": 108,
+    "complete_arm_runs": 108,
+    "failed_or_missing_arm_runs": 0,
+    "provider_effects": 324,
+    "per_arm_provider_effects": {
+      "one_pass": 36,
+      "revision": 144,
+      "resample": 144
+    },
+    "revision_runs": 36,
+    "revision_candidates": 72,
+    "revision_assessments": 72,
+    "matched_revision_and_one_pass_initial_contexts": 36,
+    "replay_report_identical": true,
+    "replay_additional_provider_effects": 0,
+    "replay_basis": "Completed immutable arm records were reused; retained provider-effect total remained 324; results.json and replay-report.json are structurally identical.",
+    "archive_manifest_verified": true
+  },
+  "interpretation": {
+    "promotion": false,
+    "live_model_calls": 0,
+    "independent_quality_contrasts": "All six contrasts equal zero for the scripted always-abstaining fixture.",
+    "cost": "Provider usage and price unavailable; estimated costs are null.",
+    "latency": "Fixture execution used four concurrent harness workers; timings do not measure live model latency.",
+    "study_status": "Specified pilot; principal-study adequacy and independent reference-label validation remain unestablished."
+  },
+  "contents": "Freeze, declarative bundle, reports, all arm records and all call inputs/results/observations/start timestamps. Exact candidate, assessment and context records are retained.",
+  "exclusions": [
+    "Host and worker executable binaries",
+    "SQLite state journals",
+    "Copied project source files"
+  ],
+  "limitations": [
+    "These are synthetic fixture observations, not empirical evidence of LLM improvement.",
+    "The original freeze and records retain absolute local paths for provenance; archive extraction does not recreate an executable run.",
+    "Executable and worker hashes are retained; rerun the repository fixture workflow to recreate omitted binaries and journals.",
+    "This receipt describes the exact frozen executable hash above; later host changes require their own verification."
+  ]
+}

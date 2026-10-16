@@ -10,6 +10,7 @@ import { HostRunFailure, type Host } from './host.js';
 import { projectFailure } from './diagnostics.js';
 import { application } from './http.js';
 import { EVIDENCE_VERSION, type EvidenceBundle } from '../shared/evidence.js';
+import { canonicalJson, parseRevisionAudit } from '../shared/revision.mjs';
 
 function incidentEvidence(): EvidenceBundle {
   return { version: EVIDENCE_VERSION, capturedAt: '2026-10-16T12:00:00Z',
@@ -25,6 +26,34 @@ function incidentEvidence(): EvidenceBundle {
 function evidenceRequest(id: string, evidence = incidentEvidence()) {
   return { id, scenario: 'pod-incident', event: { reason: 'Unhealthy', involvedObject: { kind: 'Pod', ...evidence.subject } }, evidence };
 }
+
+test('an exhausted revision retains its selected output but cannot admit remediation or repeat the same run', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-exhausted-revision-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const output = { summary: 'Unresolved finding', requires_human: true };
+  const digest = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
+  const candidate = { schema_version: 1, id: 'candidate-0', output, output_sha256: digest(output), parent: null, feedback: [] };
+  const revision = parseRevisionAudit({ version: 'mas-host-revision-audit/1', status: 'exhausted',
+    selected: { id: candidate.id, sha256: digest(candidate) }, candidates: [candidate], assessments: [], contexts: [],
+    records: [{ kind: 'candidate', id: candidate.id, sha256: digest(candidate), readers: ['*'], record: candidate }] });
+  let calls = 0;
+  const host = { options: { revisionPlan: 'revision.json' }, runAssessed: async (_id: string, input: string) => {
+    calls++;
+    const supplied = JSON.parse(await readFile(input, 'utf8'));
+    assert.deepEqual(supplied.sources.map((row: { id: string; readers: string[] }) => ({ id: row.id, readers: row.readers })), [{ id: 'incident', readers: ['*'] }]);
+    return { output, revision };
+  }, observe: async () => ({ messages: [], revision }) } as unknown as Host;
+  const runs = new Runs(dir, 'fixture', host);
+  await runs.initialise();
+  const request = { id: 'exhausted', scenario: 'pod-incident' };
+  await runs.create(request);
+  await waitFor(() => runs.get('exhausted').status === 'failed');
+  assert.deepEqual(runs.get('exhausted').output, output);
+  assert.equal(runs.get('exhausted').revision!.status, 'exhausted');
+  await assert.rejects(runs.recordResolution('exhausted', {}), error => error instanceof RequestError && error.status === 409);
+  await runs.create(request);
+  assert.equal(calls, 1);
+});
 
 test('idempotent event dispatch, conflicting input rejection, admission bound, and crash recovery', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'mas-live-'));

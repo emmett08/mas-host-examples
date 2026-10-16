@@ -1,0 +1,6 @@
+# Adapt the host's disclosure-filtered invocation to the existing incident workflow.
+type: request
+key: incident-draft
+target: coordinator
+input:
+  incident: {$input: /sources/incident}

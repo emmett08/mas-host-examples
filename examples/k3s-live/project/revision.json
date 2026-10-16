@@ -1,0 +1,25 @@
+{
+  "version": "mas-host-revision/1",
+  "draft_agent": "assessed_draft",
+  "revision_agent": "assessed_revision",
+  "max_revisions": 1,
+  "max_invocations": 16,
+  "draft_inputs": ["incident"],
+  "revision_inputs": ["incident"],
+  "allowed_agents": ["coordinator", "platform", "security", "diagnose", "security_review", "decision"],
+  "feedback_evaluators": ["incident_checks"],
+  "rubric": {
+    "schema_version": 1,
+    "id": "incident-constraints/1",
+    "criteria": [
+      {"id": "evidence-references", "measurement": "deterministic", "minimum": 0, "maximum": 1},
+      {"id": "bounded-proposal", "measurement": "deterministic", "minimum": 0, "maximum": 1},
+      {"id": "uncertainty", "measurement": "deterministic", "minimum": 0, "maximum": 1}
+    ]
+  },
+  "evaluators": [{
+    "actor": "incident_checks",
+    "identity": {"id": "incident_checks", "version": "incident-constraints/1", "kind": "deterministic"},
+    "inputs": ["incident"]
+  }]
+}

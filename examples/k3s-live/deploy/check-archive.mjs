@@ -64,6 +64,26 @@ export async function checkArchive(directory, launchOptions = {}) {
     if (final.run.output !== undefined && final.run.output !== null) {
       await page.locator('.output-panel').waitFor({ state: 'visible' });
     }
+    const audit = final.run.revision;
+    if (audit) {
+      const panel = page.locator('.assessment-panel');
+      await panel.waitFor({ state: 'visible' });
+      assert.equal(await panel.getAttribute('data-revision-status'), audit.status);
+      assert.equal(await panel.locator('.candidate-card').count(), audit.candidates.length);
+      for (const candidate of audit.candidates) {
+        const card = panel.locator(`[data-candidate-id="${candidate.id}"]`);
+        assert.equal(await card.getAttribute('data-selected'), String(audit.selected?.id === candidate.id));
+        await card.locator('details > summary').first().click();
+        assert.deepEqual(JSON.parse(await card.locator('details > pre').first().innerText()), candidate.output);
+        for (const assessment of audit.assessments.filter(item => item.candidate.id === candidate.id)) {
+          const item = card.locator(`[data-assessment-id="${assessment.id}"]`);
+          assert.match(await item.innerText(), new RegExp(assessment.candidate.sha256));
+          assert.equal(await item.locator('.criterion-finding').count(), assessment.findings.length);
+          assert.match(await item.locator('h4').innerText(), assessment.evaluator.kind === 'model' ? /Model judgement/ : /Deterministic check/);
+        }
+      }
+      assert.match(await panel.innerText(), /higher internal score does not establish improvement/);
+    }
     const evidence = final.run.input?.incident?.evidence;
     if (evidence) {
       const panel = page.locator('.evidence-panel');
@@ -149,6 +169,7 @@ export async function checkArchive(directory, launchOptions = {}) {
       await page.locator('.resolution-panel').waitFor({ state: 'detached' });
       assert.equal(await page.locator('.resolution-panel').count(), 0, 'Seeking backwards must hide a future recovery report');
     }
+    if (audit && !initial.run.revision) assert.equal(await page.locator('.assessment-panel').count(), 0, 'Seeking backwards must hide later assessments and supplied feedback');
     await timeline.press('End');
     assert.equal(await envelopeCount(), finalCount);
     if (resolution) await page.locator(`.resolution-panel[data-resolution-status="${resolution.status}"]`).waitFor({ state: 'visible' });
@@ -175,6 +196,8 @@ export async function checkArchive(directory, launchOptions = {}) {
     if (evidence) report.checks.push('evidence-statuses', 'evidence-provenance', 'evidence-data');
     if (resolution) report.checks.push('resolution-status', 'resolution-checks', 'resolution-patch-and-evidence',
       ...(!initial.run.resolution ? ['hide-future-resolution'] : []));
+    if (audit) report.checks.push('exact-candidates', 'assessment-candidate-digests', 'criterion-findings', 'measurement-kind-labels',
+      ...(!initial.run.revision ? ['hide-future-assessments'] : []));
     await writeFile(join(resolve(directory), 'dashboard', 'verification.json'), `${JSON.stringify(report, null, 2)}\n`);
     console.log(`Verified portable Vue dashboard: ${firstCount} → ${finalCount} envelopes, no network access`);
     return report;

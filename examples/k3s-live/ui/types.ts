@@ -1,10 +1,11 @@
 import type { EvidenceBundle } from "../shared/evidence";
 import type { ResolutionReport, ReconciliationObservation } from "../shared/resolution";
+import type { RevisionAudit } from "../shared/revision.mjs";
 
 export interface TopologyNode {
   id: string;
   label: string;
-  kind: "workflow" | "llm" | "client";
+  kind: "workflow" | "llm" | "client" | "tool";
   group?: string;
   model?: string;
 }
@@ -36,6 +37,7 @@ export interface Run {
   input?: { incident?: { source?: string; scenario?: string; context?: string; evidence?: EvidenceBundle } };
   resolution?: ResolutionReport;
   reconciliations?: ReconciliationObservation[];
+  revision?: RevisionAudit;
 }
 
 export interface Snapshot {

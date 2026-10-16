@@ -1,0 +1,8 @@
+# Five-second fixture pacing is artificial and is excluded from model latency measurements.
+version = "mas-connections/1"
+[connections.reasoning]
+kind = "command"
+command = ["node","fixture-provider.mjs","review","--paced"]
+[connections.synthesis]
+kind = "command"
+command = ["node","fixture-provider.mjs","decision","--paced","--draft-defect"]

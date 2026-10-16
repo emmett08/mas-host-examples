@@ -1,0 +1,91 @@
+name: Frozen incident revision pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      input_usd_per_million:
+        description: 'Published uncached input price in USD per million tokens; leave all price fields empty for unpriced usage'
+        type: string
+        default: ''
+      output_usd_per_million:
+        description: 'Published output price in USD per million tokens'
+        type: string
+        default: ''
+      price_source:
+        description: 'URL for the applicable model prices'
+        type: string
+        default: ''
+      price_as_of:
+        description: 'Date on which the prices were checked (YYYY-MM-DD)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: incident-revision-pilot
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    environment: mas-k3s-demo
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Install pinned Rust and host
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          make setup
+      - name: Validate experiment and freeze inputs before model execution
+        env:
+          INPUT_RATE: ${{ inputs.input_usd_per_million }}
+          OUTPUT_RATE: ${{ inputs.output_usd_per_million }}
+          PRICE_SOURCE: ${{ inputs.price_source }}
+          PRICE_AS_OF: ${{ inputs.price_as_of }}
+        run: |
+          python3 -m unittest discover -s experiments/incident-revision -p 'test_*.py'
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          command = ['python3', 'experiments/incident-revision/run.py', 'freeze',
+                     '--out', '.state/incident-pilot', '--host', '.tools/mas-host/target/debug/mas-host',
+                     '--sdk', '.tools/mas-host', '--mode', 'live']
+          values = [os.environ[name] for name in ('INPUT_RATE', 'OUTPUT_RATE', 'PRICE_SOURCE', 'PRICE_AS_OF')]
+          if any(values):
+              if not all(values):
+                  raise SystemExit('Provide every price field or leave every field empty.')
+              path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'incident-prices.json'
+              path.write_text(json.dumps(dict(input_usd_per_million=float(values[0]),
+                  output_usd_per_million=float(values[1]), source=values[2], as_of=values[3])))
+              command += ['--rates', str(path)]
+          subprocess.run(command, check=True)
+          PY
+      - name: Retain the freeze before evaluation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: incident-pilot-freeze-${{ github.run_id }}
+          path: .state/incident-pilot/lock.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Execute the frozen pilot with real model calls
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          test -n "$OPENAI_API_KEY" || { echo 'OPENAI_API_KEY is required in mas-k3s-demo.' >&2; exit 1; }
+          python3 experiments/incident-revision/run.py run --out .state/incident-pilot
+      - name: Retain observations, failures and outcome measurements
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: incident-pilot-results-${{ github.run_id }}
+          path: .state/incident-pilot
+          if-no-files-found: warn
+          retention-days: 30

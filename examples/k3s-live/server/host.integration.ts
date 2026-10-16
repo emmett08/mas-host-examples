@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { basename, resolve, join } from 'node:path';
 import { createServer } from 'node:http';
 import { Host, HostRunFailure } from './host.js';
+import { Runs } from './runs.js';
 
 test('real MAS host exercises the hybrid branch, correlated replies, and durable replay', async t => {
   const binary = resolve(process.env.MAS_HOST_BIN ?? '../../.tools/mas-host/target/debug/mas-host');
@@ -67,12 +68,57 @@ async function fixtureProject(folder: string) {
   await cp(resolve('project'), project, { recursive: true, filter: source => basename(source) !== '.mas' });
   // Container node is on the host's fixed PATH. Local runtimes may install it
   // elsewhere; adapt only temporary integration-test projects.
-  for (const name of ['connections.fixture.toml', 'connections.recording.toml']) {
+  for (const name of ['connections.fixture.toml', 'connections.recording.toml', 'connections.assessment-fixture.toml', 'connections.assessment-recording.toml']) {
     const profile = join(project, name), source = await readFile(profile, 'utf8');
     await writeFile(profile, source.replaceAll('command = ["node",', `command = [${JSON.stringify(process.execPath)},`));
   }
   return project;
 }
+
+test('real host retains a defective draft, exact findings and bounded revision; replay adds no work', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'mas-assessed-incident-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const project = await fixtureProject(folder);
+  const host = new Host({ binary: resolve(process.env.MAS_HOST_BIN ?? '../../.tools/mas-host/target/debug/mas-host'),
+    sdk: resolve(process.env.MAS_SDK_ROOT ?? '../../.tools/mas-host'), project, payloads: true,
+    revisionPlan: join(project, 'revision.json') });
+  const input = join(folder, 'input.json'), state = join(folder, 'runs', 'assessed-incident', 'host');
+  await writeFile(input, JSON.stringify({ sources: [{ id: 'incident', kind: 'evidence',
+    content: { reason: 'BackOff', source: 'fixture' }, readers: ['*'] }] }));
+  const result = await host.runAssessed('assessed-incident', input, state, 'fixture');
+  assert.equal(result.revision.status, 'completed');
+  assert.equal(result.revision.candidates.length, 2);
+  assert.equal(result.revision.assessments.length, 2);
+  const [draft, revised] = result.revision.candidates;
+  const [first, second] = result.revision.assessments;
+  assert.equal(draft!.parent, null);
+  assert.equal(revised!.parent!.id, draft!.id);
+  assert.equal(revised!.feedback[0]!.id, first!.id);
+  assert.equal(first!.candidate.id, draft!.id);
+  assert.equal(first!.findings.find(row => row.criterion_id === 'evidence-references')!.verdict, 'fail');
+  assert.ok(second!.findings.every(row => row.verdict === 'pass'));
+  assert.deepEqual(result.output, revised!.output);
+  for (const context of result.revision.contexts.filter(row => row.actor === 'incident_checks')) {
+    assert.deepEqual(context.input!.feedback, [], 'The independent deterministic evaluator receives no earlier assessment');
+  }
+  const snapshot = await host.observe('assessed-incident', state);
+  assert.equal(snapshot.messages.length, result.revision.contexts.length * 2);
+  assert.equal(snapshot.messages.filter((row: { recipient: string; kind: string }) => row.recipient === 'decision' && row.kind === 'request').length, 2);
+  assert.deepEqual(await host.runAssessed('assessed-incident', input, state, 'fixture'), result);
+  assert.equal((await host.observe('assessed-incident', state)).messages.length, snapshot.messages.length);
+  // Simulate API process loss after the host journal completed but before its
+  // run.json terminal rename. Startup must reuse that exact journal and output.
+  await writeFile(join(folder, 'runs', 'assessed-incident', 'run.json'), JSON.stringify({ id: 'assessed-incident',
+    mode: 'fixture', status: 'running', startedAt: '2026-10-16T12:00:00Z', revisionEnabled: true,
+    input: { incident: { reason: 'BackOff', source: 'fixture' } }, fingerprint: 'test-input' }));
+  const recovered = new Runs(join(folder, 'runs'), 'fixture', host);
+  await recovered.initialise();
+  const deadline = Date.now() + 30_000;
+  while (recovered.get('assessed-incident').status === 'running' && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+  assert.equal(recovered.get('assessed-incident').status, 'completed');
+  assert.deepEqual(recovered.get('assessed-incident').output, result.output);
+  assert.equal((await host.observe('assessed-incident', state)).messages.length, snapshot.messages.length);
+});
 
 test('real host forwards evidence through both reviews and returns a schema-valid identity-bound readiness proposal', async t => {
   const folder = await mkdtemp(join(tmpdir(), 'mas-evidence-flow-'));

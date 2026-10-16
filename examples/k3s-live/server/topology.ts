@@ -7,6 +7,9 @@ export async function topology(project: string, mode: string) {
   const config = parse(await readFile(join(project, 'topology.yaml'), 'utf8'));
   return { mode, nodes: [
     { id: 'client', label: 'Incident event', kind: 'client', group: 'ingress' },
+    { id: 'assessed_draft', label: 'Draft invocation', kind: 'workflow', group: 'ingress' },
+    { id: 'assessed_revision', label: 'Revision invocation', kind: 'workflow', group: 'ingress' },
+    { id: 'incident_checks', label: 'Candidate checks', kind: 'tool', group: 'decision' },
     { id: 'coordinator', label: 'Coordinator', kind: 'workflow', group: 'coordination' },
     { id: 'platform', label: 'Platform branch', kind: 'workflow', group: 'coordination' },
     { id: 'security', label: 'Security branch', kind: 'workflow', group: 'coordination' },

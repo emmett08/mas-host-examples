@@ -1,0 +1,250 @@
+[
+  {
+    "id": "probe-1",
+    "family": "probe",
+    "split": "held-out",
+    "title": "Incident probe-1",
+    "evidence": [
+      {
+        "id": "spec",
+        "text": "Deployment service-1 readiness path /readyz; liveness path /healthz; UID u1 resourceVersion 10."
+      },
+      {
+        "id": "logs",
+        "text": "Current GET /readyz returns 404; current GET /healthz returns 200."
+      },
+      {
+        "id": "pod",
+        "text": "Pod service-1 Ready=False; no container restarts."
+      }
+    ]
+  },
+  {
+    "id": "probe-2",
+    "family": "probe",
+    "split": "held-out",
+    "title": "Incident probe-2",
+    "evidence": [
+      {
+        "id": "spec",
+        "text": "Deployment billing readiness path /status; liveness path /live; UID b2 resourceVersion 31."
+      },
+      {
+        "id": "logs",
+        "text": "Current GET /status returns 404. GET /live returns 200. The application route catalogue contains /live but no /status."
+      },
+      {
+        "id": "pod",
+        "text": "Pod billing Ready=False. A historical OOMKilled event belongs to an earlier Pod UID, not this Pod."
+      }
+    ]
+  },
+  {
+    "id": "oom-1",
+    "family": "oom",
+    "split": "held-out",
+    "title": "Incident oom-1",
+    "evidence": [
+      {
+        "id": "pod",
+        "text": "Last container termination reason OOMKilled, exit 137, observed 2026-10-16T12:00Z."
+      },
+      {
+        "id": "spec",
+        "text": "Container memory limit 64Mi; restart policy Always."
+      },
+      {
+        "id": "metrics",
+        "text": "Memory sample immediately before termination 63Mi; current sample 12Mi."
+      }
+    ]
+  },
+  {
+    "id": "oom-2",
+    "family": "oom",
+    "split": "held-out",
+    "title": "Incident oom-2",
+    "evidence": [
+      {
+        "id": "pod",
+        "text": "Current worker container lastState.terminated reason OOMKilled at 13:03Z; restartCount 8."
+      },
+      {
+        "id": "spec",
+        "text": "Worker memory limit 256Mi, request 64Mi. A recent rollout increased batch size."
+      },
+      {
+        "id": "metrics",
+        "text": "Memory rose from 90Mi to 255Mi immediately before termination; old image-pull errors predate the successful container start."
+      }
+    ]
+  },
+  {
+    "id": "image-1",
+    "family": "image",
+    "split": "held-out",
+    "title": "Incident image-1",
+    "evidence": [
+      {
+        "id": "pod",
+        "text": "Container waiting ImagePullBackOff. No container has started."
+      },
+      {
+        "id": "events",
+        "text": "Registry returned manifest unknown for service-1:missing-tag."
+      },
+      {
+        "id": "spec",
+        "text": "Deployment image registry.example/service-1:missing-tag."
+      }
+    ]
+  },
+  {
+    "id": "image-2",
+    "family": "image",
+    "split": "held-out",
+    "title": "Incident image-2",
+    "evidence": [
+      {
+        "id": "pod",
+        "text": "New search container waiting ErrImagePull. Old replica is healthy."
+      },
+      {
+        "id": "events",
+        "text": "Current image pull fails: registry denied access to repository. Authentication secret is missing."
+      },
+      {
+        "id": "spec",
+        "text": "New Deployment references private registry image search:v2; imagePullSecrets list is empty."
+      }
+    ]
+  },
+  {
+    "id": "dns-1",
+    "family": "dns",
+    "split": "held-out",
+    "title": "Incident dns-1",
+    "evidence": [
+      {
+        "id": "logs",
+        "text": "lookup inventory.internal: no such host; repeated requests fail before TCP connection."
+      },
+      {
+        "id": "probe",
+        "text": "Readiness endpoint returns 503 when dependency lookup fails."
+      },
+      {
+        "id": "events",
+        "text": "No restart, image pull or OOM event in this observation window."
+      }
+    ]
+  },
+  {
+    "id": "dns-2",
+    "family": "dns",
+    "split": "held-out",
+    "title": "Incident dns-2",
+    "evidence": [
+      {
+        "id": "logs",
+        "text": "New worker requests repeatedly fail with DNS SERVFAIL for queue.internal; successful TCP requests to the queue IP are retained."
+      },
+      {
+        "id": "probe",
+        "text": "Readiness reports dependency resolution failed; HTTP health endpoint is responsive."
+      },
+      {
+        "id": "events",
+        "text": "Old OOMKilled event is from another namespace and a different workload UID."
+      }
+    ]
+  },
+  {
+    "id": "missing-1",
+    "family": "missing",
+    "split": "held-out",
+    "title": "Incident missing-1",
+    "evidence": [
+      {
+        "id": "pod",
+        "text": "Pod Ready=False; container status, logs and Deployment specification unavailable."
+      },
+      {
+        "id": "events",
+        "text": "Warning: Readiness probe failed. No endpoint path or response status retained."
+      }
+    ]
+  },
+  {
+    "id": "missing-2",
+    "family": "missing",
+    "split": "held-out",
+    "title": "Incident missing-2",
+    "evidence": [
+      {
+        "id": "pod",
+        "text": "Restart count increased. Termination reason and exit status were not collected."
+      },
+      {
+        "id": "logs",
+        "text": "Only application startup text retained; previous-container logs unavailable."
+      },
+      {
+        "id": "metrics",
+        "text": "One current low-memory sample; no historical metrics, limit or events retained."
+      }
+    ]
+  },
+  {
+    "id": "conflicting-1",
+    "family": "conflicting",
+    "split": "held-out",
+    "title": "Incident conflicting-1",
+    "evidence": [
+      {
+        "id": "spec",
+        "text": "Current Deployment readiness path /ready; collected 12:10Z."
+      },
+      {
+        "id": "logs",
+        "text": "Old Pod UID other-uid logged /readyz 404 at 11:00Z; current Pod logs unavailable."
+      },
+      {
+        "id": "metrics",
+        "text": "Single current memory sample 20Mi; no limit or termination history supplied."
+      }
+    ]
+  },
+  {
+    "id": "conflicting-2",
+    "family": "conflicting",
+    "split": "held-out",
+    "title": "Incident conflicting-2",
+    "evidence": [
+      {
+        "id": "spec",
+        "text": "Two Deployment snapshots disagree: path /ready at 14:00 and /health at 14:01; neither supplies UID or resourceVersion."
+      },
+      {
+        "id": "logs",
+        "text": "Unattributed /ready 404 and /health 200 lines lack Pod identity and timestamp."
+      },
+      {
+        "id": "pod",
+        "text": "Current Pod Ready=False, but ownership and image version unavailable."
+      }
+    ]
+  },
+  {
+    "id": "development-1",
+    "family": "development",
+    "split": "development",
+    "title": "Calibration incomplete observation",
+    "evidence": [
+      {
+        "id": "status",
+        "text": "Only Ready=False is known. All other evidence unavailable."
+      }
+    ]
+  }
+]

@@ -30,7 +30,7 @@ const description = computed(() =>
   props.topology.nodes
     .map(
       (node) =>
-        `${node.label}: ${node.kind === "llm" ? "LLM agent" : node.kind === "workflow" ? "workflow" : "event source"}`,
+        `${node.label}: ${node.kind === "llm" ? "LLM agent" : node.kind === "workflow" ? "workflow" : node.kind === "tool" ? "deterministic evaluator" : "event source"}`,
     )
     .join(". "),
 );
@@ -52,7 +52,7 @@ const groupNames: Record<string, string> = {
   ingress: "EVENT SOURCE",
   coordination: "WORKFLOW SUPERVISION",
   specialists: "LLM SPECIALISTS",
-  decision: "FINAL DECISION",
+  decision: "CANDIDATE AND CHECKS",
 };
 
 function route(
@@ -375,6 +375,7 @@ function draw(now = performance.now()) {
           ? "deterministic workflow"
           : node.kind === "client"
             ? "Kubernetes event"
+            : node.kind === "tool" ? "deterministic checks"
             : "LLM agent"),
       node.x,
       node.y + 62,

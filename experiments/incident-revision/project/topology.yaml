@@ -1,0 +1,6 @@
+version: mas-topology/1
+edges:
+  - [client, diagnose]
+  - [diagnose, client]
+  - [client, critic]
+  - [critic, client]

@@ -8,17 +8,20 @@ RUN git clone https://github.com/emmett08/mas-host.git source \
 
 FROM node:22-bookworm-slim AS web
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
 COPY examples/k3s-live/package.json examples/k3s-live/package-lock.json ./
 RUN npm ci
 COPY examples/k3s-live/ ./
 RUN npm test && npm run build && npm prune --omit=dev
 
 FROM node:22-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 demo && useradd --uid 10001 --gid demo --create-home demo
 WORKDIR /app
 COPY --from=host /build/source/target/release/mas-host /opt/mas-host/mas-host
+COPY --from=host /build/source/sdk/python /opt/mas-host/sdk/python
 COPY --from=web --chown=10001:10001 /app/dist ./dist
 COPY --from=web --chown=10001:10001 /app/node_modules ./node_modules
 COPY --from=web --chown=10001:10001 /app/package.json ./package.json

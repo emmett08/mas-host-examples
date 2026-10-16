@@ -33,3 +33,16 @@ jobs:
         run: make verify
       - name: Run documented commands
         run: make go rust cpp python python-client command star tree mesh composed
+      - name: Check frozen incident experiment and run the credential-free rehearsal
+        run: |
+          python3 -m unittest discover -s experiments/incident-revision -p 'test_*.py'
+          python3 experiments/incident-revision/run.py freeze --out .state/incident-pilot --host .tools/mas-host/target/debug/mas-host --sdk .tools/mas-host --mode fixture
+          python3 experiments/incident-revision/run.py run --out .state/incident-pilot
+      - name: Retain incident rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: incident-revision-rehearsal
+          path: .state/incident-pilot
+          if-no-files-found: warn
+          retention-days: 14
