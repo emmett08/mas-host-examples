@@ -11,7 +11,7 @@ export PYTHONDONTWRITEBYTECODE := 1
 export GOWORK := off
 export GOTOOLCHAIN := local
 
-.PHONY: setup check test acceptance recovery verify go rust cpp python python-client mixed mixed-python star tree mesh composed
+.PHONY: setup check test acceptance recovery verify go rust cpp python python-client star tree mesh composed
 
 setup:
 	bash scripts/setup.sh
@@ -21,7 +21,6 @@ check:
 
 test: check
 	cd examples/go-release && go test -race ./...
-	cd examples/mixed-review && go test -race ./...
 	bash scripts/test-native.sh
 	cd examples/python-review && python3 -m unittest discover -s tests -v
 
@@ -34,25 +33,19 @@ recovery:
 verify: test acceptance
 
 go:
-	"$(MAS_HOST_BIN)" run --project examples/go-release --agent planner --input examples/go-release/input.json --state .state --run go-release
+	"$(MAS_HOST_BIN)" run --project examples/go-release --agent planner --input examples/go-release/input.yaml --state .state --run go-release
 
 rust:
-	"$(MAS_HOST_BIN)" run --project examples/rust-order --agent order --input examples/rust-order/input.json --state .state --run rust-order
+	"$(MAS_HOST_BIN)" run --project examples/rust-order --agent order --input examples/rust-order/input.yaml --state .state --run rust-order
 
 cpp:
-	"$(MAS_HOST_BIN)" run --project examples/cpp-telemetry --agent telemetry --input examples/cpp-telemetry/input.json --state .state --run cpp-telemetry
+	"$(MAS_HOST_BIN)" run --project examples/cpp-telemetry --agent telemetry --input examples/cpp-telemetry/input.yaml --state .state --run cpp-telemetry
 
 python:
 	"$(MAS_HOST_BIN)" run --project examples/python-review --agent reviewer --input examples/python-review/input.yaml --state .state --run python-review
 
 python-client:
 	python3 examples/python-review/call.py
-
-mixed-python:
-	"$(MAS_HOST_BIN)" run --project examples/mixed-review --agent python_reviewer --input examples/mixed-review/input.json --state .state --run mixed-python
-
-mixed:
-	"$(MAS_HOST_BIN)" run --project examples/mixed-review --agent reviewer --input examples/mixed-review/input.json --state .state --run mixed-review
 
 star tree composed:
 	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent $@ --input examples/composable-agents/input.yaml --state .state --run review-$@

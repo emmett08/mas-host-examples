@@ -206,12 +206,12 @@ func (h *harness) inspect(run string) object {
 }
 
 func TestNativeApplications(t *testing.T) {
-	for _, name := range []string{"rust-order", "cpp-telemetry", "mixed-review"} {
+	for _, name := range []string{"rust-order", "cpp-telemetry"} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			project := h.project(name)
 			bundle := h.build(project)
-			input := filepath.Join(project, "input.json")
+			input := filepath.Join(project, "input.yaml")
 			var agent string
 			switch name {
 			case "rust-order":
@@ -222,12 +222,6 @@ func TestNativeApplications(t *testing.T) {
 				agent = "telemetry"
 				out := h.run(bundle, input, "accepted", agent)
 				assertFields(t, out, object{"samples": 6, "min": 410, "max": 480, "sum": 2620, "mean_floor": 436, "breaches": 2, "first_breach_index": 3, "acceptable": false})
-			case "mixed-review":
-				agent = "reviewer"
-				out := h.run(bundle, input, "accepted", agent)
-				assertFields(t, out, object{"request_id": "purchase-42", "approved": true})
-				assertFields(t, child(t, out, "exposure"), object{"projected_minor": 200000, "remaining_minor": 50000, "within_limit": true})
-				assertFields(t, child(t, out, "arrears"), object{"overdue_minor": 5000, "oldest_days": 7, "within_policy": true})
 			}
 			before := h.inspect("accepted")
 			h.run(bundle, input, "accepted", agent)
@@ -236,28 +230,27 @@ func TestNativeApplications(t *testing.T) {
 			assertEqual(t, len(entries(t, child(t, after, "protocol"), "calls")), 0)
 			t.Log("completed replay preserved every retained step and protocol message; no admitted external calls")
 
-			refusal := h.run(bundle, filepath.Join(project, "reject.json"), "policy-refusal", agent)
-			domainInput := readObject(t, input)
+			refusal := h.run(bundle, filepath.Join(project, "reject.yaml"), "policy-refusal", agent)
+			var domainInput object
 			var diagnostic string
 			switch name {
 			case "rust-order":
 				assertFields(t, refusal, object{"within_budget": false, "total_minor": 5658})
+				domainInput = object{"order_id": "overflow", "items": []object{
+					{"sku": "gear", "quantity": 3, "unit_minor": 1250}, {"sku": "seal", "quantity": 2, "unit_minor": 475}},
+					"discount_bps": 500, "tax_bps": 2000, "shipping_minor": 300, "budget_minor": 6000}
 				domainInput["shipping_minor"] = json.Number("18446744073709551615")
 				diagnostic = "total exceeds u64"
 			case "cpp-telemetry":
 				assertFields(t, refusal, object{"acceptable": false, "breaches": 2})
+				domainInput = object{"sensor": "pump-7", "samples": []int{410, 420, 425, 470, 480, 415},
+					"min_allowed": 400, "max_allowed": 450, "max_breaches": 1}
 				domainInput["max_breaches"] = 2
 				allowed := filepath.Join(h.scratch, "allowed.json")
 				writeObject(t, allowed, domainInput)
 				assertFields(t, h.run(bundle, allowed, "boundary-accepted", agent), object{"acceptable": true, "breaches": 2})
 				domainInput["samples"] = []any{}
 				diagnostic = "samples must contain 1..1024 integers"
-			case "mixed-review":
-				assertFields(t, refusal, object{"approved": false})
-				assertFields(t, child(t, refusal, "exposure"), object{"within_limit": false})
-				assertFields(t, child(t, refusal, "arrears"), object{"within_policy": false})
-				domainInput["invoices"] = []any{}
-				diagnostic = "invoices"
 			}
 			domainPath := filepath.Join(h.scratch, "domain-invalid.json")
 			writeObject(t, domainPath, domainInput)
@@ -272,10 +265,20 @@ func TestNativeApplications(t *testing.T) {
 	}
 }
 
+// Scenario inputs are programme-generated values. Human-authored YAML fixtures
+// are exercised directly by the baseline runs and documented commands.
+func releaseProposal() object {
+	return object{"release": "catalog-2026.10", "replicas": 1, "demand": 250,
+		"per_replica": 100, "max_replicas": 5, "critical_vulnerabilities": 0,
+		"observed_requests": 10000, "failed_requests": 20, "max_failure_basis_points": 25}
+}
+
 func TestGoReleasePoliciesAndReplay(t *testing.T) {
 	h := newHarness(t)
 	project := h.project("go-release")
 	bundle := h.build(project)
+	assertFields(t, h.run(bundle, filepath.Join(project, "input.yaml"), "authored-input", "planner"),
+		object{"ready": true, "replicas": 3, "attempts": 3, "stop_reason": "ready"})
 	for _, scenario := range []struct {
 		name, field, stop  string
 		value              any
@@ -289,7 +292,7 @@ func TestGoReleasePoliciesAndReplay(t *testing.T) {
 		{name: "attempt-limit", field: "demand", value: 450, stop: "attempt_limit", replicas: 3, attempts: 3},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			input := readObject(t, filepath.Join(project, "input.json"))
+			input := releaseProposal()
 			if scenario.field != "" {
 				input[scenario.field] = scenario.value
 			}
@@ -310,12 +313,12 @@ func TestGoReleasePoliciesAndReplay(t *testing.T) {
 			h.failure("different", h.runArgs(bundle, file, scenario.name, "planner")...)
 		})
 	}
-	invalid := readObject(t, filepath.Join(project, "input.json"))
+	invalid := releaseProposal()
 	invalid["observed_requests"] = 0
 	file := filepath.Join(h.scratch, "invalid-measurements.json")
 	writeObject(t, file, invalid)
 	h.failure("observations > 0", h.runArgs(bundle, file, "invalid-measurements", "planner")...)
-	missing := readObject(t, filepath.Join(project, "input.json"))
+	missing := releaseProposal()
 	delete(missing, "critical_vulnerabilities")
 	file = filepath.Join(h.scratch, "missing-evidence.json")
 	writeObject(t, file, missing)
@@ -357,38 +360,27 @@ func copyProject(t *testing.T, source, destination string) {
 
 func TestTopologyDeniesUndeclaredRoute(t *testing.T) {
 	h := newHarness(t)
-	project := filepath.Join(h.scratch, "mixed-review")
-	copyProject(t, h.project("mixed-review"), project)
-	// Preserve the dependency binding after moving the project away from its
-	// ordinary ../../.tools location. This edits only the temporary copy.
-	cmd := exec.Command("go", "mod", "edit", "-replace=github.com/emmett08/mas-host/sdk/go="+filepath.Join(h.sdk, "sdk", "go"))
-	cmd.Dir = project
-	if raw, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("bind temporary Go project to installed SDK: %v\n%s", err, raw)
+	project := filepath.Join(h.scratch, "python-review")
+	copyProject(t, h.project("python-review"), project)
+	path := filepath.Join(project, "topology.yaml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	topology := readObject(t, filepath.Join(project, "topology.json"))
-	edges := topology["edges"].([]any)
-	filtered := make([]any, 0, len(edges))
-	removed := false
-	for _, entry := range edges {
-		edge := entry.([]any)
-		if (edge[0] == "reviewer" && edge[1] == "exposure") || (edge[0] == "exposure" && edge[1] == "reviewer") {
-			removed = true
-			continue
-		}
-		filtered = append(filtered, entry)
+	topology := strings.ReplaceAll(string(raw), "  - [reviewer, capacity]\n", "")
+	topology = strings.ReplaceAll(topology, "  - [capacity, reviewer]\n", "")
+	if topology == string(raw) {
+		t.Fatal("fixture has no reviewer -> capacity route to remove")
 	}
-	if !removed {
-		t.Fatal("fixture has no reviewer -> exposure route to remove")
+	if err := os.WriteFile(path, []byte(topology), 0600); err != nil {
+		t.Fatal(err)
 	}
-	topology["edges"] = filtered
-	writeObject(t, filepath.Join(project, "topology.json"), topology)
 	bundle := h.build(project)
-	h.failure("route forbidden", h.runArgs(bundle, filepath.Join(project, "input.json"), "denied", "reviewer")...)
+	h.failure("route forbidden", h.runArgs(bundle, filepath.Join(project, "input.yaml"), "denied", "reviewer")...)
 	snapshot := h.inspect("denied")
 	for _, step := range entries(t, snapshot, "steps") {
-		if step["target"] == "exposure" && step["state"] == "completed" {
-			t.Fatal("forbidden exposure worker completed")
+		if step["target"] == "capacity" && step["state"] == "completed" {
+			t.Fatal("forbidden capacity worker completed")
 		}
 	}
 	assertEqual(t, len(entries(t, child(t, snapshot, "protocol"), "calls")), 0)

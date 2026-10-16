@@ -28,7 +28,7 @@ func TestCrashRecovery(t *testing.T) {
 	h := newHarness(t)
 	project := h.project("go-release")
 	bundle := h.build(project)
-	input := readObject(t, filepath.Join(project, "input.json"))
+	input := releaseProposal()
 	receiptPath := filepath.Join(h.scratch, "receipt.json")
 	input["receipt_path"] = receiptPath
 	input["crash_after_receipt"] = true

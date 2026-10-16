@@ -26,7 +26,6 @@ From the repository root after `make setup`:
 ```bash
 make python        # CLI reads input.yaml
 make python-client # Python passes a dataclass directly
-make mixed-python  # Python calls Go, which requests Rust and C++ specialists
 ```
 
 The first two commands return `approved: true`, `available_capacity: 300` and

@@ -8,9 +8,9 @@ if [[ ! -x .tools/mas-host/target/debug/mas-host ]]; then
   echo 'Run make setup first.' >&2
   exit 1
 fi
-unformatted="$(gofmt -l examples/go-release examples/mixed-review tests)"
+unformatted="$(gofmt -l examples/go-release tests)"
 [[ -z "$unformatted" ]] || { printf 'Run gofmt on:\n%s\n' "$unformatted" >&2; exit 1; }
-for project in examples/go-release examples/mixed-review tests; do
+for project in examples/go-release tests; do
   (cd "$project" && go vet ./...)
 done
 while IFS= read -r source; do
@@ -22,8 +22,7 @@ bash -n scripts/setup.sh scripts/check.sh scripts/test-native.sh
 python3 - <<'PYTHON'
 import ast
 from pathlib import Path
-for root in (Path("examples/python-review"), Path("examples/mixed-review")):
-    for source in root.rglob("*.py"):
-        if ".mas" not in source.parts:
-            ast.parse(source.read_text(), filename=str(source))
+for source in Path("examples/python-review").rglob("*.py"):
+    if ".mas" not in source.parts:
+        ast.parse(source.read_text(), filename=str(source))
 PYTHON

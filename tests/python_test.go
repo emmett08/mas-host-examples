@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func TestPythonDataclassesAndFourLanguageRouting(t *testing.T) {
+func TestPythonDataclassesAndPeerRouting(t *testing.T) {
 	h := newHarness(t)
 	project := h.project("python-review")
 	bundle := h.build(project)
@@ -34,12 +34,6 @@ func TestPythonDataclassesAndFourLanguageRouting(t *testing.T) {
 	invalid := filepath.Join(h.scratch, "invalid-python.json")
 	writeObject(t, invalid, object{"release": "service-42", "required_capacity": true, "replicas": 3, "capacity_per_replica": 100, "critical_findings": 0})
 	h.failure("expected int", h.runArgs(bundle, invalid, "invalid-python", "reviewer")...)
-
-	mixed := h.project("mixed-review")
-	mixedBundle := h.build(mixed)
-	out = h.run(mixedBundle, filepath.Join(mixed, "input.json"), "four-languages", "python_reviewer")
-	assertFields(t, out, object{"request_id": "purchase-42", "approved": true})
-	assertRequests(t, h.inspect("four-languages"), [][2]string{{"python_reviewer", "reviewer"}, {"reviewer", "exposure"}, {"reviewer", "arrears"}})
 }
 
 func TestPythonTypedClientAndRecovery(t *testing.T) {

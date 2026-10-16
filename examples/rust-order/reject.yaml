@@ -1,0 +1,12 @@
+order_id: order-over-budget
+items:
+- sku: gear
+  quantity: 3
+  unit_minor: 1250
+- sku: seal
+  quantity: 2
+  unit_minor: 475
+discount_bps: 500
+tax_bps: 2000
+shipping_minor: 300
+budget_minor: 5657

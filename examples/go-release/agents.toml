@@ -1,0 +1,53 @@
+version = "mas-agents/2"
+
+[[agents]]
+name = "planner"
+operation = "Qualify"
+[agents.implementation]
+kind = "native"
+language = "go"
+source = "."
+handler = "Qualify"
+
+[[agents]]
+name = "capacity"
+operation = "AssessCapacity"
+[agents.implementation]
+kind = "native"
+language = "go"
+source = "."
+handler = "AssessCapacity"
+
+[[agents]]
+name = "security"
+operation = "AssessSecurity"
+[agents.implementation]
+kind = "native"
+language = "go"
+source = "."
+handler = "AssessSecurity"
+
+[[agents]]
+name = "reliability"
+operation = "AssessReliability"
+[agents.implementation]
+kind = "native"
+language = "go"
+source = "."
+handler = "AssessReliability"
+
+[[agents]]
+name = "checker"
+operation = "Check"
+[agents.implementation]
+kind = "native"
+language = "go"
+source = "."
+handler = "Check"
+
+[limits]
+wall_seconds = 300
+max_calls = 1
+max_messages = 100
+max_bytes = 1048576
+mailbox_capacity = 16

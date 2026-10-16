@@ -1,0 +1,9 @@
+release: catalog-2026.10
+replicas: 1
+demand: 250
+per_replica: 100
+max_replicas: 5
+critical_vulnerabilities: 0
+observed_requests: 10000
+failed_requests: 20
+max_failure_basis_points: 25

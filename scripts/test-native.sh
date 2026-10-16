@@ -6,7 +6,7 @@ cd "$root"
 sdk="$root/.tools/mas-host"
 host="$sdk/target/debug/mas-host"
 mkdir -p .reports
-for project in rust-order mixed-review; do
+for project in rust-order; do
   "$host" build --project "examples/$project" --sdk-root "$sdk"
   for manifest in "examples/$project"/.mas/build/native-*/Cargo.toml; do
     cargo clippy --locked --all-targets --manifest-path "$manifest" \
@@ -15,7 +15,7 @@ for project in rust-order mixed-review; do
       --target-dir "examples/$project/.mas/build/rust-target"
   done
 done
-for project in cpp-telemetry mixed-review; do
+for project in cpp-telemetry; do
   for source in "examples/$project"/tests/*_test.cpp; do
     executable="$root/.reports/$project-$(basename "$source" .cpp)"
     c++ -std=c++17 -Wall -Wextra -Werror -pthread \

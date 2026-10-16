@@ -1,0 +1,10 @@
+version = "mas-agents/2"
+
+[[agents]]
+name = "order"
+operation = "quote"
+[agents.implementation]
+kind = "native"
+language = "rust"
+source = "order.rs"
+handler = "quote"

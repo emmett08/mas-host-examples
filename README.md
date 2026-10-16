@@ -2,10 +2,9 @@
 
 Applications written in Python, Go, Rust and C++ running on the same
 [MAS Host](https://github.com/emmett08/mas-host). Each example supplies application
-functions and agent/topology configuration. Python and composable examples use
-TOML settings and YAML topology/workflows; existing native examples retain JSON
-configurations. The host generates worker entry points, communication code and
-registration bundles. Applications supply no handwritten worker transport or
+functions, TOML agent settings and YAML topology/workflows. All agent bindings
+use `mas-agents/2`. The host generates worker entry points, communication code
+and registration bundles. Applications supply no handwritten worker transport or
 custom host implementation.
 
 The native examples and the default model fixtures run without credentials.
@@ -19,7 +18,6 @@ they do not evaluate model quality or make production release decisions.
 | [Rust order calculation](examples/rust-order) | Checked integer totals, discount, tax and budget comparison | Generated Rust worker and precise JSON results |
 | [C++ telemetry assessment](examples/cpp-telemetry) | Bounded sample-window statistics and threshold decisions | Generated C++17 worker and input validation |
 | [Python service review](examples/python-review) | Dataclass inputs and outputs, capacity/security checks, independent acceptance and optional durable receipt | Typed Python client and workers, parallel/request/effect APIs, TOML settings and YAML input |
-| [Mixed-language review](examples/mixed-review) | Optional Python entry calls a Go coordinator that combines Rust exposure and C++ arrears assessments | Cross-language requests under one topology and execution journal |
 | [Composable review agents](examples/composable-agents) | Star, tree and mesh reviews nested into a release workflow; interchangeable model providers | Recursive Composite workflow, provider Strategy/Adapter, MAS admission and durable inference replay |
 
 ## Quick start
@@ -39,13 +37,12 @@ make go
 make rust
 make cpp
 make python python-client
-make mixed mixed-python
 make star tree mesh composed
 ```
 
 `make setup` fetches the exact host commit in [host-revision.txt](host-revision.txt)
 and builds it with its checked-in Cargo lockfile. The distribution, SDKs and build
-tools remain together under `.tools/mas-host`. The Go modules reference that SDK
+tools remain together under `.tools/mas-host`. The Go module references that SDK
 through ordinary relative dependency replacements. Neither upstream repository
 is modified. Generated application files are ignored under each example's
 `.mas/build/` directory.
@@ -67,7 +64,7 @@ For example, from this repository's root:
 .tools/mas-host/target/debug/mas-host run \
   --sdk-root "$PWD/.tools/mas-host" \
   --project examples/go-release --agent planner \
-  --input examples/go-release/input.json \
+  --input examples/go-release/input.yaml \
   --state .state --run release-002
 
 .tools/mas-host/target/debug/mas-host inspect \
@@ -99,8 +96,7 @@ host distribution. Go uses its standard module files; the current Rust/C++
 profiles generate their build entry points from source files. Python captures
 project modules and packages, including imported helpers. Installed third-party
 Python dependencies require separately pinned versions and a retained compatible
-interpreter/runtime. Full Cargo/CMake
-project discovery and arbitrary native type-to-schema generation are not yet
+interpreter/runtime. Full Cargo/CMake project discovery and arbitrary native type-to-schema generation are not yet
 provided by the pinned host.
 
 ## Verify and observe recovery
@@ -112,8 +108,7 @@ make recovery     # Go crash/reconciliation and Python recorded-effect replay
 
 The integration tests build the actual examples and exercise positive decisions,
 negative decisions, invalid inputs, replay, Python typed calls, changed-source
-identity rejection, changed-input rejection and denied
-communication routes. They use the public host CLI; they do not replace it with
+identity rejection, changed-input rejection and denied communication routes. They use the public host CLI; they do not replace it with
 a mock. Test state is created in temporary directories, independently of `.state`.
 
 The recovery exercise:
@@ -135,8 +130,8 @@ file writes or network calls outside `Effect` do not acquire recovery guarantees
 
 The host executes trusted code with the operator's filesystem permissions. The
 local profile supplies maintained provider adapters and scoped credentials; it
-has no remote service ingress or untrusted-code sandbox. The execution model accepts integer numbers; examples
-use minor units and basis points to avoid floating-point ambiguity. The C++ SDK
+has no remote service ingress or untrusted-code sandbox. The execution model
+accepts integer numbers; examples use minor units and basis points to avoid floating-point ambiguity. The C++ SDK
 supports signed and unsigned 64-bit integers.
 
 See the host's [execution contract](https://github.com/emmett08/mas-host/blob/main/docs/native-contract.md)
