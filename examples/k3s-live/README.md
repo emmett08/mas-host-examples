@@ -6,6 +6,10 @@ OpenAI; it never substitutes fixture responses when credentials or models fail.
 A separate, clearly labelled fixture mode exercises the real host and protocol
 without calling a model.
 
+**The GitHub Actions demonstration creates its own k3s cluster on a GitHub-hosted
+Linux runner. You do not need a cluster on your Mac or an external Kubernetes
+service.** See [GitHub Actions](#github-actions) for the single required secret.
+
 ## What the demonstration shows
 
 1. A browser action or `MASDemoRun` custom resource submits bounded incident evidence.
@@ -71,6 +75,14 @@ executes MAS admission, workflows, supervision and journal persistence. The UI
 labels it **FIXTURE · NO LLM**. Switching mode requires restarting the backend;
 existing runs retain their original mode.
 
+The workflow opts into a separate **paced recording fixture** with
+`DEMO_MODE=fixture DEMO_FIXTURE_RECORDING=true`. Its command providers consume
+the real `mas-provider/1` request, wait five seconds per call and return fixed,
+schema-checked JSON. This deliberate delay lets the browser subscribe before
+message flow finishes; it does not measure LLM latency. The normal fixture stays
+fast, and the recording flag has no effect in live mode. The inline provider code
+is retained in the host bundle and uses no provider credentials or network.
+
 ## Deploy to k3s
 
 Docker Desktop with k3d is a convenient macOS route: k3d runs a real k3s cluster
@@ -120,22 +132,51 @@ and relevant main-branch pushes, creates an ephemeral k3d/k3s cluster, deploys t
 operator in fixture mode, triggers a crashing pod and checks the real MAS trace
 and retained identity after pod restart. These jobs make no provider calls.
 
-Manual dispatch with `deploy_live=true` runs those checks, publishes the commit-tagged
-image to GHCR, then deploys real agents and the labelled demonstration pod. Configure
-the `mas-k3s-demo` GitHub environment and its secrets:
+Manual dispatch with `deploy_live=true` first runs those checks, then creates a
+fresh k3s cluster in a second GitHub-hosted `ubuntu-24.04` runner. The live job
+builds the image and imports it directly into that cluster, deploys the operator
+and real LLM agents, opens the Vue dashboard in a recording browser, and triggers
+a Warning event from the labelled demonstration pod. The cluster is named
+`mas-demo`; k3d generates and selects the kubeconfig context `k3d-mas-demo`.
+
+Configure one environment secret in this repository:
 
 | Secret | Purpose |
 |---|---|
-| `KUBECONFIG_B64` | Base64 kubeconfig for the dedicated demonstration cluster |
 | `OPENAI_API_KEY` | Model credentials injected into the backend Secret |
-| `GHCR_PULL_TOKEN` | Registry token with `read:packages` if the image is private |
 
-The selected runner must reach the cluster API. Configure repository variable
-`MAS_DEMO_RUNNER` for a suitable self-hosted runner when needed, and optional
-`GHCR_PULL_USER` for a different registry user. Keep deployment
-on the trusted main branch; configure environment reviewers to match your team's
-deployment process. Workflow dispatch deploys the demo; Kubernetes events then
-trigger investigations without another GitHub run.
+1. Open **Settings → Environments → mas-k3s-demo → Environment secrets** and add
+   `OPENAI_API_KEY`. Create the environment if necessary. Restrict its deployment
+   branch to `main`.
+2. Open **Actions → Kubernetes live MAS demonstration → Run workflow**.
+3. Select `main`, enable `deploy_live`, and run the workflow.
+4. Download the `mas-k3s-live-<run-id>` artefact from the completed workflow run.
+
+The workflow creates its own kubeconfig. `KUBECONFIG_B64`, `GHCR_PULL_TOKEN`,
+`GHCR_PULL_USER` and `MAS_DEMO_RUNNER` are unnecessary for this GitHub-hosted path.
+Its GitHub permission is `contents: read`; no registry publishing or package token
+is needed. The live job fails clearly if the OpenAI key is missing; it never
+substitutes fixture responses. Pull requests and ordinary pushes run only the
+credential-free fixture checks.
+
+The recording starts before the Warning event. The artefact retains the actual
+canvas video, screenshots, topology, run and observation snapshots, plus a result
+summary. Fixture recordings are explicitly labelled and are saved separately as
+`mas-k3s-fixture-<run-id>`. The failing pod is removed after admission to limit
+further Warning triggers; the recorder rejects duplicate admissions for that Pod.
+The fixture recording uses the five-second paced providers described above;
+its video shows actual MAS envelopes carrying deterministic responses. Live
+recordings retain actual provider timing and use the configured OpenAI models.
+Recordings and traces
+remain available for seven days; the cluster is deleted when its job finishes,
+including after failure.
+
+**GitHub Actions provides a temporary execution environment, not a permanent
+dashboard URL.** The browser observes the real running system inside the runner;
+you review its recording after the run. The JSON trace is retained evidence, not
+an independently animated offline replay. Interactive remote access during a run
+would need an authenticated connection to that runner or a separate hosted service.
+The optional local and existing-cluster commands above remain available.
 
 ## Verification and operational limits
 
