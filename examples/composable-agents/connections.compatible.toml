@@ -1,0 +1,32 @@
+# Human-authored settings; the host resolves these into a strict MAS bundle.
+version = "mas-connections/1"
+
+[connections]
+
+[connections.security_provider]
+kind = "openai-compatible"
+endpoint = "https://provider.example/v1/chat/completions"
+api_key_env = "OTHER_API_KEY"
+structured_outputs = true
+model = "<compatible-model-id>"
+
+[connections.delivery_provider]
+kind = "openai-compatible"
+endpoint = "https://provider.example/v1/chat/completions"
+api_key_env = "OTHER_API_KEY"
+structured_outputs = true
+model = "<compatible-model-id>"
+
+[connections.operations_provider]
+kind = "openai-compatible"
+endpoint = "https://provider.example/v1/chat/completions"
+api_key_env = "OTHER_API_KEY"
+structured_outputs = true
+model = "<compatible-model-id>"
+
+[connections.decision_provider]
+kind = "openai-compatible"
+endpoint = "https://provider.example/v1/chat/completions"
+api_key_env = "OTHER_API_KEY"
+structured_outputs = true
+model = "<compatible-model-id>"

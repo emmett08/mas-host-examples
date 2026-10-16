@@ -1,0 +1,28 @@
+# Human-authored settings; the host resolves these into a strict MAS bundle.
+version = "mas-connections/1"
+
+[connections]
+
+[connections.security_provider]
+kind = "openai"
+endpoint = "https://api.openai.com/v1/responses"
+api_key_env = "OPENAI_API_KEY"
+model = "<openai-model-id>"
+
+[connections.delivery_provider]
+kind = "openai"
+endpoint = "https://api.openai.com/v1/responses"
+api_key_env = "OPENAI_API_KEY"
+model = "<openai-model-id>"
+
+[connections.operations_provider]
+kind = "openai"
+endpoint = "https://api.openai.com/v1/responses"
+api_key_env = "OPENAI_API_KEY"
+model = "<openai-model-id>"
+
+[connections.decision_provider]
+kind = "openai"
+endpoint = "https://api.openai.com/v1/responses"
+api_key_env = "OPENAI_API_KEY"
+model = "<openai-model-id>"

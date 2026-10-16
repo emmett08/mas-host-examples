@@ -1,6 +1,7 @@
 package acceptance
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,7 +34,7 @@ func TestComposableTopologiesAndReplay(t *testing.T) {
 	h := newHarness(t)
 	project := h.project("composable-agents")
 	bundle := h.build(project)
-	input := filepath.Join(project, "input.json")
+	input := filepath.Join(project, "input.yaml")
 	for _, scenario := range []struct {
 		name, shape string
 		calls       int
@@ -85,20 +86,21 @@ func TestComposableMeshHonoursRouteAdmission(t *testing.T) {
 	h := newHarness(t)
 	project := filepath.Join(h.scratch, "composable-agents")
 	copyProject(t, h.project("composable-agents"), project)
-	topology := readObject(t, filepath.Join(project, "topology.json"))
-	edges := topology["edges"].([]any)
-	filtered := make([]any, 0, len(edges))
-	for _, item := range edges {
-		edge := item.([]any)
-		if (edge[0] == "mesh_a" && edge[1] == "mesh_b") || (edge[0] == "mesh_b" && edge[1] == "mesh_a") {
-			continue
-		}
-		filtered = append(filtered, item)
+	path := filepath.Join(project, "topology.yaml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	topology["edges"] = filtered
-	writeObject(t, filepath.Join(project, "topology.json"), topology)
+	topology := strings.ReplaceAll(string(raw), "  - [mesh_a, mesh_b]\n", "")
+	topology = strings.ReplaceAll(topology, "  - [mesh_b, mesh_a]\n", "")
+	if topology == string(raw) {
+		t.Fatal("expected mesh route in YAML topology")
+	}
+	if err := os.WriteFile(path, []byte(topology), 0600); err != nil {
+		t.Fatal(err)
+	}
 	bundle := h.build(project)
-	h.failure("route forbidden", h.runArgs(bundle, filepath.Join(project, "input.json"), "mesh-denied", "mesh_a")...)
+	h.failure("route forbidden", h.runArgs(bundle, filepath.Join(project, "input.yaml"), "mesh-denied", "mesh_a")...)
 	for _, step := range entries(t, h.inspect("mesh-denied"), "steps") {
 		if step["actor"] == "mesh_a" && step["target"] == "mesh_b" && step["state"] == "completed" {
 			t.Fatal("removed mesh route completed an invocation")
@@ -109,27 +111,27 @@ func TestComposableMeshHonoursRouteAdmission(t *testing.T) {
 func TestExplicitProviderConfigurations(t *testing.T) {
 	h := newHarness(t)
 	project := h.project("composable-agents")
-	defaultConnections := child(t, readObject(t, filepath.Join(project, "agents.json")), "connections")
 	for _, variant := range []string{"openai", "cursor", "compatible", "mixed"} {
-		config := readObject(t, filepath.Join(project, "connections."+variant+".json"))
-		assertEqual(t, config["version"], "mas-connections/1")
-		connections := child(t, config, "connections")
-		assertEqual(t, len(connections), len(defaultConnections))
-		for alias := range defaultConnections {
-			if _, exists := connections[alias]; !exists {
-				t.Fatalf("live %s profile leaves %s on its default fixture", variant, alias)
+		result := h.success("build", "--project", project, "--sdk-root", h.sdk,
+			"--connections", "connections."+variant+".toml")
+		bundle := readObject(t, result["bundle"].(string))
+		modelActors := 0
+		for _, actor := range entries(t, bundle, "agents") {
+			binding := child(t, actor, "configuration")
+			if binding["kind"] != "llm" {
+				continue
 			}
-		}
-		for name, entry := range connections {
-			connection := entry.(map[string]any)
+			modelActors++
+			connection := child(t, binding, "connection")
 			if connection["kind"] == "mock" {
-				t.Fatalf("live %s connection %s silently selects mock", variant, name)
+				t.Fatalf("live %s actor %s silently selects mock", variant, actor["name"])
 			}
 			credential, ok := connection["api_key_env"].(string)
 			if !ok || credential == "" {
-				t.Fatalf("live %s connection %s has no explicit credential binding", variant, name)
+				t.Fatalf("live %s actor %s has no explicit credential binding", variant, actor["name"])
 			}
 		}
+		assertEqual(t, modelActors, 4)
 	}
 
 	// Exercise the maintained OpenAI adapter with an explicitly missing secret.
@@ -137,14 +139,17 @@ func TestExplicitProviderConfigurations(t *testing.T) {
 	projectCopy := filepath.Join(h.scratch, "live-config")
 	copyProject(t, project, projectCopy)
 	baseBundle := readObject(t, h.build(projectCopy))
-	config := readObject(t, filepath.Join(projectCopy, "connections.openai.json"))
+	raw, err := os.ReadFile(filepath.Join(projectCopy, "connections.openai.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	credential := "MAS_EXAMPLES_MISSING_OPENAI_KEY"
 	t.Setenv(credential, "")
-	for _, connection := range child(t, config, "connections") {
-		connection.(map[string]any)["api_key_env"] = credential
+	config := strings.ReplaceAll(string(raw), "OPENAI_API_KEY", credential)
+	if err := os.WriteFile(filepath.Join(projectCopy, "missing-connections.toml"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
 	}
-	writeObject(t, filepath.Join(projectCopy, "missing-connections.json"), config)
-	result := h.success("build", "--project", projectCopy, "--sdk-root", h.sdk, "--connections", "missing-connections.json")
+	result := h.success("build", "--project", projectCopy, "--sdk-root", h.sdk, "--connections", "missing-connections.toml")
 	bundle := result["bundle"].(string)
 	liveBundle := readObject(t, bundle)
 	baseActors := entries(t, baseBundle, "agents")
@@ -165,7 +170,7 @@ func TestExplicitProviderConfigurations(t *testing.T) {
 			assertEqual(t, binding, baseBinding)
 		}
 	}
-	_, stderr, err := h.command(h.runArgs(bundle, filepath.Join(projectCopy, "input.json"), "missing-credential", "star")...)
+	_, stderr, err := h.command(h.runArgs(bundle, filepath.Join(projectCopy, "input.yaml"), "missing-credential", "star")...)
 	if err == nil {
 		t.Fatal("live configuration with missing credentials returned fixture output")
 	}

@@ -1,0 +1,5 @@
+release: service-42
+required_capacity: 240
+replicas: 3
+capacity_per_replica: 100
+critical_findings: 0

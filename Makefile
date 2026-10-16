@@ -6,10 +6,12 @@ SHELL := /bin/bash
 
 export MAS_HOST_SDK_ROOT := $(CURDIR)/.tools/mas-host
 export MAS_HOST_BIN := $(MAS_HOST_SDK_ROOT)/target/debug/mas-host
+export PYTHONPATH := $(MAS_HOST_SDK_ROOT)/sdk/python
+export PYTHONDONTWRITEBYTECODE := 1
 export GOWORK := off
 export GOTOOLCHAIN := local
 
-.PHONY: setup check test acceptance recovery verify go rust cpp mixed star tree mesh composed
+.PHONY: setup check test acceptance recovery verify go rust cpp python python-client mixed mixed-python star tree mesh composed
 
 setup:
 	bash scripts/setup.sh
@@ -21,6 +23,7 @@ test: check
 	cd examples/go-release && go test -race ./...
 	cd examples/mixed-review && go test -race ./...
 	bash scripts/test-native.sh
+	cd examples/python-review && python3 -m unittest discover -s tests -v
 
 acceptance:
 	cd tests && go test -count=1 -v ./...
@@ -39,11 +42,20 @@ rust:
 cpp:
 	"$(MAS_HOST_BIN)" run --project examples/cpp-telemetry --agent telemetry --input examples/cpp-telemetry/input.json --state .state --run cpp-telemetry
 
+python:
+	"$(MAS_HOST_BIN)" run --project examples/python-review --agent reviewer --input examples/python-review/input.yaml --state .state --run python-review
+
+python-client:
+	python3 examples/python-review/call.py
+
+mixed-python:
+	"$(MAS_HOST_BIN)" run --project examples/mixed-review --agent python_reviewer --input examples/mixed-review/input.json --state .state --run mixed-python
+
 mixed:
 	"$(MAS_HOST_BIN)" run --project examples/mixed-review --agent reviewer --input examples/mixed-review/input.json --state .state --run mixed-review
 
 star tree composed:
-	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent $@ --input examples/composable-agents/input.json --state .state --run review-$@
+	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent $@ --input examples/composable-agents/input.yaml --state .state --run review-$@
 
 mesh:
-	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent mesh_a --input examples/composable-agents/input.json --state .state --run review-mesh
+	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent mesh_a --input examples/composable-agents/input.yaml --state .state --run review-mesh

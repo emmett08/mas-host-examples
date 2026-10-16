@@ -2,5 +2,7 @@
   "version":"mas-topology/1",
   "edges":[["client","reviewer"],["reviewer","client"],
     ["reviewer","exposure"],["exposure","reviewer"],
-    ["reviewer","arrears"],["arrears","reviewer"]]
+    ["reviewer","arrears"],["arrears","reviewer"],
+    ["client","python_reviewer"],["python_reviewer","client"],
+    ["python_reviewer","reviewer"],["reviewer","python_reviewer"]]
 }

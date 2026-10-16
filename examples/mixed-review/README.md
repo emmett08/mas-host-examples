@@ -1,8 +1,13 @@
 # Mixed languages: independently checked purchase review
 
 This example combines **Go orchestration**, **Rust exposure arithmetic** and a
-**C++ overdue-balance policy**. Its illustrative business rules use supplied
+**C++ overdue-balance policy**, with an optional **Python entry agent**. Its illustrative business rules use supplied
 balances; they do not access accounts or make a purchase.
+
+`make mixed-python` enters through `python_reviewer`, which requests the Go
+`reviewer` through MAS. This demonstrates Python → Go → Rust/C++ communication
+without changing the purchase input or implementing a second transport.
+`make mixed` enters at Go directly.
 
 The `reviewer` agent requests `exposure` and `arrears` in parallel. The host
 records each child's result. Go then recomputes both reports independently and

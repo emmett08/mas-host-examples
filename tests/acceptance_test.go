@@ -267,7 +267,7 @@ func TestNativeApplications(t *testing.T) {
 			// application code. Domain invalidity is checked separately below.
 			invalid := filepath.Join(h.scratch, "invalid.json")
 			writeObject(t, invalid, []any{1, 2})
-			h.failure("application input must be a JSON object", h.runArgs(bundle, invalid, "invalid-shape", agent)...)
+			h.failure("application input must be an object", h.runArgs(bundle, invalid, "invalid-shape", agent)...)
 		})
 	}
 }

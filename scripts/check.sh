@@ -17,3 +17,13 @@ while IFS= read -r source; do
   rustfmt --edition 2021 --check "$source"
 done < <(find examples -type d -name .mas -prune -o -type f -name '*.rs' -print)
 bash -n scripts/setup.sh scripts/check.sh scripts/test-native.sh
+
+# Parse Python source without creating bytecode beside application modules.
+python3 - <<'PYTHON'
+import ast
+from pathlib import Path
+for root in (Path("examples/python-review"), Path("examples/mixed-review")):
+    for source in root.rglob("*.py"):
+        if ".mas" not in source.parts:
+            ast.parse(source.read_text(), filename=str(source))
+PYTHON

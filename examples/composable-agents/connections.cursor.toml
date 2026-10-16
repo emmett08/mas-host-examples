@@ -1,0 +1,28 @@
+# Human-authored settings; the host resolves these into a strict MAS bundle.
+version = "mas-connections/1"
+
+[connections]
+
+[connections.security_provider]
+kind = "cursor"
+command = ["node", "@sdk/assets/providers/cursor.mjs"]
+api_key_env = "CURSOR_API_KEY"
+model = "<cursor-model-id>"
+
+[connections.delivery_provider]
+kind = "cursor"
+command = ["node", "@sdk/assets/providers/cursor.mjs"]
+api_key_env = "CURSOR_API_KEY"
+model = "<cursor-model-id>"
+
+[connections.operations_provider]
+kind = "cursor"
+command = ["node", "@sdk/assets/providers/cursor.mjs"]
+api_key_env = "CURSOR_API_KEY"
+model = "<cursor-model-id>"
+
+[connections.decision_provider]
+kind = "cursor"
+command = ["node", "@sdk/assets/providers/cursor.mjs"]
+api_key_env = "CURSOR_API_KEY"
+model = "<cursor-model-id>"

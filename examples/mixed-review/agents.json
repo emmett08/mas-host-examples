@@ -3,7 +3,8 @@
   "agents": [
     {"name":"reviewer","language":"go","source":".","handler":"Review"},
     {"name":"exposure","language":"rust","source":"native/exposure.rs","handler":"assess"},
-    {"name":"arrears","language":"cpp","source":"native/arrears.cpp","handler":"Assess"}
+    {"name":"arrears","language":"cpp","source":"native/arrears.cpp","handler":"Assess"},
+    {"name":"python_reviewer","language":"python","source":"review_python.py","handler":"review"}
   ],
   "limits": {"wall_seconds":60,"max_calls":1,"max_messages":32,"max_bytes":262144,"mailbox_capacity":8}
 }

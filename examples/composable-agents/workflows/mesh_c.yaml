@@ -1,0 +1,44 @@
+type: sequence
+steps:
+- type: request
+  key: local_review
+  target: operations
+  input:
+    $input: ''
+- type: branch
+  condition:
+    $input: /delegate
+  then:
+    type: parallel
+    steps:
+    - type: value
+      output:
+        member: mesh_c
+        review:
+          $previous: ''
+    - type: request
+      key: mesh_a
+      target: mesh_a
+      input:
+        change:
+          $input: /change
+        delegate: false
+        upstream_review:
+          $previous: ''
+    - type: request
+      key: mesh_b
+      target: mesh_b
+      input:
+        change:
+          $input: /change
+        delegate: false
+        upstream_review:
+          $previous: ''
+  else:
+    type: value
+    output:
+      member: mesh_c
+      review:
+        $previous: ''
+      received:
+        $input: ''

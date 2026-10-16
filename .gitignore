@@ -29,3 +29,7 @@ rustc-ice-*.txt
 .state/
 .reports/
 .DS_Store
+
+# Python interpreter caches.
+__pycache__/
+*.py[cod]

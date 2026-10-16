@@ -2,10 +2,11 @@
 
 One application runs star, tree and mesh reviews, then combines those workflows
 in a release decision. Application files define agents, routes, workflow plans,
-prompts and result schemas. The installed MAS Host owns execution, provider
+prompts and result schemas. Settings use TOML; topology, workflow plans and the
+sample input use YAML. Result schemas retain JSON. The installed MAS Host owns execution, provider
 adapters and MAS Request/Result exchanges.
 
-The default `agents.json` uses explicit mock responses. It exercises real host
+The default `agents.toml` uses explicit mock responses. It exercises real host
 execution and protocol admission offline; its answers are fixtures, not evidence
 of a model's review quality. Live provider configurations are selected explicitly
 and never fall back to mocks.
@@ -30,7 +31,7 @@ From the repository root, after `make setup`:
 .tools/mas-host/target/debug/mas-host run \
   --project examples/composable-agents \
   --agent composed \
-  --input examples/composable-agents/input.json \
+  --input examples/composable-agents/input.yaml \
   --state .state --run composed-offline
 
 .tools/mas-host/target/debug/mas-host inspect \
@@ -48,10 +49,10 @@ workflow plans, prompts and schemas remain in one shared application definition:
 
 | Configuration | Bindings | Required credential environment |
 | --- | --- | --- |
-| `connections.openai.json` | All model actors use OpenAI Responses. | `OPENAI_API_KEY` |
-| `connections.cursor.json` | All model actors use the maintained Cursor adapter. | `CURSOR_API_KEY` |
-| `connections.compatible.json` | All model actors use a compatible Chat Completions endpoint. | `OTHER_API_KEY` |
-| `connections.mixed.json` | Security and decision use OpenAI, delivery uses Cursor, operations uses the compatible endpoint. | All three above |
+| `connections.openai.toml` | All model actors use OpenAI Responses. | `OPENAI_API_KEY` |
+| `connections.cursor.toml` | All model actors use the maintained Cursor adapter. | `CURSOR_API_KEY` |
+| `connections.compatible.toml` | All model actors use a compatible Chat Completions endpoint. | `OTHER_API_KEY` |
+| `connections.mixed.toml` | Security and decision use OpenAI, delivery uses Cursor, operations uses the compatible endpoint. | All three above |
 
 Before a live run, replace each `<...-model-id>` with a model available to your
 account. For Cursor, install its pinned dependencies following the host's
@@ -71,9 +72,9 @@ Set the required credential variables in your shell, then select a configuration
 ```bash
 .tools/mas-host/target/debug/mas-host run \
   --project examples/composable-agents \
-  --connections connections.openai.json \
+  --connections connections.openai.toml \
   --agent composed \
-  --input examples/composable-agents/input.json \
+  --input examples/composable-agents/input.yaml \
   --state .state --run composed-openai
 ```
 
@@ -92,9 +93,12 @@ actor can itself be requested by any permitted peer, so a subtree or a mesh revi
 can occupy any leaf in a larger workflow. Executions remain subject to configured
 time, message, byte and call limits, and the host's fixed structural bounds.
 
-Templates make data flow explicit. `{"$input":"/change"}` reads the workflow's
-original input, while `{"$previous":"/results"}` reads the previous node's
-ordered parallel results. An empty JSON Pointer selects the whole value.
+Templates make data flow explicit. `{$input: /change}` reads the workflow's
+original input, while `{$previous: /results}` reads the previous node's
+ordered parallel results. `{$input: ""}` selects the whole input. These YAML
+mappings resolve to the same strict execution values as JSON templates. Ordered
+steps are YAML sequences. The host rejects duplicate keys, tags, anchors, aliases
+and non-integer numeric values before building a run.
 
 The sample uses the Composite pattern for nested workflow nodes and named
 definitions, and Strategy through provider connection bindings. The application
