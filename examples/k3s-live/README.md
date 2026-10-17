@@ -357,6 +357,9 @@ beyond a trusted demonstration environment.
 
 ## GitHub Actions
 
+The workflow actions use their own Node.js 24 runtime. The application continues
+using Node.js 22 in its build and runtime containers.
+
 [k3s-demo.yml](../../.github/workflows/k3s-demo.yml) builds the image on pull requests
 and relevant main-branch pushes, creates an ephemeral k3d/k3s cluster, deploys the
 operator in fixture mode, triggers the readiness failure and checks collected
@@ -365,7 +368,8 @@ and retained identity after pod restart. These jobs make no provider calls.
 
 Manual dispatch with `deploy_live=true` first runs those checks, then creates a
 fresh k3s cluster in a second GitHub-hosted `ubuntu-24.04` runner. The live job
-builds the image and imports it directly into that cluster, deploys the operator
+downloads the exact image that passed the fixture checks, verifies its Docker
+image ID and imports it directly into that cluster. It deploys the operator
 and real LLM agents, opens the Vue dashboard in a recording browser, and triggers
 a Warning event from the opted-in demonstration Pod. The cluster is named
 `mas-demo`; k3d generates and selects the kubeconfig context `k3d-mas-demo`.
@@ -443,6 +447,43 @@ The workflow checks the built file through `file://` with HTTP requests blocked,
 including playback, pause, speed, seeking, restart and message inspection. When
 payloads were included, it compares a request and a result in the inspector with
 the captured JSON. The results are retained in `dashboard/verification.json`.
+
+### Workflow timing
+
+Three successful runs of the current 42-case fixture workload provide the
+comparison sample. They used `ubuntu-24.04`, restored the npm cache and built
+the Docker image from cold layers.
+
+| Run | Source revision | Fixture job (s) | SPIN step (s) | Image build (s) |
+| --- | --- | --- | --- | --- |
+| [38970073360](https://github.com/emmett08/mas-host-examples/actions/runs/38970073360) | `f227d59508e1` | 410 | 72 | 94 |
+| [39012991619](https://github.com/emmett08/mas-host-examples/actions/runs/39012991619) | `f086e3e51d4c` | 412 | 72 | 93 |
+| [39018218014](https://github.com/emmett08/mas-host-examples/actions/runs/39018218014) | `f086e3e51d4c` | 420 | 70 | 94 |
+
+The fixture job median was **412 seconds**, with a 410–420 second range and
+2–3 seconds of initial queue time. The latest manual live run took 672 seconds
+from dispatch to completion. Its sequential jobs used 420 and 247 seconds.
+The live job repeated a 96-second image build after the fixture job had tested
+the same sources.
+
+The workflow now passes that tested image through a same-run artefact. Only a
+main-branch manual dispatch with `deploy_live=true` exports it. The live job
+downloads the exact artefact ID, validates its archive digest and checks the
+loaded Docker image ID before creating its cluster. The image archive expires
+after seven days, matching the fixture recording. Rerun all jobs when that
+archive has expired. Application checks, formal checks, smoke tests, recording,
+offline archive checks and cleanup keep their existing order and conditions.
+
+The saving from image reuse is **96 seconds minus save, upload, download and
+load time** for that observed baseline. A future authorised live run will
+measure those transfer costs. The separate
+[verifier comparison](verification/README.md#verification-timing) measured a
+43.50-second local saving by reducing C compilation work. The timing record
+keeps local verifier results and GitHub job observations separate. Earlier
+33/35-case runs, failures, cancellations and retries are outside the comparable
+fixture sample. Model calls, credentials and remediation policy retain their
+existing controls.
+
 
 ## Verification and operational limits
 

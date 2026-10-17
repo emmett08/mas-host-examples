@@ -1,0 +1,570 @@
+{
+  "schema": "mas-k3s-workflow-timing/1",
+  "collected": "2026-10-17",
+  "baseline_revision": "f086e3e51d4c18c2ff851a00b70422bdbfd8aa50",
+  "scope": "Complete 42-case fixture runs on ubuntu-24.04. Job duration includes setup and cleanup, excludes queue time. Earlier 33/35-case runs, failures, cancellations and retries are excluded from the comparable sample.",
+  "cache_condition": "All three fixture jobs restored the npm cache. Each rebuilt the Docker image from cold layers, including the pinned Rust host.",
+  "workflow_runs": [
+    {
+      "run_id": 39018218014,
+      "head_sha": "f086e3e51d4c18c2ff851a00b70422bdbfd8aa50",
+      "event": "workflow_dispatch",
+      "url": "https://github.com/emmett08/mas-host-examples/actions/runs/39018218014",
+      "created_at": "2026-10-17T08:40:05Z",
+      "jobs": [
+        {
+          "id": 117354599320,
+          "name": "ephemeral-k3s",
+          "started_at": "2026-10-17T08:40:08Z",
+          "completed_at": "2026-10-17T08:47:08Z",
+          "seconds": 420,
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+              "conclusion": "success",
+              "seconds": 3
+            },
+            {
+              "name": "Type checks, application build and controller tests",
+              "conclusion": "success",
+              "seconds": 12
+            },
+            {
+              "name": "Verify the finite hybrid choreography using SPIN",
+              "conclusion": "success",
+              "seconds": 70
+            },
+            {
+              "name": "Build dashboard, agents and observer image",
+              "conclusion": "success",
+              "seconds": 94
+            },
+            {
+              "name": "Install pinned k3d",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Create ephemeral k3s cluster and import image",
+              "conclusion": "success",
+              "seconds": 30
+            },
+            {
+              "name": "Deploy and exercise event-driven controller with credential-free provider fixture",
+              "conclusion": "success",
+              "seconds": 92
+            },
+            {
+              "name": "Install browser for the canvas recording",
+              "conclusion": "success",
+              "seconds": 16
+            },
+            {
+              "name": "Enable paced fixture providers for observable canvas recording",
+              "conclusion": "success",
+              "seconds": 10
+            },
+            {
+              "name": "Record the actual canvas while another event-driven fixture run executes",
+              "conclusion": "success",
+              "seconds": 76
+            },
+            {
+              "name": "Package the same Vue dashboard with captured fixture observations",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Verify the downloaded dashboard opens offline and plays its observations",
+              "conclusion": "success",
+              "seconds": 5
+            },
+            {
+              "name": "Retain fixture canvas recording and trace",
+              "conclusion": "success",
+              "seconds": 3
+            },
+            {
+              "name": "Capture diagnostics",
+              "conclusion": "skipped",
+              "seconds": 0
+            },
+            {
+              "name": "Remove ephemeral cluster",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Post Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success",
+              "seconds": 0
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success",
+              "seconds": 0
+            }
+          ]
+        },
+        {
+          "id": 117355881651,
+          "name": "live-k3s",
+          "started_at": "2026-10-17T08:47:10Z",
+          "completed_at": "2026-10-17T08:51:17Z",
+          "seconds": 247,
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Check live provider configuration before building or creating a cluster",
+              "conclusion": "success",
+              "seconds": 0
+            },
+            {
+              "name": "Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Install recording tools",
+              "conclusion": "success",
+              "seconds": 21
+            },
+            {
+              "name": "Build the pinned host and Vue application into a local image",
+              "conclusion": "success",
+              "seconds": 96
+            },
+            {
+              "name": "Install pinned k3d",
+              "conclusion": "success",
+              "seconds": 0
+            },
+            {
+              "name": "Create the runner-local k3s cluster and its kubeconfig",
+              "conclusion": "success",
+              "seconds": 30
+            },
+            {
+              "name": "Deploy real LLM agents inside the runner's cluster",
+              "conclusion": "success",
+              "seconds": 13
+            },
+            {
+              "name": "Record the live canvas and retain the actual result",
+              "conclusion": "success",
+              "seconds": 71
+            },
+            {
+              "name": "Package the same Vue dashboard with captured live observations",
+              "conclusion": "success",
+              "seconds": 2
+            },
+            {
+              "name": "Verify the downloaded dashboard opens offline and plays its observations",
+              "conclusion": "success",
+              "seconds": 4
+            },
+            {
+              "name": "Retain live canvas recording and trace",
+              "conclusion": "success",
+              "seconds": 2
+            },
+            {
+              "name": "Capture cluster diagnostics",
+              "conclusion": "skipped",
+              "seconds": 0
+            },
+            {
+              "name": "Remove the runner-local cluster",
+              "conclusion": "success",
+              "seconds": 2
+            },
+            {
+              "name": "Post Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+              "conclusion": "success",
+              "seconds": 0
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success",
+              "seconds": 0
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success",
+              "seconds": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "run_id": 39012991619,
+      "head_sha": "f086e3e51d4c18c2ff851a00b70422bdbfd8aa50",
+      "event": "push",
+      "url": "https://github.com/emmett08/mas-host-examples/actions/runs/39012991619",
+      "created_at": "2026-10-17T07:16:01Z",
+      "jobs": [
+        {
+          "id": 117339277332,
+          "name": "ephemeral-k3s",
+          "started_at": "2026-10-17T07:16:03Z",
+          "completed_at": "2026-10-17T07:22:55Z",
+          "seconds": 412,
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success",
+              "seconds": 0
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Type checks, application build and controller tests",
+              "conclusion": "success",
+              "seconds": 12
+            },
+            {
+              "name": "Verify the finite hybrid choreography using SPIN",
+              "conclusion": "success",
+              "seconds": 72
+            },
+            {
+              "name": "Build dashboard, agents and observer image",
+              "conclusion": "success",
+              "seconds": 93
+            },
+            {
+              "name": "Install pinned k3d",
+              "conclusion": "success",
+              "seconds": 0
+            },
+            {
+              "name": "Create ephemeral k3s cluster and import image",
+              "conclusion": "success",
+              "seconds": 30
+            },
+            {
+              "name": "Deploy and exercise event-driven controller with credential-free provider fixture",
+              "conclusion": "success",
+              "seconds": 89
+            },
+            {
+              "name": "Install browser for the canvas recording",
+              "conclusion": "success",
+              "seconds": 17
+            },
+            {
+              "name": "Enable paced fixture providers for observable canvas recording",
+              "conclusion": "success",
+              "seconds": 7
+            },
+            {
+              "name": "Record the actual canvas while another event-driven fixture run executes",
+              "conclusion": "success",
+              "seconds": 78
+            },
+            {
+              "name": "Package the same Vue dashboard with captured fixture observations",
+              "conclusion": "success",
+              "seconds": 2
+            },
+            {
+              "name": "Verify the downloaded dashboard opens offline and plays its observations",
+              "conclusion": "success",
+              "seconds": 4
+            },
+            {
+              "name": "Retain fixture canvas recording and trace",
+              "conclusion": "success",
+              "seconds": 2
+            },
+            {
+              "name": "Capture diagnostics",
+              "conclusion": "skipped",
+              "seconds": 0
+            },
+            {
+              "name": "Remove ephemeral cluster",
+              "conclusion": "success",
+              "seconds": 2
+            },
+            {
+              "name": "Post Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+              "conclusion": "success",
+              "seconds": 0
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success",
+              "seconds": 0
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success",
+              "seconds": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "run_id": 38970073360,
+      "head_sha": "f227d59508e1637343e97c28722105dab18ba43f",
+      "event": "pull_request",
+      "url": "https://github.com/emmett08/mas-host-examples/actions/runs/38970073360",
+      "created_at": "2026-10-16T21:32:32Z",
+      "jobs": [
+        {
+          "id": 117205989795,
+          "name": "ephemeral-k3s",
+          "started_at": "2026-10-16T21:32:34Z",
+          "completed_at": "2026-10-16T21:39:24Z",
+          "seconds": 410,
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Type checks, application build and controller tests",
+              "conclusion": "success",
+              "seconds": 11
+            },
+            {
+              "name": "Verify the finite hybrid choreography using SPIN",
+              "conclusion": "success",
+              "seconds": 72
+            },
+            {
+              "name": "Build dashboard, agents and observer image",
+              "conclusion": "success",
+              "seconds": 94
+            },
+            {
+              "name": "Install pinned k3d",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Create ephemeral k3s cluster and import image",
+              "conclusion": "success",
+              "seconds": 27
+            },
+            {
+              "name": "Deploy and exercise event-driven controller with credential-free provider fixture",
+              "conclusion": "success",
+              "seconds": 93
+            },
+            {
+              "name": "Install browser for the canvas recording",
+              "conclusion": "success",
+              "seconds": 15
+            },
+            {
+              "name": "Enable paced fixture providers for observable canvas recording",
+              "conclusion": "success",
+              "seconds": 10
+            },
+            {
+              "name": "Record the actual canvas while another event-driven fixture run executes",
+              "conclusion": "success",
+              "seconds": 73
+            },
+            {
+              "name": "Package the same Vue dashboard with captured fixture observations",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Verify the downloaded dashboard opens offline and plays its observations",
+              "conclusion": "success",
+              "seconds": 5
+            },
+            {
+              "name": "Retain fixture canvas recording and trace",
+              "conclusion": "success",
+              "seconds": 1
+            },
+            {
+              "name": "Capture diagnostics",
+              "conclusion": "skipped",
+              "seconds": 0
+            },
+            {
+              "name": "Remove ephemeral cluster",
+              "conclusion": "success",
+              "seconds": 2
+            },
+            {
+              "name": "Post Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+              "conclusion": "success",
+              "seconds": 0
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success",
+              "seconds": 0
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success",
+              "seconds": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "local_verifier_comparison": {
+    "environment": {
+      "os": "Ubuntu 24.04.3 LTS x86_64",
+      "kernel": "Linux 6.18.44",
+      "processor": "Intel Xeon Platinum 8573C, virtualised",
+      "compiler": "GCC 13.3.0",
+      "spin": "6.5.2",
+      "python": "3.12.14"
+    },
+    "procedure": "Each invocation builds all 42 generated verifiers in fresh temporary directories. Order O2, O0, O0, O2 controls for drift. No model, macro, search option, timeout or memory limit changes. Threshold for retaining change was 25% lower total median with equal verification outcomes. Shared-host timings are local observations, not GitHub candidate timings.",
+    "baseline_runner_sha256": "642707d522c5a820bdc00fc7f7fb9eca60f5bec3e21c4f0187edd59310f0ac52",
+    "models": {
+      "revision.pml": "40d5b20a779c2fca80ea7c4e247da6c40159264932431459554fd3e1d379dd59",
+      "hybrid.pml": "6973a6aafb8f4984cb029fe6dc285e58118bea7bd03cf51aff98f6f4050ec515",
+      "remediation.pml": "b9dcff08d5db2b01656e580317097a7dcb61fbabd2c1fd4a37ede06cd3fb0126",
+      "controller.pml": "808d4d6f6a824bce38eefec6c29f95981e673cc2e4063aa39e73e46c21fc88bd"
+    },
+    "runs": [
+      {
+        "index": 1,
+        "optimisation": "-O2",
+        "seconds": 74.24283211599686,
+        "exit_code": 0,
+        "compile": 67.96150972897885,
+        "other": 5.778633535941481
+      },
+      {
+        "index": 2,
+        "optimisation": "-O0",
+        "seconds": 27.016979870997602,
+        "exit_code": 0,
+        "compile": 15.310544868043507,
+        "other": 11.217359843009035
+      },
+      {
+        "index": 3,
+        "optimisation": "-O0",
+        "seconds": 26.645306477992563,
+        "exit_code": 0,
+        "compile": 13.431603398945299,
+        "other": 12.635785267877509
+      },
+      {
+        "index": 4,
+        "optimisation": "-O2",
+        "seconds": 66.42237799700524,
+        "exit_code": 0,
+        "compile": 59.04938155904529,
+        "other": 6.746168636891525
+      }
+    ],
+    "baseline_median_seconds": 70.33260505650105,
+    "candidate_median_seconds": 26.831143174495082,
+    "absolute_reduction_seconds": 43.50146188200597,
+    "relative_reduction_percent": 61.85106018333811,
+    "checks": 42,
+    "complete_zero_error_searches": 16,
+    "expected_counterexamples": 26,
+    "equal_classification_states_errors": true,
+    "identical_counterexample_trails": 26,
+    "equal_peak_reported_verifier_memory_mib": 164.091
+  },
+  "image_reuse": {
+    "baseline_live_job_seconds": 247,
+    "baseline_duplicate_image_build_seconds": 96,
+    "same_run_id": 39018218014,
+    "candidate_transfer_seconds": null,
+    "condition": "Only main-branch manual dispatch with deploy_live=true exports an image after fixture checks pass. The live job consumes the immutable artifact ID from its dependency and checks the loaded Docker image ID.",
+    "estimated_net_reduction_formula": "96 seconds - image save - upload - download - load. Candidate end-to-end timing awaits an authorised live run.",
+    "preserved": "Credential isolation, environment gate, all app/model/smoke/archive checks, evidence uploads and cleanup. The image archive has seven-day retention, matching the fixture recording."
+  },
+  "action_runtime_verification": [
+    {
+      "action": "actions/checkout",
+      "version": "v7.0.1",
+      "commit": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "manifest_url": "https://raw.githubusercontent.com/actions/checkout/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml",
+      "runs_using": "node24"
+    },
+    {
+      "action": "actions/setup-go",
+      "version": "v7.0.0",
+      "commit": "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
+      "manifest_url": "https://raw.githubusercontent.com/actions/setup-go/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e/action.yml",
+      "runs_using": "node24"
+    },
+    {
+      "action": "actions/setup-node",
+      "version": "v7.1.0",
+      "commit": "949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "manifest_url": "https://raw.githubusercontent.com/actions/setup-node/949feb2413d6458794dcd2491c4babbbce0c15c1/action.yml",
+      "runs_using": "node24"
+    },
+    {
+      "action": "actions/upload-artifact",
+      "version": "v7.0.2",
+      "commit": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+      "manifest_url": "https://raw.githubusercontent.com/actions/upload-artifact/cf430e030ddbb5b0abf93d22962f4752f3646cd9/action.yml",
+      "runs_using": "node24"
+    },
+    {
+      "action": "actions/download-artifact",
+      "version": "v8.0.2",
+      "commit": "9000827ccba6bdab643e8b6fd33ac0654aef8333",
+      "manifest_url": "https://raw.githubusercontent.com/actions/download-artifact/9000827ccba6bdab643e8b6fd33ac0654aef8333/action.yml",
+      "runs_using": "node24"
+    }
+  ]
+}

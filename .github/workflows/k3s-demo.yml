@@ -24,11 +24,14 @@ jobs:
   ephemeral-k3s:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    outputs:
+      image-id: ${{ steps.build-image.outputs.image-id }}
+      image-artifact-id: ${{ steps.share-image.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: npm
@@ -45,7 +48,11 @@ jobs:
           sudo apt-get install -y spin
           python3 examples/k3s-live/verification/verify.py
       - name: Build dashboard, agents and observer image
-        run: docker build -f examples/k3s-live/Dockerfile -t mas-k3s-live:demo .
+        id: build-image
+        run: |
+          docker build -f examples/k3s-live/Dockerfile -t mas-k3s-live:demo .
+          echo "image-id=$(docker image inspect --format '{{.Id}}' mas-k3s-live:demo)" >> "$GITHUB_OUTPUT"
+          docker image inspect --format 'Image {{.Id}}, size {{.Size}} bytes' mas-k3s-live:demo
       - name: Install pinned k3d
         env:
           K3D_VERSION: v5.8.3
@@ -92,9 +99,23 @@ jobs:
         if: always()
         working-directory: examples/k3s-live
         run: node deploy/check-archive.mjs "${{ runner.temp }}/mas-demo-artifacts"
+      - name: Export the fixture-tested image for the live job
+        if: success() && github.event_name == 'workflow_dispatch' && inputs.deploy_live && github.ref == 'refs/heads/main'
+        run: docker image save mas-k3s-live:demo --output "$RUNNER_TEMP/mas-k3s-image.tar"
+      - name: Retain the fixture-tested image for this workflow attempt
+        id: share-image
+        if: success() && github.event_name == 'workflow_dispatch' && inputs.deploy_live && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mas-k3s-image-${{ github.run_id }}
+          overwrite: true
+          path: ${{ runner.temp }}/mas-k3s-image.tar
+          compression-level: 1
+          retention-days: 7
+          if-no-files-found: error
       - name: Retain fixture canvas recording and trace
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mas-k3s-fixture-${{ github.run_id }}
           path: ${{ runner.temp }}/mas-demo-artifacts
@@ -122,7 +143,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Check live provider configuration before building or creating a cluster
+      - name: Check live provider configuration before preparing the cluster
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -130,7 +151,7 @@ jobs:
             echo '::error::Add OPENAI_API_KEY to the mas-k3s-demo environment in this repository.'
             exit 1
           fi
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: npm
@@ -140,8 +161,19 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npx playwright install --with-deps chromium
-      - name: Build the pinned host and Vue application into a local image
-        run: docker build -f examples/k3s-live/Dockerfile -t mas-k3s-live:demo .
+      - name: Download the image that passed the fixture job
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.ephemeral-k3s.outputs.image-artifact-id }}
+          path: ${{ runner.temp }}/fixture-image
+          merge-multiple: true
+          digest-mismatch: error
+      - name: Load and verify the fixture-tested image
+        env:
+          EXPECTED_IMAGE_ID: ${{ needs.ephemeral-k3s.outputs.image-id }}
+        run: |
+          docker image load --input "$RUNNER_TEMP/fixture-image/mas-k3s-image.tar"
+          test "$(docker image inspect --format '{{.Id}}' mas-k3s-live:demo)" = "$EXPECTED_IMAGE_ID"
       - name: Install pinned k3d
         env:
           K3D_VERSION: v5.8.3
@@ -182,7 +214,7 @@ jobs:
         run: node deploy/check-archive.mjs "${{ runner.temp }}/mas-demo-artifacts"
       - name: Retain live canvas recording and trace
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mas-k3s-live-${{ github.run_id }}
           path: ${{ runner.temp }}/mas-demo-artifacts

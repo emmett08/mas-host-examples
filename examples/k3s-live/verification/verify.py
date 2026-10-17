@@ -82,9 +82,24 @@ def run(command: list[str], cwd: Path, log: list[dict]) -> str:
     return output
 
 
+
+def validate_archive(path: Path, expected: dict[str, str]) -> dict:
+    with zipfile.ZipFile(path) as archive:
+        names = archive.namelist()
+        if len(names) != len(set(names)) or set(names) != set(expected):
+            raise RuntimeError("counterexample archive member coverage changed")
+        for name, digest in expected.items():
+            if hashlib.sha256(archive.read(name)).hexdigest() != digest:
+                raise RuntimeError(f"counterexample archive content changed: {name}")
+    return {"path": path.name, "entries": len(expected),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "verified": True}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=ROOT / "evidence")
+    parser.add_argument("--compile-optimisation", choices=("0", "2"), default="0",
+                        help="C optimisation level. The finite suite compiles fastest with 0.")
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -94,6 +109,7 @@ def main() -> int:
     source = ROOT / "hybrid.pml"
     summary = {
         "schema": "mas-k3s-application-verification/5",
+        "compiler_optimisation": f"-O{args.compile_optimisation}",
         "model_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "models": {
             "revision.pml": {
@@ -174,7 +190,8 @@ def main() -> int:
     summary["compiler"] = run([compiler, "--version"], ROOT, versions).splitlines()[0]
     raw_commands = {"tool_versions": versions}
     counterexamples = out / "counterexamples.zip"
-    counterexamples.unlink(missing_ok=True)
+    archive_members = {}
+    archive = zipfile.ZipFile(counterexamples, "w", zipfile.ZIP_DEFLATED)
     for name, macro, liveness, no_reduction, violation in CASES:
         model = "revision" if name.startswith("revision-") else "controller" if name.startswith("controller-") else "remediation" if name.startswith("remediation-") else "hybrid"
         source = ROOT / f"{model}.pml"
@@ -193,7 +210,9 @@ def main() -> int:
                     for seed in (17, 29):
                         run([spin, f"-n{seed}", "-u1000", "-p", *definitions, source.name], build, commands)
                 run([spin, *definitions, "-a", source.name], build, commands)
-                flags = ["-O2", "-DMEMLIM=512"]
+                # These bounded models spend most of their time compiling.
+                # Keep every search option and resource limit unchanged.
+                flags = [f"-O{args.compile_optimisation}", "-DMEMLIM=512"]
                 if not liveness:
                     flags += ["-DSAFETY", "-DNOCLAIM"]
                 if no_reduction:
@@ -226,14 +245,19 @@ def main() -> int:
                     shutil.copyfile(trail, out / f"{name}.trail")
                     # Preserve the exact generated verifier before deleting its
                     # temporary build directory; one archive avoids many C files.
-                    with zipfile.ZipFile(counterexamples, "a", zipfile.ZIP_DEFLATED) as archive:
-                        for generated in [build / source.name, trail, *sorted(build.glob("pan.*"))]:
-                            archive.write(generated, f"{name}/{generated.name}")
-                        archive.writestr(f"{name}/configuration.json", json.dumps({
-                            "spin_definitions": definitions, "compiler_flags": flags,
-                            "verifier_options": [*options, "-b", f"-m{DEPTH}", "-w20"],
-                            "model_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-                        }, indent=2) + "\n")
+                    for generated in [build / source.name, trail, *sorted(build.glob("pan.*"))]:
+                        member = f"{name}/{generated.name}"
+                        content = generated.read_bytes()
+                        archive.writestr(member, content)
+                        archive_members[member] = hashlib.sha256(content).hexdigest()
+                    member = f"{name}/configuration.json"
+                    content = (json.dumps({
+                        "spin_definitions": definitions, "compiler_flags": flags,
+                        "verifier_options": [*options, "-b", f"-m{DEPTH}", "-w20"],
+                        "model_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                    }, indent=2) + "\n").encode()
+                    archive.writestr(member, content)
+                    archive_members[member] = hashlib.sha256(content).hexdigest()
                     check["counterexample_sources"] = f"counterexamples.zip/{name}/"
                     check["result"] = "EXPECTED_COUNTEREXAMPLE"
                 else:
@@ -249,6 +273,11 @@ def main() -> int:
         check["raw_commands_key"] = name
         summary["checks"].append(check)
         print(f"{name}: {check['result']}")
+    archive.close()
+    try:
+        summary["counterexample_archive"] = validate_archive(counterexamples, archive_members)
+    except (RuntimeError, OSError, zipfile.BadZipFile) as error:
+        summary["counterexample_archive_error"] = str(error)
     # A long run must not certify source hashes captured before concurrent edits.
     changed = [name for name, digest in summary["reviewed_application_files"].items()
                if not (ROOT.parent / name).is_file() or hashlib.sha256((ROOT.parent / name).read_bytes()).hexdigest() != digest]
@@ -257,7 +286,7 @@ def main() -> int:
     if hashlib.sha256(Path(__file__).read_bytes()).hexdigest() != summary["runner_sha256"]:
         changed.append("verification/verify.py")
     summary["source_changed_during_verification"] = changed
-    summary["status"] = "PASS" if not changed and all(c["result"] != "FAILED_OR_INCOMPLETE" for c in summary["checks"]) else "FAIL"
+    summary["status"] = "PASS" if not changed and "counterexample_archive_error" not in summary and all(c["result"] != "FAILED_OR_INCOMPLETE" for c in summary["checks"]) else "FAIL"
     (out / "commands.json").write_text(json.dumps(raw_commands, indent=2) + "\n")
     (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return 0 if summary["status"] == "PASS" else 1
