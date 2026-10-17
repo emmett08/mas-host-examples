@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  linux:
+  applications:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -33,6 +33,22 @@ jobs:
         run: make verify
       - name: Run documented commands
         run: make go rust cpp python python-client command star tree mesh composed
+
+  conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Build pinned host from its independent repository
+        run: make setup
       - name: Verify A2A discovery, authorisation and durable retry without provider credentials
         timeout-minutes: 3
         run: make a2a
@@ -63,6 +79,22 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm run test:host
+
+  incident:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Build pinned host from its independent repository
+        run: make setup
       - name: Check frozen incident experiment and run the credential-free rehearsal
         run: |
           python3 -m unittest discover -s experiments/incident-revision -p 'test_*.py'
@@ -93,3 +125,20 @@ jobs:
           path: .state/incident-pilot
           if-no-files-found: warn
           retention-days: 14
+
+  # Preserve the existing required check and reject failed, skipped or cancelled groups.
+  linux:
+    if: ${{ always() }}
+    needs: [applications, conformance, incident]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every test group to succeed
+        env:
+          APPLICATIONS_RESULT: ${{ needs.applications.result }}
+          CONFORMANCE_RESULT: ${{ needs.conformance.result }}
+          INCIDENT_RESULT: ${{ needs.incident.result }}
+        run: |
+          test "$APPLICATIONS_RESULT" = success
+          test "$CONFORMANCE_RESULT" = success
+          test "$INCIDENT_RESULT" = success
