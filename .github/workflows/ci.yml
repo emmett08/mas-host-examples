@@ -78,6 +78,7 @@ jobs:
           MAS_SDK_ROOT: ${{ github.workspace }}/.tools/mas-host
         run: |
           npm ci --ignore-scripts
+          npm run build
           npm run test:host
 
   incident:

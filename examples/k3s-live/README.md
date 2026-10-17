@@ -198,9 +198,11 @@ The native-host integration suite runs the same mixed review and checks passing
 agreement, candidate mismatch, context mismatch and changed candidate content.
 It also checks reply-route preflight, rejection of host-reserved evidence source
 identities, forged evaluator bindings, foreign evidence, frozen-plan conflicts,
-exhaustion and replay. Run it from this directory after building the pinned host:
+exhaustion and replay. After installing dependencies and building the pinned host,
+build the application before running the suite from this directory:
 
 ```bash
+npm run build
 MAS_HOST_BIN=../../.tools/mas-host/target/debug/mas-host \
 MAS_SDK_ROOT=../../.tools/mas-host npm run test:host
 ```
