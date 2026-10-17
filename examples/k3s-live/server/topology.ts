@@ -5,7 +5,7 @@ import { parse } from 'yaml';
 
 export async function topology(project: string, mode: string) {
   const config = parse(await readFile(join(project, 'topology.yaml'), 'utf8'));
-  return { mode, nodes: [
+  const nodes = [
     { id: 'client', label: 'Incident event', kind: 'client', group: 'ingress' },
     { id: 'assessed_draft', label: 'Draft invocation', kind: 'workflow', group: 'ingress' },
     { id: 'assessed_revision', label: 'Revision invocation', kind: 'workflow', group: 'ingress' },
@@ -16,6 +16,12 @@ export async function topology(project: string, mode: string) {
     { id: 'diagnose', label: 'Platform specialist', kind: 'llm', group: 'specialists', model: 'GPT-5.4 Mini' },
     { id: 'security_review', label: 'Security specialist', kind: 'llm', group: 'specialists', model: 'GPT-5.4 Mini' },
     { id: 'decision', label: 'Investigation plan', kind: 'llm', group: 'decision', model: 'GPT-5.4' },
-  ], edges: config.edges.map(([from, to]: string[]) => ({ from, to,
+  ];
+  // The optional, separately invoked review_quorum workflow is outside this
+  // incident run. Keep this canvas's routes bound to its displayed actors.
+  const displayed = new Set(nodes.map(node => node.id));
+  return { mode, nodes, edges: config.edges.filter(([from, to]: string[]) =>
+    typeof from === 'string' && typeof to === 'string' && displayed.has(from) && displayed.has(to))
+    .map(([from, to]: string[]) => ({ from, to,
     ...((from === 'platform' && to === 'security') || (from === 'security' && to === 'platform') ? { kind: 'peer' } : {}) })) };
 }

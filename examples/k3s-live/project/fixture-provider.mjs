@@ -1,6 +1,18 @@
 // Deterministic CI provider: inspect actual supplied evidence; never call an LLM.
-export function fixtureOutput(request, mode = 'review', paced = false, draftDefect = false) {
+export function fixtureOutput(request, mode = 'review', paced = false, draftDefect = false, voteMismatch = '') {
   const input = JSON.parse(request.input_json);
+  if (mode === 'vote') {
+    // Model-adapter fixture only: the native peer checks record integrity.
+    // Test profiles can deliberately return a validly shaped, differently bound
+    // vote; the host join must refuse to count it even when accepted is true.
+    const candidate = structuredClone(input.candidate), context = structuredClone(input.review_context);
+    const output = input.candidate_record.output;
+    if (voteMismatch === 'candidate') candidate.sha256 = '0'.repeat(64);
+    if (voteMismatch === 'context') context.criterion_id = 'different-criterion';
+    return { candidate, context, accepted: output.remediation?.action === 'none' &&
+      output.requires_human === true && output.evidence_ids.length === 0 && output.next_checks.length > 0,
+      explanation: 'Scripted abstention vote for protocol conformance; no LLM was called.' };
+  }
   const items = Array.isArray(input?.incident?.evidence?.items) ? input.incident.evidence.items : [];
   const collected = items.filter(item => item.status === 'collected');
   const pod = collected.find(item => item.id === 'pod' && item.kind === 'pod');
@@ -57,6 +69,7 @@ if (process.argv[1] && import.meta.url === new URL(process.argv[1], 'file:').hre
   if (request.version !== 'mas-provider/1') process.exit(2);
   const paced = process.argv.includes('--paced');
   if (paced) await new Promise(resolve => setTimeout(resolve, 5000));
-  const output = fixtureOutput(request, process.argv[2], paced, process.argv.includes('--draft-defect'));
+  const voteMismatch = process.argv.includes('--wrong-candidate') ? 'candidate' : process.argv.includes('--wrong-context') ? 'context' : '';
+  const output = fixtureOutput(request, process.argv[2], paced, process.argv.includes('--draft-defect'), voteMismatch);
   process.stdout.write(JSON.stringify({version: 'mas-provider/1', status: 'completed', output_json: JSON.stringify(output), evidence: {id: paced ? 'paced-evidence-aware-fixture' : 'evidence-aware-fixture', cleanup: 'confirmed'}}));
 }
