@@ -5,8 +5,11 @@ import assert from 'node:assert/strict';
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { Host, type HostOptions } from './host.js';
+import { createServer } from 'node:http';
+import { Host, HostRunFailure, type HostOptions } from './host.js';
 import { Runs, type Run } from './runs.js';
+import { freezeInvestigation, retainFile } from './investigation.js';
+import { runtimeIdentity } from '../project/mcp-client.mjs';
 import { EVIDENCE_VERSION, type EvidenceBundle, type EvidenceItem } from '../shared/evidence.js';
 
 const tools = ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics'];
@@ -80,6 +83,104 @@ async function settled(runs: Runs, id: string) {
 function effects(observation: { steps: Record<string, any>[] }) {
   return observation.steps.filter(step => step.kind === 'effect');
 }
+
+test('OpenAI HTTP investigation accepts the documented decisions and retains malformed output without tools or retries', { timeout: 360_000 }, async t => {
+  for (const scenario of ['valid', 'invalid-json', 'invalid-decision']) await t.test(scenario, async t => {
+    const app = await application(t), requests: Record<string, any>[] = [], errors: unknown[] = [];
+    const server = createServer(async (request, response) => {
+      try {
+        assert.equal(request.method, 'POST');
+        assert.equal(request.url, '/v1/responses');
+        assert.equal(request.headers.authorization, 'Bearer offline-fixture');
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const body = JSON.parse(Buffer.concat(chunks).toString());
+        requests.push(body);
+        assert.equal(body.store, false);
+        assert.deepEqual(body.tools, []); // MAS delegates execute the actual MCP tools.
+        assert.equal(body.text.format.type, 'json_schema');
+        assert.equal(body.text.format.strict, true);
+        assert.deepEqual(body.text.format.schema.required, ['decision']);
+        const variants = body.text.format.schema.properties.decision.anyOf;
+        const requestSchema = variants.find((variant: any) => variant.properties.kind.enum[0] === 'request');
+        assert.equal(requestSchema.properties.input_json.type, 'string');
+        assert.deepEqual([...requestSchema.properties.target.enum].sort(), [...tools].sort());
+        // Exercise the exact JSON examples supplied to the real model, through
+        // the HTTP parser and runtime validator rather than a command provider.
+        const examples = body.instructions.split('\n').filter((line: string) => line.startsWith('{'))
+          .map((line: string) => JSON.parse(line));
+        const ask = examples.find((example: any) => example.decision?.target === 'pod_overview');
+        const finish = examples.find((example: any) => example.decision?.kind === 'complete');
+        assert.equal(ask.decision.input_json, '{}');
+        assert.equal(typeof finish.decision.output.summary, 'string');
+        const input = JSON.parse(body.input), turn = input.history.length;
+        assert.equal(turn, requests.length - 1);
+        if (turn) assert.equal(input.history[turn - 1].result.tool, tools[turn - 1]);
+        const output = turn < tools.length
+          ? { decision: { ...ask.decision, target: tools[turn] } } : finish;
+        const text = scenario === 'invalid-json' ? 'This is not JSON.' : scenario === 'invalid-decision'
+          ? JSON.stringify({ decision: { kind: 'request', target: 'pod_overview', input_json: {} } })
+          : JSON.stringify(output);
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ id: `offline-${scenario}-${turn}`, status: 'completed', model: body.model,
+          output: [{ type: 'message', content: [{ type: 'output_text', text }] }],
+          usage: { input_tokens: 1425, output_tokens: 273, total_tokens: 1698 } }));
+      } catch (error) {
+        errors.push(error);
+        response.writeHead(500); response.end('{}');
+      }
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    t.after(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const credential = 'MAS_MCP_OFFLINE_HTTP_KEY', previous = process.env[credential];
+    process.env[credential] = 'offline-fixture';
+    t.after(() => { if (previous === undefined) delete process.env[credential]; else process.env[credential] = previous; });
+    const actors = join(app.project, 'agents.mcp.toml');
+    await writeFile(actors, (await readFile(actors, 'utf8'))
+      .replace('api_key_env = "OPENAI_API_KEY"', `api_key_env = "${credential}"\nendpoint = "http://127.0.0.1:${address.port}/v1/responses"`));
+    const id = `mcp-http-${scenario}`, seed = incident(id), host = new Host(app.options);
+    const contextFile = join(app.folder, 'context.json'), inputFile = join(app.folder, 'input.json'), state = join(app.folder, 'host');
+    const contextSha256 = await retainFile(contextFile, { version: 'mas-mcp-investigation/1',
+      source: 'recorded-evidence', event: seed.event, evidence: seed.evidence,
+      runtime_sha256: await runtimeIdentity(app.folder) });
+    await retainFile(inputFile, { event: seed.event, subject, context_sha256: contextSha256 });
+    // 'live' selects the OpenAI adapter; its endpoint is strictly this loopback
+    // fixture. No external provider or Kubernetes credentials are used.
+    const invoke = () => host.runInvestigation(id, inputFile, state, 'live', contextFile, contextSha256);
+    if (scenario === 'valid') {
+      const output = await invoke();
+      assert.deepEqual(errors, []);
+      assert.equal(requests.length, 5);
+      const observation = await host.observe(id, state, true);
+      const audit = freezeInvestigation(id, observation, seed.evidence, 'recorded-evidence', contextSha256);
+      assert.deepEqual(audit.calls.map(call => call.tool), tools);
+      assert.ok(effects(observation).filter(step => step.key.startsWith('inference-'))
+        .every(step => step.evidence.adapter === 'mas-host-openai/1' && step.output.output_status === 'valid'));
+      assert.deepEqual(await invoke(), output);
+      assert.equal(requests.length, 5, 'replay must not call the provider again');
+    } else {
+      const rejected = (error: unknown) => {
+        assert.ok(error instanceof HostRunFailure);
+        assert.equal(error.diagnostics.classification, 'invalid-output');
+        assert.equal(error.diagnostics.automaticRetry, false);
+        assert.equal(error.diagnostics.effects[0]?.actor, 'investigator');
+        assert.equal(error.diagnostics.effects[0]?.httpStatus, 200);
+        return true;
+      };
+      await assert.rejects(invoke, rejected);
+      assert.deepEqual(errors, []);
+      const observation = await host.observe(id, state, true);
+      assert.equal(effects(observation).length, 1);
+      assert.equal(effects(observation)[0]!.state, 'completed');
+      assert.equal(effects(observation)[0]!.output.output_status, 'invalid');
+      assert.equal(observation.messages.filter((message: any) => tools.includes(message.recipient)).length, 0);
+      await assert.rejects(invoke, rejected);
+      assert.equal(requests.length, 1, 'known-invalid output must not retry the provider');
+    }
+  });
+});
 
 test('real host records four MCP tools, freezes their evidence, assesses a revision and replays no work', { timeout: 360_000 }, async t => {
   const app = await application(t), id = 'mcp-complete';

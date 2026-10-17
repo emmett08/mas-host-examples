@@ -105,7 +105,9 @@ npm run test:host
 ```
 
 The integration checks use deterministic model responses and real stdio MCP
-exchanges. The Kubernetes workflow additionally exercises actual cluster reads;
+exchanges. A local HTTP fixture also exercises the OpenAI Responses adapter's
+decision envelopes and verifies that malformed output launches no tool or retry.
+The Kubernetes workflow additionally exercises actual cluster reads;
 its explicit live mode calls the configured LLMs. For deployment, continue with
 the existing GitHub Actions instructions below.
 
@@ -666,8 +668,12 @@ state, provider/model, HTTP status and recognised provider error identifiers.
 The public diagnostic projection accepts fixed identifiers and enum values;
 it excludes raw provider messages, prompts, outputs, CLI stderr and credentials.
 For example, HTTP 400 with `invalid_json_schema` identifies a rejected structured
-output schema, while HTTP 401 identifies authentication rejection. Unknown
-provider outcomes still require host reconciliation before any manual retry.
+output schema, while HTTP 401 identifies authentication rejection.
+The MCP investigator's HTTP 200 response with invalid JSON or a schema-invalid decision
+is reported as `invalid-output`, including in the top-level recording summary.
+Its prompt includes the exact request and completion envelopes; `input_json`
+must contain a JSON-encoded string. An invalid response remains a failed run.
+Unknown provider outcomes still require host reconciliation before any manual retry.
 The PVC retains run IDs, results and host state. The host's normal reconciliation
 tools govern uncertain effects. This deployment is a single-owner demonstration,
 not a distributed or highly available host. Preserve the original image and

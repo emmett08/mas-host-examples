@@ -103,10 +103,22 @@ test('MCP recorder retains actual tool output and reports failed investigation w
     assert.ok(actions.includes('LLM tools + MCP'));
     assert.ok(actions.includes('Assessment'));
     snapshot.run.status = 'failed'; snapshot.run.error = 'No permitted tool was requested';
+    snapshot.run.diagnostics = { version: 'mas-demo-failure/1', classification: 'invalid-output',
+      automaticRetry: false, effects: [{ actor: 'investigator', httpStatus: 200, outputStatus: 'invalid' }] };
+    let comparisonError;
     await assert.rejects(captureMcpComparison({ source, mode: 'live', destination: directory, page,
-      deadline: Date.now() + 5_000, fetchSnapshot, submit: async () => {} }), /No permitted tool was requested/);
+      deadline: Date.now() + 5_000, fetchSnapshot, submit: async () => {} }), error => {
+      comparisonError = error;
+      assert.match(error.message, /MCP comparison failed: No permitted tool was requested/);
+      return true;
+    });
     const failure = JSON.parse(await readFile(join(directory, 'failure-diagnostics.json'), 'utf8'));
     assert.equal(failure.error, snapshot.run.error);
+    assert.equal(failure.classification, 'invalid-output');
+    assert.equal(failure.runId, snapshot.run.id);
+    assert.deepEqual(failure.diagnostics, snapshot.run.diagnostics);
+    assert.deepEqual(failureReport(source, comparisonError), failure,
+      'the root summary must preserve MCP diagnostics after the collected run recovers');
     assert.equal(JSON.parse(await readFile(join(directory, 'snapshot.json'), 'utf8')).run.status, 'failed');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
