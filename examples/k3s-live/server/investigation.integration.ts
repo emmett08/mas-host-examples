@@ -85,7 +85,7 @@ function effects(observation: { steps: Record<string, any>[] }) {
 }
 
 test('OpenAI HTTP investigation accepts the documented decisions and retains malformed output without tools or retries', { timeout: 360_000 }, async t => {
-  for (const scenario of ['valid', 'invalid-json', 'invalid-decision']) await t.test(scenario, async t => {
+  for (const scenario of ['valid', 'invalid-json', 'invalid-decision', 'early-completion']) await t.test(scenario, async t => {
     const app = await application(t), requests: Record<string, any>[] = [], errors: unknown[] = [];
     const server = createServer(async (request, response) => {
       try {
@@ -115,12 +115,14 @@ test('OpenAI HTTP investigation accepts the documented decisions and retains mal
         assert.equal(typeof finish.decision.output.summary, 'string');
         const input = JSON.parse(body.input), turn = input.history.length;
         assert.equal(turn, requests.length - 1);
+        assert.equal(variants.some((variant: any) => variant.properties.kind.enum[0] === 'complete'), turn >= 1,
+          'the provider may complete only after a delegated tool has returned');
         if (turn) assert.equal(input.history[turn - 1].result.tool, tools[turn - 1]);
         const output = turn < tools.length
           ? { decision: { ...ask.decision, target: tools[turn] } } : finish;
         const text = scenario === 'invalid-json' ? 'This is not JSON.' : scenario === 'invalid-decision'
           ? JSON.stringify({ decision: { kind: 'request', target: 'pod_overview', input_json: {} } })
-          : JSON.stringify(output);
+          : JSON.stringify(scenario === 'early-completion' ? finish : output);
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(JSON.stringify({ id: `offline-${scenario}-${turn}`, status: 'completed', model: body.model,
           output: [{ type: 'message', content: [{ type: 'output_text', text }] }],

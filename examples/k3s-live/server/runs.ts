@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { HostRunFailure, type Host } from './host.js';
-import { contentHash, freezeInvestigation, retainFile, type InvestigationAudit } from './investigation.js';
+import { contentHash, freezeInvestigation, InvestigationEvidenceFailure, retainFile, type InvestigationAudit } from './investigation.js';
 import { runtimeIdentity } from '../project/mcp-client.mjs';
 import { investigationTopology } from './topology.js';
 import type { FailureDiagnostics } from './diagnostics.js';
@@ -238,8 +238,9 @@ export class Runs {
       } else outcome = { status: 'completed', output: await this.host.run(run.id, input, state, run.mode) };
       this.ensureRunning(run);
     } catch (error) {
-      if (run.approach === 'mcp' && run.investigation?.status !== 'completed') run.investigation = { ...run.investigation!, status: 'failed', error: 'Investigation did not complete; retained tool state requires inspection.' };
-      outcome = error instanceof HostRunFailure
+      if (run.approach === 'mcp' && run.investigation?.status !== 'completed') run.investigation = { ...run.investigation!, status: 'failed',
+        error: error instanceof InvestigationEvidenceFailure ? error.message : 'Investigation did not complete; retained tool state requires inspection.' };
+      outcome = error instanceof HostRunFailure || error instanceof InvestigationEvidenceFailure
         ? { status: 'failed', error: error.message, diagnostics: error.diagnostics }
         : { status: 'failed', error: 'Host did not complete. Inspect retained state before retrying an uncertain provider outcome.' };
     } finally {

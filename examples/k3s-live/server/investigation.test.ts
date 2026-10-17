@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { freezeInvestigation, retainFile } from './investigation.js';
+import { freezeInvestigation, InvestigationEvidenceFailure, retainFile } from './investigation.js';
 import { Runs } from './runs.js';
 import type { Host } from './host.js';
 import { EVIDENCE_VERSION, type EvidenceBundle } from '../shared/evidence.js';
@@ -57,6 +57,41 @@ test('retained inputs can be reopened exactly but cannot be rewritten', async t 
   const digest = await retainFile(file, { uid: 'pod-a' });
   assert.equal(await retainFile(file, { uid: 'pod-a' }), digest);
   await assert.rejects(retainFile(file, { uid: 'pod-b' }), /changed/);
+});
+
+test('a completed investigator without tools is an explicit application failure and cannot start assessment or replay', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-mcp-no-tools-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  for (const path of ['project', 'dist/mcp', 'dist/operator', 'dist/shared']) await mkdir(join(dir, path), { recursive: true });
+  await writeFile(join(dir, 'package-lock.json'), '{}');
+  const observation = { run_id: 'empty-investigation', cancelled: false, observed_at_ms: Date.parse(at),
+    messages: [], steps: [{ actor: 'investigator', key: 'inference-0', kind: 'effect', state: 'completed',
+      output: { certainty: 'completed', output_status: 'valid', output: { decision: { kind: 'complete',
+        output: { summary: 'untrusted-provider-prose', limitations: ['no history'] } } } } }] };
+  assert.throws(() => freezeInvestigation('empty-investigation', observation, seed, 'kubernetes-api', hash), InvestigationEvidenceFailure);
+  let acquisitions = 0, assessments = 0;
+  const host = { options: { project: join(dir, 'project'), revisionPlan: 'revision.json' },
+    runInvestigation: async () => { acquisitions++; return { summary: 'untrusted-provider-prose' }; },
+    runAssessed: async () => { assessments++; throw new Error('Assessment must not start'); },
+    observe: async () => observation,
+  } as unknown as Host;
+  const request = { id: 'empty-investigation', scenario: 'pod-incident', approach: 'mcp', evidence: seed,
+    event: { involvedObject: { kind: 'Pod', ...subject } } };
+  const directory = join(dir, 'runs'), runs = new Runs(directory, 'fixture', host); await runs.initialise();
+  await runs.create(request);
+  await waitFor(() => runs.get(request.id).status === 'failed');
+  const failed = runs.get(request.id);
+  assert.equal(failed.diagnostics?.classification, 'investigation-no-tools');
+  assert.equal(failed.diagnostics?.automaticRetry, false);
+  assert.match(failed.error!, /completed without calling an MCP tool/);
+  assert.doesNotMatch(failed.error!, /untrusted-provider-prose|uncertain provider/);
+  assert.equal(failed.investigation?.error, failed.error);
+  assert.equal(failed.investigation?.evidence, undefined);
+  assert.equal(assessments, 0);
+  const restarted = new Runs(directory, 'fixture', host); await restarted.initialise();
+  assert.deepEqual((await restarted.create(request)).diagnostics, failed.diagnostics);
+  assert.equal(acquisitions, 1);
+  assert.equal(assessments, 0);
 });
 
 async function waitFor(predicate: () => boolean) {

@@ -55,8 +55,12 @@ selects operations through the existing `delegates` decision loop; it does not
 receive Kubernetes credentials or open MCP connections itself. Both protocols
 are used: Nehemiah carries admitted actor requests/results and MCP carries the
 client/server tool calls. The server belongs to this application because it owns
-Kubernetes-specific evidence, permissions and projection rules. No host runtime
-or Nehemiah wire-format change is required.
+Kubernetes-specific evidence, permissions and projection rules. Nehemiah's wire
+format is unchanged. The investigator sets the host's opt-in
+`min_delegate_calls = 1`: its response schema offers only request decisions until
+one delegated tool returns. Completion then becomes available, and the model can
+choose further tools within the existing budget. Other agents retain the default
+of zero required delegations.
 
 `DEMO_MCP_SOURCE` selects `kubernetes-api` or `recorded-evidence` on the server.
 It is independent of `DEMO_MODE`, which selects live model calls or deterministic
@@ -107,6 +111,8 @@ npm run test:host
 The integration checks use deterministic model responses and real stdio MCP
 exchanges. A local HTTP fixture also exercises the OpenAI Responses adapter's
 decision envelopes and verifies that malformed output launches no tool or retry.
+It also reproduces an immediate completion with no tool history and checks that
+the host rejects it under the required-delegation policy.
 The Kubernetes workflow additionally exercises actual cluster reads;
 its explicit live mode calls the configured LLMs. For deployment, continue with
 the existing GitHub Actions instructions below.
@@ -673,6 +679,9 @@ The MCP investigator's HTTP 200 response with invalid JSON or a schema-invalid d
 is reported as `invalid-output`, including in the top-level recording summary.
 Its prompt includes the exact request and completion envelopes; `input_json`
 must contain a JSON-encoded string. An invalid response remains a failed run.
+A completed host investigation with no tool effects is classified separately as
+`investigation-no-tools`; it cannot freeze evidence or start assessment. This
+application check also protects retained runs created before the required-delegation policy.
 Unknown provider outcomes still require host reconciliation before any manual retry.
 The PVC retains run IDs, results and host state. The host's normal reconciliation
 tools govern uncertain effects. This deployment is a single-owner demonstration,
