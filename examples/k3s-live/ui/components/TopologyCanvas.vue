@@ -12,6 +12,7 @@ import type { Message, Topology } from "../types";
 
 const props = defineProps<{
   topology: Topology;
+  investigation?: boolean;
   messages: Message[];
   arrivals: Message[];
   selectedMessage?: Message | null;
@@ -30,7 +31,7 @@ const description = computed(() =>
   props.topology.nodes
     .map(
       (node) =>
-        `${node.label}: ${node.kind === "llm" ? "LLM agent" : node.kind === "workflow" ? "workflow" : node.kind === "tool" ? "deterministic evaluator" : "event source"}`,
+        `${node.label}: ${node.kind === "llm" ? "LLM agent" : node.kind === "workflow" ? "workflow" : node.kind === "tool" ? props.investigation ? "MCP tool adapter" : "deterministic evaluator" : "event source"}`,
     )
     .join(". "),
 );
@@ -168,8 +169,13 @@ function draw(now = performance.now()) {
   const element = canvas.value;
   const ctx = element?.getContext("2d");
   if (!ctx || !element || disposed) return;
-  const w = width.value;
-  const h = height.value;
+  // A newly mounted or resized canvas can paint before ResizeObserver runs.
+  // Size both its backing bitmap and node layout from the current CSS box.
+  const bounds = element.getBoundingClientRect();
+  const w = Math.max(1, bounds.width);
+  const h = Math.max(1, bounds.height);
+  width.value = w;
+  height.value = h;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   if (
     element.width !== Math.round(w * dpr) ||
@@ -191,7 +197,7 @@ function draw(now = performance.now()) {
       const y = 36 + across * (h - 72);
       ctx.textAlign = "left";
       ctx.fillText(
-        groupNames[group] ?? group.toUpperCase().replaceAll("_", " "),
+        props.investigation && group === "coordination" ? "LLM INVESTIGATION" : groupNames[group] ?? group.toUpperCase().replaceAll("_", " "),
         18,
         y - 51,
       );
@@ -199,7 +205,7 @@ function draw(now = performance.now()) {
       ctx.textAlign = "center";
       label(
         ctx,
-        groupNames[group] ?? group.toUpperCase().replaceAll("_", " "),
+        props.investigation && group === "coordination" ? "LLM INVESTIGATION" : groupNames[group] ?? group.toUpperCase().replaceAll("_", " "),
         32 + across * (w - 64),
         25,
         (w - 64) / groups.length - 8,
@@ -375,13 +381,15 @@ function draw(now = performance.now()) {
           ? "deterministic workflow"
           : node.kind === "client"
             ? "Kubernetes event"
-            : node.kind === "tool" ? "deterministic checks"
+            : node.kind === "tool" ? props.investigation ? "MCP tool adapter" : "deterministic checks"
             : "LLM agent"),
       node.x,
       node.y + 62,
       labelWidth,
     );
   }
+  element.dataset.renderWidth = String(w);
+  element.dataset.renderHeight = String(h);
   if (pulses.length) frame = requestAnimationFrame(draw);
 }
 
@@ -432,13 +440,9 @@ onMounted(() => {
   media = window.matchMedia("(prefers-reduced-motion: reduce)");
   motionChange();
   media.addEventListener("change", motionChange);
-  observer = new ResizeObserver((entries) => {
-    const entry = entries[0];
-    if (!entry) return;
-    width.value = Math.max(260, entry.contentRect.width);
-    height.value = entry.contentRect.height;
-    requestDraw();
-  });
+  // draw() reads current geometry. Retaining an older observer entry can
+  // temporarily restore the previous responsive height while switching tabs.
+  observer = new ResizeObserver(requestDraw);
   if (board.value) observer.observe(board.value);
 });
 

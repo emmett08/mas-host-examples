@@ -1,8 +1,11 @@
 // Own bounded, durable demo run identities and the single live host execution.
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { HostRunFailure, type Host } from './host.js';
+import { contentHash, freezeInvestigation, retainFile, type InvestigationAudit } from './investigation.js';
+import { runtimeIdentity } from '../project/mcp-client.mjs';
+import { investigationTopology } from './topology.js';
 import type { FailureDiagnostics } from './diagnostics.js';
 import { parseEvidence, type EvidenceBundle } from '../shared/evidence.js';
 import { parseRevisionAudit, verifySelectedOutput, type RevisionAudit } from '../shared/revision.mjs';
@@ -15,6 +18,8 @@ export interface Run {
   mode: 'live' | 'fixture'; startedAt: string; error?: string; output?: unknown;
   diagnostics?: FailureDiagnostics;
   revisionEnabled?: boolean; revision?: RevisionAudit;
+  approach?: 'collected' | 'mcp'; investigation?: InvestigationAudit & { source?: 'kubernetes-api' | 'recorded-evidence' };
+  stopRequested?: boolean; deadlineAt?: number;
   resolution?: ResolutionReport;
   reconciliations?: ReconciliationObservation[];
   input: { incident: unknown }; fingerprint: string;
@@ -23,6 +28,9 @@ export class RequestError extends Error { constructor(public status: number, mes
 export class Runs {
   readonly records = new Map<string, Run>();
   readonly observations = new Map<string, unknown>();
+  readonly investigationObservations = new Map<string, unknown>();
+  private investigationReads = new Map<string, Promise<unknown>>();
+  private writes = new Map<string, Promise<void>>();
   private resolutionWrites = new Map<string, { identity: string; completion: Promise<Run> }>();
   private reconciliationWrites = new Map<string, Promise<Run>>();
   private active?: Run;
@@ -30,10 +38,14 @@ export class Runs {
   constructor(readonly directory: string, readonly mode: Run['mode'], readonly host: Host) {}
   private folder(id: string) { return join(this.directory, id); }
   private async persist(run: Run) {
-    const folder = this.folder(run.id);
-    await mkdir(folder, { recursive: true, mode: 0o700 });
-    await writeFile(join(folder, 'run.tmp'), JSON.stringify(run), { mode: 0o600 });
-    await rename(join(folder, 'run.tmp'), join(folder, 'run.json'));
+    const folder = this.folder(run.id), bytes = JSON.stringify(run);
+    const write = (this.writes.get(run.id) ?? Promise.resolve()).then(async () => {
+      await mkdir(folder, { recursive: true, mode: 0o700 });
+      await writeFile(join(folder, 'run.tmp'), bytes, { mode: 0o600 });
+      await rename(join(folder, 'run.tmp'), join(folder, 'run.json'));
+    });
+    this.writes.set(run.id, write);
+    await write;
   }
   async initialise() {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -55,7 +67,7 @@ export class Runs {
       const run = JSON.parse(manifest) as Run;
       if (run.id !== item.name) throw new Error('Stored run identity mismatch');
       if (run.status === 'running' || run.status === 'queued') {
-        if (run.revisionEnabled && this.host.options?.revisionPlan) resumable.push(run);
+        if (!run.stopRequested && (run.deadlineAt === undefined || Date.now() < run.deadlineAt) && run.revisionEnabled && this.host.options?.revisionPlan) resumable.push(run);
         else {
           run.status = 'failed';
           run.error = 'Server restarted during execution. Retained host state needs inspection; this demo will not repeat inference automatically.';
@@ -83,6 +95,8 @@ export class Runs {
   list() { return [...this.records.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt)); }
   async create(body: Record<string, unknown>) {
     if (body.scenario !== 'pod-incident' && body.scenario !== 'pod-crash') throw new RequestError(400, 'Select scenario pod-incident');
+    const approach = body.approach ?? 'collected';
+    if (approach !== 'collected' && approach !== 'mcp') throw new RequestError(400, 'Unknown investigation approach');
     const id = body.id ?? `demo-${randomUUID()}`;
     if (typeof id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(id)) {
       throw new RequestError(400, 'Invalid run id');
@@ -98,23 +112,28 @@ export class Runs {
         throw new RequestError(400, 'Evidence subject must match the event Pod namespace, name and UID');
       }
     }
+    if (approach === 'mcp' && (!evidence || !event)) throw new RequestError(400, 'MCP investigation requires an incident with collected, UID-bound evidence');
+    const source = process.env.DEMO_MCP_SOURCE ?? (this.mode === 'live' ? 'kubernetes-api' : 'recorded-evidence');
+    if (approach === 'mcp' && evidence!.subject.namespace !== (process.env.MAS_NAMESPACE ?? 'mas-demo')) throw new RequestError(400, 'MCP tools are limited to the configured demo namespace');
+    if (approach === 'mcp' && !['kubernetes-api', 'recorded-evidence'].includes(source)) throw new RequestError(503, 'Invalid MCP source configuration');
     const input = { incident: { scenario: 'pod-incident', source: event ? 'kubernetes-event' : 'synthetic-scenario',
       event: event ?? { reason: 'BackOff', message: 'Back-off restarting failed container demo-app',
         involvedObject: { kind: 'Pod', name: 'demo-app', namespace: 'mas-demo' } },
       ...(evidence ? { evidence } : {}), context: evidenceContext(evidence) } };
-    const fingerprint = inputFingerprint(input);
+    const fingerprint = approach === 'mcp' ? contentHash(`mcp:${source}:${inputFingerprint(input)}`) : inputFingerprint(input);
     const existing = this.records.get(id);
     if (existing) {
       // Earlier archives retain their original wording and pod-crash alias.
       // Their immutable incident/evidence identity still admits the same retry.
-      if (existing.fingerprint !== fingerprint && inputFingerprint(existing.input) !== fingerprint) throw new RequestError(409, 'Run id already belongs to different input');
+      if ((existing.approach ?? 'collected') !== approach || (existing.fingerprint !== fingerprint && (approach === 'mcp' || inputFingerprint(existing.input) !== fingerprint))) throw new RequestError(409, 'Run id already belongs to different input');
       return existing;
     }
     if (this.stopping || this.active) throw new RequestError(429, 'One demo is already running; try again after it finishes');
     if (this.records.size >= 50) throw new RequestError(429, 'Demo retains at most 50 runs; archive the data directory before starting a new session');
     if (this.mode === 'live' && !process.env.OPENAI_API_KEY) throw new RequestError(503, 'OPENAI_API_KEY is required for live agents');
     const run: Run = { id, mode: this.mode, status: 'queued', startedAt: new Date().toISOString(), input, fingerprint,
-      ...(this.host.options?.revisionPlan ? { revisionEnabled: true } : {}) };
+      ...(this.host.options?.revisionPlan ? { revisionEnabled: true } : {}),
+      ...(approach === 'mcp' ? { approach, deadlineAt: Date.now() + 600_000, investigation: { status: 'running', runId: id, calls: [], source: source as 'kubernetes-api' | 'recorded-evidence' } } : {}) };
     this.active = run;
     this.records.set(id, run);
     try { await this.persist(run); }
@@ -184,43 +203,111 @@ export class Runs {
     let pendingObservation: Promise<boolean> | undefined;
     const observe = (): Promise<boolean> => {
       if (pendingObservation) return pendingObservation;
-      pendingObservation = Promise.resolve().then(() => this.host.observe(run.id, state))
-        .then(snapshot => { this.observations.set(run.id, snapshot); return true; })
-        // Database creation and SQLite snapshot races do not change the run.
-        .catch(() => false)
+      pendingObservation = Promise.all([
+        run.approach === 'mcp' ? this.observeInvestigation(run).catch(() => {}) : Promise.resolve(),
+        Promise.resolve().then(() => this.host.observe(run.id, state))
+          .then(snapshot => { this.observations.set(run.id, snapshot); return true; })
+          // Database creation and SQLite snapshot races do not change the run.
+          .catch(() => false),
+      ]).then(([, available]) => available)
         .finally(() => { pendingObservation = undefined; });
       return pendingObservation;
     };
     const timer = setInterval(() => void observe(), 250);
+    const expiry = run.deadlineAt === undefined ? undefined : setTimeout(() => {
+      run.stopRequested = true;
+      void this.persist(run).catch(() => {});
+      void Promise.allSettled([this.host.cancel(run.id, state), this.host.cancel(run.id, join(folder, 'investigation', 'host'))]);
+    }, Math.max(0, run.deadlineAt - Date.now()));
     let outcome: { status: 'completed'; output: unknown; revision?: RevisionAudit } |
       { status: 'failed'; error: string; diagnostics?: FailureDiagnostics; output?: unknown; revision?: RevisionAudit };
     try {
       run.status = 'running';
       await this.persist(run);
+      if (run.approach === 'mcp') await this.acquire(run);
+      this.ensureRunning(run);
       const input = join(folder, 'input.json');
       const supplied = run.revisionEnabled ? { sources: [{ id: 'incident', kind: 'evidence', content: run.input.incident, readers: ['*'] }] } : run.input;
-      await writeFile(input, JSON.stringify(supplied), { mode: 0o600 });
+      if (run.approach === 'mcp') await retainFile(input, supplied);
+      else await writeFile(input, JSON.stringify(supplied), { mode: 0o600 });
+      this.ensureRunning(run);
       if (run.revisionEnabled) {
         const result = await this.host.runAssessed(run.id, input, state, run.mode);
         outcome = result.revision.status === 'completed' ? { status: 'completed', ...result }
           : { status: 'failed', ...result, error: `Revision ended as ${result.revision.status}; unresolved findings remain. No remediation is admitted for this run.` };
       } else outcome = { status: 'completed', output: await this.host.run(run.id, input, state, run.mode) };
+      this.ensureRunning(run);
     } catch (error) {
+      if (run.approach === 'mcp' && run.investigation?.status !== 'completed') run.investigation = { ...run.investigation!, status: 'failed', error: 'Investigation did not complete; retained tool state requires inspection.' };
       outcome = error instanceof HostRunFailure
         ? { status: 'failed', error: error.message, diagnostics: error.diagnostics }
         : { status: 'failed', error: 'Host did not complete. Inspect retained state before retrying an uncertain provider outcome.' };
     } finally {
       clearInterval(timer);
+      if (expiry) clearTimeout(expiry);
     }
     try {
       // A poll may have captured the database before the host settled. Wait for
       // it, then obtain a fresh final snapshot before publishing terminal state.
       await pendingObservation;
       if (!await observe()) this.observations.delete(run.id);
+      if (run.approach === 'mcp') await this.observeInvestigation(run).catch(() => {});
       const terminal = { ...run, ...outcome };
       await this.persist(terminal);
       Object.assign(run, terminal);
     } finally { this.active = undefined; }
+  }
+  private ensureRunning(run: Run) {
+    if (this.stopping || run.stopRequested || (run.deadlineAt !== undefined && Date.now() >= run.deadlineAt))
+      throw new Error('Investigation cancelled or admission deadline elapsed');
+  }
+  private async observeInvestigation(run: Run) {
+    const pending = this.investigationReads.get(run.id);
+    if (pending) return pending;
+    const observation = this.host.observe(run.id, join(this.folder(run.id), 'investigation', 'host'))
+      .then(value => { this.investigationObservations.set(run.id, value); return value; })
+      .finally(() => this.investigationReads.delete(run.id));
+    this.investigationReads.set(run.id, observation);
+    return observation;
+  }
+  private async acquire(run: Run) {
+    this.ensureRunning(run);
+    if (run.investigation?.status === 'completed') {
+      const retained = parseEvidence(run.investigation.evidence);
+      const actual = parseEvidence((run.input.incident as { evidence?: unknown }).evidence);
+      if (!retained || stableJson(retained) !== stableJson(actual)) throw new Error('Frozen investigation evidence changed');
+      return;
+    }
+    const folder = join(this.folder(run.id), 'investigation');
+    await mkdir(folder, { recursive: true, mode: 0o700 });
+    const incident = run.input.incident as { event: Record<string, unknown>; evidence: EvidenceBundle };
+    const evidence = parseEvidence(incident.evidence)!;
+    const contextFile = join(folder, 'context.json');
+    const source = run.investigation!.source!;
+    const context = { version: 'mas-mcp-investigation/1', source,
+      event: { ...incident.event, namespace: evidence.subject.namespace }, evidence,
+      runtime_sha256: await runtimeIdentity(resolve(this.host.options.project, '..')) };
+    const contextSha256 = await retainFile(contextFile, context);
+    if (run.investigation?.contextSha256 && run.investigation.contextSha256 !== contextSha256) throw new Error('Investigation context changed');
+    run.investigation = { ...run.investigation!, contextSha256 };
+    await this.persist(run);
+    const input = join(folder, 'input.json');
+    await retainFile(input, { event: context.event, subject: evidence.subject, context_sha256: contextSha256 });
+    this.ensureRunning(run);
+    const summary = await this.host.runInvestigation(run.id, input, join(folder, 'host'), run.mode, contextFile, contextSha256);
+    this.ensureRunning(run);
+    // Read the trusted internal journal with payloads for evidence assembly;
+    // the public observation continues to honour SHOW_PAYLOADS independently.
+    const observation = await this.host.observe(run.id, join(folder, 'host'), true);
+    const audit = freezeInvestigation(run.id, observation, evidence, source, contextSha256);
+    // Publish the final public trace before the completed audit. An older
+    // observer poll must not make a frozen acquisition appear to lack replies.
+    await this.investigationReads.get(run.id)?.catch(() => {});
+    await this.observeInvestigation(run);
+    run.input = { incident: { ...incident, evidence: audit.evidence, context: evidenceContext(audit.evidence) } };
+    run.investigation = { ...audit, source, summary };
+    this.ensureRunning(run);
+    await this.persist(run); // Freeze before admitting any assessment invocation.
   }
   async snapshot(id: string) {
     const run = this.get(id);
@@ -229,7 +316,11 @@ export class Runs {
     }
     const observation = this.observations.get(id) as { revision?: unknown } | undefined;
     const revision = observation?.revision ? parseRevisionAudit(observation.revision) : run.revision;
-    return { run: revision ? { ...run, revision } : run, observation: observation ?? { messages: [] },
+    if (run.approach === 'mcp' && !this.investigationObservations.has(id)) await this.observeInvestigation(run).catch(() => {});
+    return { run: revision ? { ...run, revision } : run,
+      ...(run.approach === 'mcp' ? { investigationObservation: this.investigationObservations.get(id),
+        investigationTopology: await investigationTopology(this.host.options.project, run.mode) } : {}),
+      observation: observation ?? { messages: [] },
       observationAvailable: this.observations.has(id) };
   }
   async remediationSnapshot(id: string) {
@@ -254,7 +345,13 @@ export class Runs {
   }
   async shutdown() {
     this.stopping = true;
-    if (this.active) await this.host.cancel(this.active.id, join(this.folder(this.active.id), 'host')).catch(() => {});
+    if (this.active) {
+      const run = this.active;
+      run.stopRequested = true;
+      await this.persist(run);
+      await Promise.allSettled([this.host.cancel(run.id, join(this.folder(run.id), 'host')),
+        ...(run.approach === 'mcp' ? [this.host.cancel(run.id, join(this.folder(run.id), 'investigation', 'host'))] : [])]);
+    }
   }
 }
 

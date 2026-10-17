@@ -19,6 +19,20 @@ TIMEOUT_SECONDS = 30
 MEMORY_BYTES = 512 * 1024 * 1024
 DEPTH = 100_000
 CASES = [
+    ("investigation-safety", None, False, False, None),
+    ("investigation-safety-no-reduction", None, False, True, None),
+    ("investigation-settlement", None, True, False, None),
+    ("investigation-settlement-no-reduction", None, True, True, None),
+    ("investigation-early-assessment", "BUG_MCP_EARLY_ASSESSMENT", False, False, "frozen_version==1"),
+    ("investigation-recorded-replay", "BUG_MCP_REPLAY", False, False, "calls[slot]<=1"),
+    ("investigation-unknown-effect", "BUG_MCP_UNKNOWN", False, False, "!(has_unknown)"),
+    ("investigation-subject-mismatch", "BUG_MCP_SUBJECT", False, False, "all_trusted"),
+    ("investigation-cancelled-launch", "BUG_MCP_CANCEL", False, False, "!(cancelled)"),
+    ("investigation-refreeze", "BUG_MCP_REFREEZE", False, False, "frozen_version<=1"),
+    ("investigation-stall", "BUG_MCP_STALL", True, False, "acceptance cycle"),
+    ("investigation-success-witness", "WITNESS_MCP_SUCCESS", False, False, "results==4"),
+    ("investigation-restart-witness", "WITNESS_MCP_RESTART", False, False, "recorded_restart"),
+    ("investigation-uncertain-witness", "WITNESS_MCP_UNCERTAIN", False, False, "has_unknown"),
     ("revision-safety", None, False, False, None),
     ("revision-safety-no-reduction", None, False, True, None),
     ("revision-settlement", None, True, False, None),
@@ -108,10 +122,26 @@ def main() -> int:
     compiler = shutil.which(os.environ.get("CC", "cc"))
     source = ROOT / "hybrid.pml"
     summary = {
-        "schema": "mas-k3s-application-verification/5",
+        "schema": "mas-k3s-application-verification/6",
         "compiler_optimisation": f"-O{args.compile_optimisation}",
         "model_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "models": {
+            "investigation.pml": {
+                "sha256": hashlib.sha256((ROOT / "investigation.pml").read_bytes()).hexdigest(),
+                "bounds": {"runs": 1, "delegate_invocation_identities": 4, "server_restarts": 2,
+                           "cancellations": 1, "frozen_bundles": 1, "assessment_starts": 1},
+                "assumptions": [
+                    "Single orchestrator owner; durable admission, tool ledger, source input and frozen bytes survive restart",
+                    "Cancellation check and new child dispatch share a synchronous admission boundary",
+                    "Tool reservation, external call, retained result, evidence freeze and assessed launch are separate transitions",
+                    "Any reserved but unrecorded operation becomes uncertain on restart and cannot automatically retry",
+                    "Subject UID, known tool, valid result and evidence consistency are conjunctive trusted-code predicates",
+                    "Finite host/tool outcomes and at most two restarts; no process fairness or elapsed-time guarantee",
+                    "Host deadline and per-call identity are preserved by recovery; timing and MCP transport are not modelled",
+                    "The later candidate/assessment revision loop is checked separately in revision.pml",
+                    "No storage loss, overlapping orchestrators, cryptographic adversary or implementation refinement proof",
+                ],
+            },
             "revision.pml": {
                 "sha256": hashlib.sha256((ROOT / "revision.pml").read_bytes()).hexdigest(),
                 "bounds": {"candidates": 2, "assessments": 2, "revisions": 1, "controller_effects": 1},
@@ -168,7 +198,13 @@ def main() -> int:
                          "remediator/controller.ts", "remediator/controller.test.ts", "remediator/index.ts", "remediator/transport.ts",
                          "remediator/transport.test.ts", "operator/client.ts", "deploy/rbac.yaml",
                          "deploy/remediation-crd.yaml", "deploy/remediator.yaml", "project/revision.json",
-                         "project/assessment.py", "shared/revision.mjs", "ui/revision.test.ts", "server/host.integration.ts")
+                         "project/assessment.py", "shared/revision.mjs", "ui/revision.test.ts", "server/host.integration.ts",
+                         "server/host.ts", "server/investigation.ts", "server/investigation.test.ts", "server/investigation.integration.ts", "mcp/server.ts", "mcp/tools.ts",
+                         "mcp/client.test.ts", "mcp/tools.test.ts", "project/mcp-client.mjs",
+                         "project/fixture-provider.mjs", "shared/evidence.ts", "operator/evidence.ts", "package-lock.json",
+                         "project/agents.mcp.toml", "project/topology.mcp.yaml", "project/prompts/investigator.md",
+                         "project/connections.mcp-fixture.toml", "project/schemas/investigation.json",
+                         "project/schemas/mcp-input.json", "project/schemas/mcp-logs-input.json", "project/schemas/mcp-result.json")
         },
         "bounds": {"actors": 7, "request_identities": 8, "runs": 1, "observer_reads": 2},
         "limits": {"seconds_per_command": TIMEOUT_SECONDS, "address_space_bytes": MEMORY_BYTES,
@@ -193,9 +229,9 @@ def main() -> int:
     archive_members = {}
     archive = zipfile.ZipFile(counterexamples, "w", zipfile.ZIP_DEFLATED)
     for name, macro, liveness, no_reduction, violation in CASES:
-        model = "revision" if name.startswith("revision-") else "controller" if name.startswith("controller-") else "remediation" if name.startswith("remediation-") else "hybrid"
+        model = "investigation" if name.startswith("investigation-") else "revision" if name.startswith("revision-") else "controller" if name.startswith("controller-") else "remediation" if name.startswith("remediation-") else "hybrid"
         source = ROOT / f"{model}.pml"
-        claim = {"revision": "revision_settles", "controller": "controller_settles", "remediation": "remediation_settles", "hybrid": "choreography_settles"}[model]
+        claim = {"investigation": "investigation_settles", "revision": "revision_settles", "controller": "controller_settles", "remediation": "remediation_settles", "hybrid": "choreography_settles"}[model]
         commands = []
         check = {"name": name, "model": source.name, "claim": claim if liveness else None,
                  "macro": macro, "mode": "ltl" if liveness else "safety",
@@ -206,7 +242,7 @@ def main() -> int:
                 build = Path(temporary)
                 shutil.copyfile(source, build / source.name)
                 definitions = [f"-D{macro}"] if macro else []
-                if name in ("safety", "remediation-safety", "controller-safety"):
+                if name in ("safety", "remediation-safety", "controller-safety", "investigation-safety"):
                     for seed in (17, 29):
                         run([spin, f"-n{seed}", "-u1000", "-p", *definitions, source.name], build, commands)
                 run([spin, *definitions, "-a", source.name], build, commands)

@@ -24,7 +24,7 @@ COPY --from=host /build/source/target/release/mas-host /opt/mas-host/mas-host
 COPY --from=host /build/source/sdk/python /opt/mas-host/sdk/python
 COPY --from=web --chown=10001:10001 /app/dist ./dist
 COPY --from=web --chown=10001:10001 /app/node_modules ./node_modules
-COPY --from=web --chown=10001:10001 /app/package.json ./package.json
+COPY --from=web --chown=10001:10001 /app/package.json /app/package-lock.json ./
 COPY --chown=10001:10001 examples/k3s-live/project ./project
 COPY --chown=10001:10001 examples/k3s-live/deploy/probe-app.mjs ./deploy/probe-app.mjs
 COPY --chown=10001:10001 examples/k3s-live/deploy/remediation.mjs ./deploy/remediation.mjs

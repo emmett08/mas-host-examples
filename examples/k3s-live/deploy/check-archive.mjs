@@ -1,11 +1,31 @@
 #!/usr/bin/env node
 // Exercise the compiled download through file:// with every network request blocked.
 import assert from 'node:assert/strict';
-import { access, writeFile } from 'node:fs/promises';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { readArchive } from './archive.mjs';
+
+/** A tab switch replaces its canvas; await its actual-size paint before capture. */
+async function checkCanvasSize(page) {
+  await page.waitForFunction(async () => {
+    const canvas = document.querySelector('.graph-board canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) return false;
+    const before = canvas.getBoundingClientRect();
+    for (let paint = 0; paint < 3; paint++) await new Promise(requestAnimationFrame);
+    const bounds = canvas.getBoundingClientRect(), ratio = Math.min(devicePixelRatio || 1, 2);
+    return before.width === bounds.width && before.height === bounds.height && bounds.width > 0 && bounds.height > 0 &&
+      canvas.width === Math.round(bounds.width * ratio) && canvas.height === Math.round(bounds.height * ratio) &&
+      Number(canvas.dataset.renderWidth) === bounds.width && Number(canvas.dataset.renderHeight) === bounds.height;
+  });
+  const dimensions = await page.locator('.graph-board canvas').evaluate(canvas => {
+    const bounds = canvas.getBoundingClientRect();
+    return { bitmap: [canvas.width, canvas.height], css: [bounds.width, bounds.height], ratio: Math.min(devicePixelRatio || 1, 2) };
+  });
+  assert.deepEqual(dimensions.bitmap, dimensions.css.map(value => Math.round(value * dimensions.ratio)),
+    'Canvas bitmap dimensions must match its CSS box without stretching');
+}
 
 export async function checkArchive(directory, launchOptions = {}) {
   const html = join(resolve(directory), 'dashboard', 'index.html');
@@ -15,12 +35,17 @@ export async function checkArchive(directory, launchOptions = {}) {
     console.log('Offline browser check skipped: no dashboard was packaged.');
     return;
   }
-  const archive = await readArchive(directory);
-  assert.ok(archive, 'A packaged dashboard must have retained observations');
+  assert.ok(await readArchive(directory), 'A packaged dashboard must have retained observations');
+  const embedded = (await readFile(html, 'utf8')).match(/<script id="mas-demo-archive" type="application\/json">([\s\S]*?)<\/script>/);
+  assert.ok(embedded, 'The packaged dashboard must embed its captures');
+  const archive = JSON.parse(embedded[1]);
+  const trace = snapshot => snapshot.run.approach === 'mcp'
+    ? snapshot.investigationObservation ?? { messages: [] } : snapshot.observation;
+  const recordedTime = snapshot => snapshot.observedAtMs ?? snapshot.observation.observed_at_ms;
   const initial = archive.snapshots[0];
   const final = archive.snapshots.at(-1);
-  const firstCount = new Set(initial.observation.messages.map(message => message.id)).size;
-  const finalCount = new Set(final.observation.messages.map(message => message.id)).size;
+  const firstCount = new Set(trace(initial).messages.map(message => message.id)).size;
+  const finalCount = new Set(trace(final).messages.map(message => message.id)).size;
   const browser = await chromium.launch({ headless: true, ...launchOptions });
   const errors = [], requests = [];
   try {
@@ -42,8 +67,8 @@ export async function checkArchive(directory, launchOptions = {}) {
     if (firstCount < finalCount) {
       const speed = 8;
       const firstGrowth = archive.snapshots.find(snapshot =>
-        new Set(snapshot.observation.messages.map(message => message.id)).size > firstCount);
-      const growthTimeout = Math.ceil((firstGrowth.observation.observed_at_ms - initial.observation.observed_at_ms) / speed) + 10_000;
+        new Set(trace(snapshot).messages.map(message => message.id)).size > firstCount);
+      const growthTimeout = Math.ceil((recordedTime(firstGrowth) - recordedTime(initial)) / speed) + 10_000;
       await page.getByRole('combobox', { name: 'Playback speed' }).selectOption(String(speed));
       await page.getByRole('button', { name: 'Play', exact: true }).click();
       await page.waitForFunction(first => {
@@ -84,7 +109,7 @@ export async function checkArchive(directory, launchOptions = {}) {
       }
       assert.match(await panel.innerText(), /higher internal score does not establish improvement/);
     }
-    const evidence = final.run.input?.incident?.evidence;
+    const evidence = final.run.investigation?.evidence ?? final.run.input?.incident?.evidence;
     if (evidence) {
       const panel = page.locator('.evidence-panel');
       await panel.waitFor({ state: 'visible' });
@@ -148,9 +173,9 @@ export async function checkArchive(directory, launchOptions = {}) {
       assert.match(await page.locator('#inspector-title').innerText(), /Envelope/);
     }
     const payloadInspections = [];
-    if (final.observation.payloads_included === true) {
+    if (trace(final).payloads_included === true) {
       for (const kind of ['request', 'result']) {
-        const message = final.observation.messages.find(message => message.kind === kind);
+        const message = trace(final).messages.find(message => message.kind === kind);
         if (!message) continue; // Failed captures can end before a result exists.
         assert.ok(Object.hasOwn(message, 'payload'), `The recorded ${kind} must retain its payload`);
         await page.getByRole('button', {
@@ -183,16 +208,67 @@ export async function checkArchive(directory, launchOptions = {}) {
       await page.locator('.resolution-panel').waitFor({ state: 'detached' });
       assert.equal(await page.locator('.resolution-panel').count(), 0, 'Restarting must hide a future recovery report');
     }
+    const comparisonChecks = [];
+    const other = archive.comparisons?.[0];
+    const primaryApproach = initial.run.approach ?? 'collected';
+    const otherApproach = primaryApproach === 'collected' ? 'mcp' : 'collected';
+    const tab = approach => page.getByRole('tab', { name: approach === 'mcp' ? 'LLM tools + MCP' : 'Collected evidence', exact: true });
+    await tab(otherApproach).click();
+    assert.equal(await tab(otherApproach).getAttribute('aria-selected'), 'true');
+    if (other) {
+      const otherFinal = other.snapshots.at(-1);
+      await page.getByRole('button', { name: 'View final', exact: true }).click();
+      const otherTrace = otherApproach === 'mcp' ? otherFinal.investigationObservation : otherFinal.observation;
+      assert.equal(await envelopeCount(), new Set((otherTrace?.messages ?? []).map(message => message.id)).size);
+      assert.equal(await page.locator('#run-picker').inputValue(), other.runId);
+      if (otherFinal.run.investigation) {
+        const panel = page.locator('.investigation-panel');
+        assert.equal(await panel.getAttribute('data-investigation-status'), otherFinal.run.investigation.status);
+        assert.equal(await panel.locator('[data-tool-call-id]').count(), otherFinal.run.investigation.calls?.length ?? 0);
+        for (const call of otherFinal.run.investigation.calls ?? []) {
+          const item = panel.locator(`[data-tool-call-id="${call.id}"]`);
+          assert.equal(await item.locator('strong').innerText(), call.tool);
+          assert.deepEqual(await item.locator('.tool-evidence a').allTextContents(), call.evidenceIds);
+        }
+        await page.locator('.phase-controls').getByRole('button', { name: 'Assessment', exact: true }).click();
+        assert.equal(await envelopeCount(), new Set(otherFinal.observation.messages.map(message => message.id)).size);
+        await page.locator('.phase-controls').getByRole('button', { name: 'Investigation', exact: true }).click();
+        comparisonChecks.push('separate-phase-traces', 'tool-call-evidence-links');
+      }
+      comparisonChecks.push('comparison-capture');
+    } else {
+      assert.match(await page.locator('body').innerText(), /no recording for this approach/);
+      assert.equal(await page.getByRole('button', { name: 'Play', exact: true }).count(), 0);
+      comparisonChecks.push('uncaptured-approach');
+    }
+    await tab(primaryApproach).click();
+    assert.equal(await page.locator('#run-picker').inputValue(), archive.runId);
+    assert.equal(await envelopeCount(), firstCount, 'Returning to a tab restores its playback position');
+    if (other) {
+      await tab(otherApproach).click();
+      assert.equal(await page.locator('#run-picker').inputValue(), other.runId);
+      const otherFinal = other.snapshots.at(-1);
+      assert.equal(Number(await page.getByRole('slider', { name: 'Recorded observation timeline' }).inputValue()),
+        recordedTime(otherFinal) - recordedTime(other.snapshots[0]));
+      await checkCanvasSize(page);
+      await page.screenshot({ path: join(resolve(directory), 'dashboard', 'comparison-preview.png'), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await checkCanvasSize(page);
+      await page.screenshot({ path: join(resolve(directory), 'dashboard', 'comparison-mobile-preview.png'), fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 1100 });
+      comparisonChecks.push('canvas-size-desktop-mobile');
+      await tab(primaryApproach).click();
+    }
     assert.deepEqual(errors, [], 'The standalone dashboard reported a browser error');
     assert.deepEqual(requests, [], 'The standalone dashboard attempted network access');
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(50);
+    await checkCanvasSize(page);
     await page.screenshot({ path: join(resolve(directory), 'dashboard', 'preview.png'), fullPage: true });
     await context.close();
     const report = { runId: archive.runId, mode: final.run.mode, initialEnvelopes: firstCount,
       finalEnvelopes: finalCount, offline: true, checks: ['file-url',
         ...(firstCount < finalCount ? ['play-pause', 'speed'] : []), 'seek', 'restart',
-        ...(inspected ? ['inspection'] : []), ...payloadInspections.map(kind => `${kind}-payload`), 'no-network'], errors };
+        ...(inspected ? ['inspection'] : []), ...payloadInspections.map(kind => `${kind}-payload`), ...comparisonChecks, 'no-network'], errors };
     if (evidence) report.checks.push('evidence-statuses', 'evidence-provenance', 'evidence-data');
     if (resolution) report.checks.push('resolution-status', 'resolution-checks', 'resolution-patch-and-evidence',
       ...(!initial.run.resolution ? ['hide-future-resolution'] : []));

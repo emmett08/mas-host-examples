@@ -116,3 +116,58 @@ test('packaging compiles the real Vue entry and embeds all scripts, styles and o
   assert.ok(!javascript.includes('process.env.NODE_ENV'), 'the browser bundle must resolve its production environment');
   assert.ok(javascript.length > 40_000, 'the Vue runtime and application should be bundled');
 });
+
+test('comparison packaging preserves both approaches and acquisition observations', async t => {
+  const directory = await capture(t);
+  const acquired = snapshot(800, [], 'running');
+  acquired.run = { ...acquired.run, id: 'mcp-captured-run', approach: 'mcp', investigation: { runId: 'mcp-captured-run', status: 'running', calls: [] } };
+  acquired.observation = { messages: [] };
+  acquired.observationAvailable = false;
+  acquired.investigationObservation = { observed_at_ms: 800, messages: [message] };
+  const completed = structuredClone(acquired);
+  completed.run.status = 'completed';
+  completed.run.investigation.status = 'completed';
+  completed.observation = { observed_at_ms: 3000, messages: [message] };
+  completed.investigationObservation.observed_at_ms = 3000;
+  const other = await capture(t, [acquired, completed]);
+  const archive = await readArchive(directory, [other]);
+  assert.equal(archive.version, 'mas-demo-archive/1');
+  assert.equal(archive.comparisons[0].snapshots[0].observedAtMs, 800);
+  assert.equal(archive.comparisons[0].snapshots[0].observation.observed_at_ms, undefined);
+  assert.equal(archive.comparisons[0].snapshots[0].observationAvailable, false);
+  assert.deepEqual(archive.comparisons[0].snapshots[0].investigationObservation.messages, [message]);
+  assert.equal(archive.comparisons[0].snapshots.at(-1).run.approach, 'mcp');
+  const html = await readFile(await createArchive(directory, [other]), 'utf8');
+  const embedded = JSON.parse(html.match(/<script id="mas-demo-archive" type="application\/json">([\s\S]*?)<\/script>/)[1]);
+  assert.equal(embedded.comparisons[0].runId, 'mcp-captured-run');
+  await assert.rejects(readArchive(directory, [directory]), /different directory/);
+  const repeatedApproach = await capture(t, [snapshot(1000)]);
+  await assert.rejects(readArchive(directory, [repeatedApproach]), /distinct runs and approaches/);
+});
+
+test('missing comparison capture preserves the primary recording; malformed capture still fails', async t => {
+  const directory = await capture(t), absent = join(directory, 'not-started-mcp');
+  const unavailable = await readArchive(directory, [absent]);
+  assert.equal(unavailable.runId, run.id);
+  assert.deepEqual(unavailable.comparisons, []);
+  const untimed = await capture(t, [{ run: { ...run, approach: 'mcp' }, observationAvailable: false }]);
+  assert.deepEqual((await readArchive(directory, [untimed])).comparisons, []);
+  const malformed = await capture(t);
+  await writeFile(join(malformed, 'topology.json'), '{');
+  await assert.rejects(readArchive(directory, [malformed]), /malformed JSON/);
+});
+
+test('comparison timeline uses the latest actual host time and preserves both journals', async t => {
+  const directory = await capture(t);
+  const acquisition = { run: { ...run, id: 'mcp-times', approach: 'mcp' }, observationAvailable: false,
+    observation: { messages: [] }, investigationObservation: { observed_at_ms: 2_000, messages: [] } };
+  const assessment = { run: { ...acquisition.run, status: 'completed' }, observationAvailable: true,
+    observation: { observed_at_ms: 1_900, messages: [message] },
+    investigationObservation: { observed_at_ms: 2_100, messages: [] } };
+  const comparisonDirectory = await capture(t, [acquisition, assessment]);
+  const result = (await readArchive(directory, [comparisonDirectory])).comparisons[0];
+  assert.deepEqual(result.snapshots.map(item => item.observedAtMs), [2_000, 2_100]);
+  assert.equal(result.snapshots[0].observation.observed_at_ms, undefined);
+  assert.equal(result.snapshots[1].observation.observed_at_ms, 1_900);
+  assert.equal(result.snapshots[1].investigationObservation.observed_at_ms, 2_100);
+});

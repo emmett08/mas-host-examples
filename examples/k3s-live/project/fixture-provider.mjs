@@ -1,6 +1,14 @@
 // Deterministic CI provider: inspect actual supplied evidence; never call an LLM.
 export function fixtureOutput(request, mode = 'review', paced = false, draftDefect = false, voteMismatch = '') {
   const input = JSON.parse(request.input_json);
+  if (mode === 'investigate') {
+    const tools = ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics'];
+    const turn = input.history?.length ?? 0;
+    return turn < tools.length
+      ? { decision: { kind: 'request', target: tools[turn], input_json: '{}' } }
+      : { decision: { kind: 'complete', output: { summary: 'Fixture investigator requested four real MCP operations; no LLM was called.',
+          limitations: ['Tool results identify whether observations came from Kubernetes or retained evidence. Tool selection is scripted; no LLM judgement is claimed.'] } } };
+  }
   if (mode === 'vote') {
     // Model-adapter fixture only: the native peer checks record integrity.
     // Test profiles can deliberately return a validly shaped, differently bound

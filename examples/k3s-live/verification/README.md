@@ -331,7 +331,8 @@ Four complete safety/liveness searches cover partial-order reduction both enable
 and disabled. Injected selection mismatch and exhausted-run authority faults must
 produce their targeted counterexamples. A separate false assertion witnesses a
 passing revision followed by independently admitted remediation. With the original
-35 checks, the runner executes 42 cases.
+35 checks, this assessment extension brought the suite to 42 cases. The MCP
+acquisition extension below adds 14 cases, bringing the current total to 56.
 
 `server/host.integration.ts` executes the real Rust host with a deliberately
 unsupported fixture citation, checks exact candidate/feedback references, verifies
@@ -384,3 +385,88 @@ python3 examples/k3s-live/verification/benchmark.py --out /tmp/mas-spin-timing
 The script retains each run's complete evidence and `benchmark.json`, then
 requires equal sources, bounds, outcomes, state/error counts and replay trails.
 It leaves the published `evidence/` files intact.
+
+## MCP-directed evidence acquisition
+
+`investigation.pml` checks the new acquisition phase composed with the existing
+assessed workflow. An investigating LLM chooses up to four registered tool
+invocations. Each invocation passes through the host's existing delegation and
+operation records before its command adapter makes one MCP `tools/call`. The
+custom Kubernetes tools remain application code; this model introduces no
+Nehemiah message or delivery rule.
+
+The acquisition and assessed phases use distinct retained host state directories
+under one admitted application Run. `Runs.acquire` invokes
+`Host.runInvestigation`, then `freezeInvestigation` validates retained command
+results; `Runs.execute` starts assessment only after that bundle is persisted.
+`retainFile` requires exact bytes when reopening context or assessed input, and
+`Runs.persist` serialises manifest updates so a cancellation record follows any
+earlier phase write. The admitted approach, incident subject and
+trusted MCP context remain fixed. Trusted application code extracts completed
+command results and freezes the evidence supplied to assessment. Model-generated
+summaries cannot supply additional evidence items. The model represents subject
+identity, approved tool identity, valid result shape and consistent evidence by
+one conjunctive `all_trusted` predicate; implementation tests must exercise the
+individual checks.
+
+| Property | Abstract transition and implementation obligation |
+| --- | --- |
+| Frozen evidence before assessment | `Frozen → Assessing` requires `frozen_version == 1`, trusted evidence and no unknown operation. The frozen incident must be persisted before launching the assessed host. |
+| Recorded calls never replay | Each of four invocation identities has `calls[slot] <= 1`. The host's retained per-operation record supplies the result after restart. A later newly admitted call is a different identity. |
+| Unknown acquisition cannot complete | A reserved or invoked operation without a retained response becomes `Uncertain` on restart and moves to `Blocked`; `Acquired` asserts that no unknown operation exists. |
+| Exact incident and tool binding | `all_trusted == false` prevents freezing. A mismatched Pod UID, unexpected command/tool identity, invalid result or conflicting evidence must fail the corresponding trusted-code checks. |
+| Cancellation prevents a later launch | A separate cancellation process can run between every persisted phase transition. Tool invocation and assessment launch check cancellation at their synchronous admission boundary. Cancellation does not undo an earlier external request. |
+| Frozen context survives restart | `frozen_version <= 1`; restarting after freezing retains the original bytes rather than collecting a replacement bundle. |
+| Finite settlement | `investigation_settles` requires completion, blocking or cancellation under finite responses and at most two restarts. |
+
+Reservation, external invocation, retained response, acquisition completion,
+evidence freezing and assessment launch are separate transitions. Only the
+synchronous cancellation/dispatch decision, one abstract durable record update,
+or host recovery of retained records is atomic. In particular, an external
+request and its response are never collapsed into one atomic action. An
+interrupted reservation becomes uncertain even if the external request had not
+yet started: absence of a recorded response supplies no permission to repeat it.
+Application cancellation stops later phase dispatch immediately at its local
+admission check. Tool admission stops when the host observes its cancellation
+record. The model's cancellation event denotes that admission boundary; it does
+not claim instantaneous propagation of a shutdown signal to another process.
+Already-admitted operations may settle after cancellation.
+
+The model has one orchestrator owner, one immutable Run, four sequential delegate
+invocation identities, at most two restarts, one cancellation, one frozen bundle
+and one assessed-phase start. Host inference, individual MCP exchanges, queue
+behaviour and the subsequent candidate/revision loop are outside this model;
+`revision.pml` covers the latter. Retention of the original host admission,
+configuration, deadline and operation identities is an implementation assumption.
+No elapsed-time, distributed-owner, storage-loss, unrestricted exactly-once or
+implementation-refinement claim follows from these checks. Tool calls are
+read-only Kubernetes observations, so counting invocations does not count
+workload mutations.
+
+Safety and settlement run with and without partial-order reduction. Six isolated
+mutations admit assessment before freezing, repeat a recorded call, complete an
+uncertain acquisition, accept untrusted evidence, launch after cancellation, or
+replace a frozen bundle. Each must produce its intended replayable assertion
+counterexample. A separate stalled-provider mutation must produce a liveness
+counterexample. Three deliberately false assertions witness completed acquisition
+using all four tool identities, successful recovery after both a recorded result
+and a frozen bundle, and an invoked operation whose outcome remains uncertain.
+The two useful restart boundaries are distinct; the recovery witness cannot be
+satisfied merely by restarting before any work begins.
+
+`server/investigation.test.ts` exercises evidence source/subject checks,
+conflicting observations, retained input and shutdown/restart gates.
+`server/investigation.integration.ts` exercises the real host and MCP bridge with
+a deterministic provider fixture. `mcp/client.test.ts` and `mcp/tools.test.ts`
+cover MCP transport and incident-scoped Kubernetes collection. Fixture execution
+does not establish live LLM behaviour or a live-cluster result.
+
+The model and harness were independently reviewed. The full suite contains 20
+positive searches and 36 expected counterexamples, including the new reachability
+witnesses. SPIN 6.5.1 was available from
+a retained local installation for this change; `evidence/summary.json` records
+the exact checker/compiler and reviewed-source hashes for each retained run.
+The maintained verifier and atomic-transition documentation was checked on
+17 October 2026. The model's successful finite searches establish the named
+properties only within the boundary above; application and adapter tests provide
+separate implementation evidence.

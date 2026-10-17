@@ -1,0 +1,12 @@
+version: mas-topology/1
+edges:
+  - [client, investigator]
+  - [investigator, client]
+  - [investigator, pod_overview]
+  - [pod_overview, investigator]
+  - [investigator, pod_logs]
+  - [pod_logs, investigator]
+  - [investigator, pod_metrics]
+  - [pod_metrics, investigator]
+  - [investigator, workload_spec]
+  - [workload_spec, investigator]

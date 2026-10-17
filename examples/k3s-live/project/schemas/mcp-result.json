@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "collected",
+        "unavailable",
+        "error"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "kubernetes-api",
+        "recorded-evidence"
+      ]
+    },
+    "server": {
+      "type": "string",
+      "enum": [
+        "mas-k3s-investigation"
+      ]
+    },
+    "tool": {
+      "type": "string",
+      "enum": [
+        "pod_overview",
+        "pod_logs",
+        "pod_metrics",
+        "workload_spec"
+      ]
+    },
+    "subject": {
+      "type": "object"
+    },
+    "evidence_items": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object"
+      }
+    },
+    "numeric_encoding": {
+      "type": "string"
+    },
+    "context_sha256": {
+      "type": "string",
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "status",
+    "source",
+    "server",
+    "tool",
+    "subject",
+    "evidence_items",
+    "numeric_encoding",
+    "context_sha256"
+  ],
+  "additionalProperties": false
+}

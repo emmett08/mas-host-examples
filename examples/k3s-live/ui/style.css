@@ -1399,3 +1399,25 @@ h2 {
 .assessment-evidence-links { padding-left: 18px; color: #94a3b8; font-size: 12px; }
 .assessment-evidence-links code { display: block; overflow-wrap: anywhere; font-size: 10px; margin: 4px 0 8px; }
 .assessment-evidence-links a { color: #4bd3df; }
+
+.approach-tabs { display: flex; gap: 4px; border-bottom: 1px solid #334155; }
+.approach-tabs button { padding: 14px 22px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #98acc6; font-family: inherit; font-weight: 500; font-size: 13px; cursor: pointer; }
+.approach-tabs button[aria-selected="true"] { color: #b9eff0; border-bottom-color: var(--cyan); background: #14232e; border-radius: 7px 7px 0 0; }
+.approach-tabs button:focus-visible, .phase-controls button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.approach-description { padding: 21px 0 24px; max-width: 850px; }
+.approach-description strong { color: #dbe8f7; font-size: 14px; font-weight: 550; }
+.approach-description p { color: #a0b2ca; font-size: 12px; line-height: 1.8; margin: 8px 0 0; }
+.investigation-panel { margin: 20px 0; }
+.tool-calls { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.tool-calls li { border: 1px solid #2e4056; border-radius: 6px; padding: 14px; min-width: 0; }
+.tool-calls li > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.tool-calls strong { color: #dbe8f7; font: 12px var(--mono); overflow-wrap: anywhere; }
+.tool-evidence { color: #9eb0c8; font-size: 11px; line-height: 1.8; margin-bottom: 0; }
+.tool-evidence a { display: inline-block; color: #82d9dc; margin-right: 8px; overflow-wrap: anywhere; }
+.phase-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 20px 0 12px; }
+.phase-controls > span { color: #a0b2ca; font-size: 11px; margin-right: 5px; }
+.phase-controls button { color: #aebfd5; border: 1px solid #334155; background: #111c2a; border-radius: 5px; padding: 8px 12px; cursor: pointer; }
+.phase-controls button[aria-pressed="true"] { color: #a5eff0; border-color: #48767c; background: #163039; }
+.phase-controls small { color: #8096b1; font-size: 10px; margin-left: 4px; }
+.comparison-source { color: #a6bbd3; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+@media (max-width: 580px) { .approach-tabs button { padding: 13px 14px; font-size: 12px; } .phase-controls small { width: 100%; margin: 4px 0; } }
