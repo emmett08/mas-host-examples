@@ -134,12 +134,10 @@ test('different log projections have distinct stable identities in live and reco
     assert.deepEqual(repeat.evidence_items, short.evidence_items);
     assert.notEqual(short.evidence_items[0]?.id, full.evidence_items[0]?.id);
     const contextHash = 'a'.repeat(64);
-    const frozen = freezeInvestigation('projection-test', { run_id: 'projection-test', observed_at_ms: now,
+    assert.throws(() => freezeInvestigation('projection-test', { run_id: 'projection-test', observed_at_ms: now,
       steps: [full, short, repeat].map((output, index) => ({ id: `read-${index}`, actor: 'pod_logs',
         kind: 'effect', state: 'completed', key: 'command',
-        output: { status: 'completed', output: { ...output, context_sha256: contextHash } } })) }, ctx.evidence, source, contextHash);
-    assert.equal(frozen.calls.length, 3);
-    assert.deepEqual(frozen.evidence?.items.map(item => item.id), ['logs-checkout-current', 'logs-checkout-current-tail-1']);
+        output: { status: 'completed', output: { ...output, context_sha256: contextHash } } })) }, ctx.evidence, source, contextHash), /all four distinct MCP tool calls/);
   }
 });
 

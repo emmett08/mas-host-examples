@@ -84,8 +84,11 @@ function effects(observation: { steps: Record<string, any>[] }) {
   return observation.steps.filter(step => step.kind === 'effect');
 }
 
-test('OpenAI HTTP investigation accepts the documented decisions and retains malformed output without tools or retries', { timeout: 360_000 }, async t => {
-  for (const scenario of ['valid', 'invalid-json', 'invalid-decision', 'early-completion']) await t.test(scenario, async t => {
+test('OpenAI HTTP investigation enforces complete tool coverage and retains rejected decisions without retries', { timeout: 600_000 }, async t => {
+  for (const scenario of ['valid', 'alternate-order', 'invalid-json', 'invalid-decision', 'early-completion', 'partial-completion', 'duplicate-request']) await t.test(scenario, async t => {
+    const order = scenario === 'alternate-order' ? ['pod_metrics', 'pod_logs', 'workload_spec', 'pod_overview'] : tools;
+    const valid = ['valid', 'alternate-order'].includes(scenario);
+    const acceptedCalls = ['partial-completion', 'duplicate-request'].includes(scenario) ? 1 : 0;
     const app = await application(t), requests: Record<string, any>[] = [], errors: unknown[] = [];
     const server = createServer(async (request, response) => {
       try {
@@ -103,23 +106,31 @@ test('OpenAI HTTP investigation accepts the documented decisions and retains mal
         assert.deepEqual(body.text.format.schema.required, ['decision']);
         const variants = body.text.format.schema.properties.decision.anyOf;
         const requestSchema = variants.find((variant: any) => variant.properties.kind.enum[0] === 'request');
-        assert.equal(requestSchema.properties.input_json.type, 'string');
-        assert.deepEqual([...requestSchema.properties.target.enum].sort(), [...tools].sort());
+
         // Exercise the exact JSON examples supplied to the real model, through
         // the HTTP parser and runtime validator rather than a command provider.
         const examples = body.instructions.split('\n').filter((line: string) => line.startsWith('{'))
           .map((line: string) => JSON.parse(line));
         const ask = examples.find((example: any) => example.decision?.target === 'pod_overview');
+        const logs = examples.find((example: any) => example.decision?.target === 'pod_logs');
+        assert.deepEqual(JSON.parse(logs.decision.input_json), { container: 'checkout', previous: false, tail_lines: 40 });
         const finish = examples.find((example: any) => example.decision?.kind === 'complete');
         assert.equal(ask.decision.input_json, '{}');
         assert.equal(typeof finish.decision.output.summary, 'string');
         const input = JSON.parse(body.input), turn = input.history.length;
         assert.equal(turn, requests.length - 1);
-        assert.equal(variants.some((variant: any) => variant.properties.kind.enum[0] === 'complete'), turn >= 1,
-          'the provider may complete only after a delegated tool has returned');
-        if (turn) assert.equal(input.history[turn - 1].result.tool, tools[turn - 1]);
-        const output = turn < tools.length
-          ? { decision: { ...ask.decision, target: tools[turn] } } : finish;
+        assert.equal(variants.some((variant: any) => variant.properties.kind.enum[0] === 'complete'), turn === tools.length,
+          'the provider may complete only after all four distinct tools have returned');
+        if (turn < tools.length) {
+          assert.equal(requestSchema.properties.input_json.type, 'string');
+          assert.deepEqual([...requestSchema.properties.target.enum].sort(), order.slice(turn).sort(),
+            'the provider can choose only a required tool that has not returned');
+        } else assert.equal(requestSchema, undefined, 'the final bounded turn permits completion only');
+        if (turn) assert.equal(input.history[turn - 1].result.tool, order[turn - 1]);
+        let output = turn < tools.length
+          ? { decision: { ...(order[turn] === 'pod_logs' ? logs.decision : ask.decision), target: order[turn] } } : finish;
+        if (scenario === 'partial-completion' && turn === 1) output = finish;
+        if (scenario === 'duplicate-request' && turn === 1) output = ask;
         const text = scenario === 'invalid-json' ? 'This is not JSON.' : scenario === 'invalid-decision'
           ? JSON.stringify({ decision: { kind: 'request', target: 'pod_overview', input_json: {} } })
           : JSON.stringify(scenario === 'early-completion' ? finish : output);
@@ -151,13 +162,24 @@ test('OpenAI HTTP investigation accepts the documented decisions and retains mal
     // 'live' selects the OpenAI adapter; its endpoint is strictly this loopback
     // fixture. No external provider or Kubernetes credentials are used.
     const invoke = () => host.runInvestigation(id, inputFile, state, 'live', contextFile, contextSha256);
-    if (scenario === 'valid') {
+    if (valid) {
       const output = await invoke();
       assert.deepEqual(errors, []);
       assert.equal(requests.length, 5);
       const observation = await host.observe(id, state, true);
       const audit = freezeInvestigation(id, observation, seed.evidence, 'recorded-evidence', contextSha256);
-      assert.deepEqual(audit.calls.map(call => call.tool), tools);
+      assert.deepEqual(audit.calls.map(call => call.tool), order);
+      const deployment = audit.evidence!.items.find(item => item.id === 'workload-deployment')!.data as any;
+      assert.equal(deployment.metadata.uid, 'deployment-fixture-uid');
+      assert.equal(deployment.metadata.resourceVersion, '12345');
+      assert.equal(deployment.spec.template.spec.containers[0].readinessProbe.httpGet.path, '/readyz');
+      const logs = audit.evidence!.items.find(item => item.id === 'logs-checkout-current')!.data as any;
+      assert.equal(logs.container, 'checkout');
+      assert.equal(logs.previous, false);
+      assert.deepEqual(logs.text.split('\n').map((line: string) => JSON.parse(line)), [
+        { method: 'GET', path: '/readyz', status: 404 }, { method: 'GET', path: '/healthz', status: 200 },
+      ]);
+      assert.doesNotMatch(JSON.stringify(audit.evidence), /unrequested-previous-observation/);
       assert.ok(effects(observation).filter(step => step.key.startsWith('inference-'))
         .every(step => step.evidence.adapter === 'mas-host-openai/1' && step.output.output_status === 'valid'));
       assert.deepEqual(await invoke(), output);
@@ -174,12 +196,16 @@ test('OpenAI HTTP investigation accepts the documented decisions and retains mal
       await assert.rejects(invoke, rejected);
       assert.deepEqual(errors, []);
       const observation = await host.observe(id, state, true);
-      assert.equal(effects(observation).length, 1);
-      assert.equal(effects(observation)[0]!.state, 'completed');
-      assert.equal(effects(observation)[0]!.output.output_status, 'invalid');
-      assert.equal(observation.messages.filter((message: any) => tools.includes(message.recipient)).length, 0);
+      assert.equal(effects(observation).length, 2 * acceptedCalls + 1);
+      const rejectedInference = effects(observation).find(step => step.key === `inference-${acceptedCalls}`)!;
+      assert.equal(rejectedInference.state, 'completed');
+      assert.equal(rejectedInference.output.output_status, 'invalid');
+      assert.equal(effects(observation).filter(step => step.key === 'command').length, acceptedCalls,
+        'rejected duplicate or premature completion must not dispatch another tool');
+      assert.equal(observation.messages.filter((message: any) => tools.includes(message.recipient)).length, acceptedCalls);
+      assert.throws(() => freezeInvestigation(id, observation, seed.evidence, 'recorded-evidence', contextSha256));
       await assert.rejects(invoke, rejected);
-      assert.equal(requests.length, 1, 'known-invalid output must not retry the provider');
+      assert.equal(requests.length, acceptedCalls + 1, 'known-invalid output must not retry the provider');
     }
   });
 });

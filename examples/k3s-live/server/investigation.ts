@@ -8,8 +8,8 @@ import { failureMessage, type FailureDiagnostics } from './diagnostics.js';
 // Keep this fixed diagnostic separate from arbitrary exception text or model prose.
 export class InvestigationEvidenceFailure extends Error {
   readonly diagnostics: FailureDiagnostics;
-  constructor() {
-    const diagnostics: FailureDiagnostics = { version: 'mas-demo-failure/1', classification: 'investigation-no-tools',
+  constructor(classification: 'investigation-no-tools' | 'investigation-incomplete-tools' = 'investigation-no-tools') {
+    const diagnostics: FailureDiagnostics = { version: 'mas-demo-failure/1', classification,
       automaticRetry: false, effects: [] };
     super(failureMessage(diagnostics));
     this.name = 'InvestigationEvidenceFailure';
@@ -18,6 +18,12 @@ export class InvestigationEvidenceFailure extends Error {
 }
 
 export const investigationTools = ['pod_overview', 'pod_logs', 'pod_metrics', 'workload_spec'] as const;
+export function requireInvestigationTools(tools: readonly unknown[]) {
+  if (!tools.length) throw new InvestigationEvidenceFailure();
+  if (tools.length !== investigationTools.length || new Set(tools).size !== investigationTools.length
+    || investigationTools.some(tool => !tools.includes(tool)))
+    throw new InvestigationEvidenceFailure('investigation-incomplete-tools');
+}
 export interface InvestigationAudit {
   status: 'running' | 'completed' | 'failed'; runId: string;
   contextSha256?: string; evidence?: EvidenceBundle;
@@ -42,8 +48,7 @@ export function freezeInvestigation(id: string, raw: unknown, seed: EvidenceBund
     || !Array.isArray(observation.steps) || observation.steps.some((step: any) => step.kind === 'effect' && step.state !== 'completed'))
     throw new Error('Investigation has unresolved effects or invalid identity');
   const effects = observation.steps.filter((step: any) => step.kind === 'effect' && step.key === 'command');
-  if (!effects.length) throw new InvestigationEvidenceFailure();
-  if (effects.length > 4) throw new Error('Investigation requires one to four recorded MCP tool calls');
+  requireInvestigationTools(effects.map((step: any) => step.actor));
   const items = new Map<string, EvidenceItem>();
   const calls: InvestigationAudit['calls'] = [];
   for (const step of effects) {

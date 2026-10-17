@@ -42,8 +42,10 @@ The dashboard has two tabs on the same page:
 First select a collected run with a Pod-bound evidence bundle. In the MCP tab,
 **Investigate same incident** copies its event and Pod identity into a new run.
 The investigator receives the event and subject, but does not receive the earlier
-logs and specifications. It can request `pod_overview`, `workload_spec`, `pod_logs`
-and `pod_metrics`, then return its findings. Tool arguments cannot choose another
+logs and specifications. It chooses the order in which to request `pod_overview`,
+`workload_spec`, `pod_logs` and `pod_metrics`, and must obtain a result from each
+before returning its findings. The log request selects the current `checkout`
+container and the full bounded tail of 40 lines. Tool arguments cannot choose another
 namespace, Pod, API path or executable. These are read operations; the existing
 remediation controller remains the owner of permitted workload changes.
 
@@ -56,11 +58,12 @@ receive Kubernetes credentials or open MCP connections itself. Both protocols
 are used: Nehemiah carries admitted actor requests/results and MCP carries the
 client/server tool calls. The server belongs to this application because it owns
 Kubernetes-specific evidence, permissions and projection rules. Nehemiah's wire
-format is unchanged. The investigator sets the host's opt-in
-`min_delegate_calls = 1`: its response schema offers only request decisions until
-one delegated tool returns. Completion then becomes available, and the model can
-choose further tools within the existing budget. Other agents retain the default
-of zero required delegations.
+format is unchanged. The investigator lists all four tools in the host's opt-in
+`required_delegates`. Its response schema offers only outstanding required tools
+until each has returned, then offers completion on the fifth and final turn.
+Repeated calls to one tool cannot substitute for missing tools. The model chooses
+the order; the host enforces coverage. Agents without this setting retain their
+existing delegation behaviour.
 
 `DEMO_MCP_SOURCE` selects `kubernetes-api` or `recorded-evidence` on the server.
 It is independent of `DEMO_MODE`, which selects live model calls or deterministic
@@ -83,7 +86,10 @@ requirements; use `npm ci` and retain the deployed image with the run.
 
 Only completed command results in the host journal enter the final evidence
 bundle. Model-authored prose and the earlier admission bundle cannot add evidence.
-Each result must match the admitted context, tool, source and Pod UID. Sequential
+The application independently requires all four distinct tool results before
+freezing evidence. Each result must match the admitted context, tool, source and
+Pod UID. A returned unavailable observation records an attempted acquisition;
+it does not satisfy a remediation precondition. Sequential
 reads retain their individual timestamps; they are not an atomic cluster snapshot.
 The controller persists the frozen evidence before starting assessment, and
 reopening the same run reuses completed calls. Unknown effects prevent automatic
@@ -94,6 +100,8 @@ The recording workflow pauses remediation until both approaches have acquired
 evidence from the same faulty Pod. Once MCP evidence is frozen, it restores the
 original remediation flow while the MCP assessment continues. Its downloadable
 HTML embeds both captured approaches, including the MCP calls and their evidence.
+The recorder validates the MCP bundle's collected workload identity, probe
+specifications and current endpoint logs before accepting a practical comparison.
 This compares behaviour on one incident; it does not establish that one method
 has better diagnostic accuracy. A run initiated directly from the MCP tab does
 not create a Kubernetes remediation custom resource.
@@ -111,8 +119,8 @@ npm run test:host
 The integration checks use deterministic model responses and real stdio MCP
 exchanges. A local HTTP fixture also exercises the OpenAI Responses adapter's
 decision envelopes and verifies that malformed output launches no tool or retry.
-It also reproduces an immediate completion with no tool history and checks that
-the host rejects it under the required-delegation policy.
+They also reproduce completion after only the Pod overview and repeated requests
+to that same tool. Neither can bypass the required tool coverage or start assessment.
 The Kubernetes workflow additionally exercises actual cluster reads;
 its explicit live mode calls the configured LLMs. For deployment, continue with
 the existing GitHub Actions instructions below.
@@ -573,6 +581,9 @@ browser setting: capture a new run with `SHOW_PAYLOADS=true` to include them.
 Playback follows sampled host observations; it does not reconstruct network send
 times or perform new inference. Messages present in the first observation form
 the initial state. Forward playback animates subsequently observed envelopes.
+The communication graph sits directly beneath the playback panel in both tabs.
+Acquisition details, evidence and assessment panels appear below the workspace,
+so their growth cannot push the animation away from its controls.
 
 The download and live service use the same Vue 3/TypeScript source and canvas.
 The archive embeds its data; the deployed application uses the backend's live
@@ -682,6 +693,11 @@ must contain a JSON-encoded string. An invalid response remains a failed run.
 A completed host investigation with no tool effects is classified separately as
 `investigation-no-tools`; it cannot freeze evidence or start assessment. This
 application check also protects retained runs created before the required-delegation policy.
+A completed investigation missing any required tool is classified as
+`investigation-incomplete-tools`, including four calls that repeat one tool.
+It cannot freeze evidence or start assessment. Successful tool coverage records
+which acquisition attempts finished; the independent evidence and remediation
+checks still determine whether their observations justify action.
 Unknown provider outcomes still require host reconciliation before any manual retry.
 The PVC retains run IDs, results and host state. The host's normal reconciliation
 tools govern uncertain effects. This deployment is a single-owner demonstration,

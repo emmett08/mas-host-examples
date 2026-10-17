@@ -10,7 +10,7 @@ model = "gpt-5.4-mini-2026-03-17"
 instructions = "prompts/investigator.md"
 max_output_tokens = 2048
 max_turns = 5
-min_delegate_calls = 1
+required_delegates = ["pod_overview", "workload_spec", "pod_logs", "pod_metrics"]
 delegates = ["pod_overview", "workload_spec", "pod_logs", "pod_metrics"]
 
 [[agents]]

@@ -714,68 +714,7 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <div v-if="!isArchive && approach === 'mcp'" class="notice comparison-source" role="status">
-        <template v-if="comparisonSource">Using incident evidence from run {{ comparisonSource.id }}: {{ comparisonSource.input?.incident?.evidence?.subject.namespace }} / {{ comparisonSource.input?.incident?.evidence?.subject.name }}. Tools inspect this captured incident through MCP.</template>
-        <template v-else>Collect a Kubernetes incident first. This approach needs a recorded event and its evidence bundle to identify the same pod.</template>
-      </div>
-
-      <div v-if="isFixture" class="notice fixture-notice">
-        <strong>{{ isArchive ? "Recorded fixture" : "Fixture mode" }}</strong
-        ><span
-          >{{ isArchive ? "This recording contains deterministic provider responses and no LLM calls." : "This run uses deterministic provider responses. No LLM provider is being called." }}</span
-        >
-      </div>
-
-      <div v-if="newRunId && visibleRuns.some(run => run.id === newRunId)" class="notice new-run-notice" role="status">
-        <span
-          >A new investigation is available. The current view stays on your
-          selected run.</span
-        ><button class="text-button" @click="selectedRunId = newRunId">
-          View new run →
-        </button>
-      </div>
-
-      <section v-if="approach === 'mcp' && currentRun" class="panel investigation-panel" aria-labelledby="investigation-title" :data-investigation-status="investigation?.status ?? 'waiting'">
-        <div class="panel-heading"><div><span class="section-kicker">EVIDENCE ACQUISITION</span><h2 id="investigation-title">LLM-directed tool calls</h2></div><span class="run-state" :class="investigation?.status">{{ investigation?.status ?? 'Waiting' }}</span></div>
-        <div class="evidence-body">
-          <p class="output-note">{{ isFixture ? 'Fixture decisions exercise the delegation and MCP path; no LLM is called.' : 'The investigator requests tools and reads their results before choosing its next action.' }} The MCP server executes each admitted tool. Assessment uses the frozen tool results.</p>
-          <p v-if="investigation?.runId" class="assessment-reference">Investigation host run: <code>{{ investigation.runId }}</code></p>
-          <ol v-if="investigation?.calls?.length" class="tool-calls">
-            <li v-for="call in investigation.calls" :key="call.id" :data-tool-call-id="call.id"><div><strong>{{ call.tool }}</strong><span class="run-state" :class="call.status">{{ call.status }}</span></div><p class="assessment-reference"><code>{{ call.id }}</code></p><p class="tool-evidence"><template v-if="call.evidenceIds.length">Evidence: <a v-for="id in call.evidenceIds" :key="id" :href="`#evidence-${id}`">{{ id }}</a></template><span v-else>No evidence item recorded for this call.</span></p></li>
-          </ol>
-          <p v-else class="output-note">No tool calls have been recorded in this observation.</p>
-          <p v-if="investigation?.error" class="run-error" role="alert">{{ investigation.error }}</p>
-        </div>
-      </section>
-
-      <section v-if="evidence" class="panel evidence-panel" aria-labelledby="evidence-title">
-        <div class="panel-heading">
-          <div>
-            <span class="section-kicker">CLUSTER EVIDENCE</span>
-            <h2 id="evidence-title">{{ evidence.subject.namespace }} / {{ evidence.subject.name }}</h2>
-          </div>
-          <span class="output-label">{{ collectedEvidence }} / {{ evidence.items.length }} collected</span>
-        </div>
-        <div class="evidence-body">
-          <p class="output-note">Captured {{ recordingDate(evidence.capturedAt) }} {{ approach === 'mcp' ? 'from tool results and frozen before assessment' : 'before agent execution' }}. Pod UID: <code>{{ evidence.subject.uid }}</code>. Expand an evidence item to inspect exactly what the agents received.</p>
-          <details v-for="item in evidence.items" :key="item.id" :id="`evidence-${item.id}`" class="evidence-item" :data-evidence-id="item.id" :data-evidence-status="item.status">
-            <summary><span class="evidence-id">{{ item.id }}</span><span class="evidence-state" :class="item.status">{{ item.status }}{{ item.truncated ? " · bounded / truncated" : "" }}</span></summary>
-            <p class="evidence-source">{{ item.source }} · {{ recordingDate(item.observedAt) }}</p>
-            <p v-if="item.reason" class="output-note">{{ item.reason }}</p>
-            <pre v-if="item.status === 'collected'">{{ display(item.data) }}</pre>
-          </details>
-          <p class="evidence-limitation">CPU and memory are sampled usage, not historical peaks. Unavailable evidence and redacted fields remain explicit.</p>
-        </div>
-      </section>
-      <div v-else-if="approach === 'collected' && currentRun && currentRun.input?.incident?.source !== 'kubernetes-event'" class="notice" role="status">
-        <strong>Sample investigation</strong><span>No cluster evidence was attached to this sample. Label a workload to trigger an investigation of its real Kubernetes evidence.</span>
-      </div>
-
-      <AssessmentPanel v-if="currentRun?.revision" :audit="currentRun.revision" />
-
-      <div v-if="approach === 'mcp' && currentRun" class="phase-controls" aria-label="Host observation phase">
-        <span>Message trace</span><button :aria-pressed="phase === 'investigation'" @click="selectPhase('investigation')">Investigation</button><button :aria-pressed="phase === 'assessment'" @click="selectPhase('assessment')">Assessment</button><small>Each phase retains its own host sequence numbers.</small>
-      </div>
+      <!-- Keep the graph before results that grow during playback. -->
       <section class="workspace" :aria-label="isArchive ? 'Recorded investigation workspace' : 'Live investigation workspace'">
         <div class="primary-column">
           <section
@@ -800,6 +739,9 @@ onBeforeUnmount(() => {
                           : "Awaiting run"
                 }}
               </div>
+            </div>
+            <div v-if="approach === 'mcp'" class="phase-controls" aria-label="Host observation phase">
+              <span>Message trace</span><button :aria-pressed="phase === 'investigation'" @click="selectPhase('investigation')">Investigation</button><button :aria-pressed="phase === 'assessment'" @click="selectPhase('assessment')">Assessment</button><small>Each phase retains its own host sequence numbers.</small>
             </div>
             <TopologyCanvas
               :key="`${selectedRunId}:${canvasReset}`"
@@ -1121,6 +1063,67 @@ onBeforeUnmount(() => {
           </section>
         </aside>
       </section>
+
+      <div class="run-findings">
+        <div v-if="!isArchive && approach === 'mcp'" class="notice comparison-source" role="status">
+          <template v-if="comparisonSource">Using incident evidence from run {{ comparisonSource.id }}: {{ comparisonSource.input?.incident?.evidence?.subject.namespace }} / {{ comparisonSource.input?.incident?.evidence?.subject.name }}. Tools inspect this captured incident through MCP.</template>
+          <template v-else>Collect a Kubernetes incident first. This approach needs a recorded event and its evidence bundle to identify the same pod.</template>
+        </div>
+
+        <div v-if="isFixture" class="notice fixture-notice">
+          <strong>{{ isArchive ? "Recorded fixture" : "Fixture mode" }}</strong
+          ><span
+            >{{ isArchive ? "This recording contains deterministic provider responses and no LLM calls." : "This run uses deterministic provider responses. No LLM provider is being called." }}</span
+          >
+        </div>
+
+        <div v-if="newRunId && visibleRuns.some(run => run.id === newRunId)" class="notice new-run-notice" role="status">
+          <span
+            >A new investigation is available. The current view stays on your
+            selected run.</span
+          ><button class="text-button" @click="selectedRunId = newRunId">
+            View new run →
+          </button>
+        </div>
+
+        <section v-if="approach === 'mcp' && currentRun" class="panel investigation-panel" aria-labelledby="investigation-title" :data-investigation-status="investigation?.status ?? 'waiting'">
+          <div class="panel-heading"><div><span class="section-kicker">EVIDENCE ACQUISITION</span><h2 id="investigation-title">LLM-directed tool calls</h2></div><span class="run-state" :class="investigation?.status">{{ investigation?.status ?? 'Waiting' }}</span></div>
+          <div class="evidence-body">
+            <p class="output-note">{{ isFixture ? 'Fixture decisions exercise the delegation and MCP path; no LLM is called.' : 'The investigator requests tools and reads their results before choosing its next action.' }} The MCP server executes each admitted tool. Assessment uses the frozen tool results.</p>
+            <p v-if="investigation?.runId" class="assessment-reference">Investigation host run: <code>{{ investigation.runId }}</code></p>
+            <ol v-if="investigation?.calls?.length" class="tool-calls">
+              <li v-for="call in investigation.calls" :key="call.id" :data-tool-call-id="call.id"><div><strong>{{ call.tool }}</strong><span class="run-state" :class="call.status">{{ call.status }}</span></div><p class="assessment-reference"><code>{{ call.id }}</code></p><p class="tool-evidence"><template v-if="call.evidenceIds.length">Evidence: <a v-for="id in call.evidenceIds" :key="id" :href="`#evidence-${id}`">{{ id }}</a></template><span v-else>No evidence item recorded for this call.</span></p></li>
+            </ol>
+            <p v-else class="output-note">No tool calls have been recorded in this observation.</p>
+            <p v-if="investigation?.error" class="run-error" role="alert">{{ investigation.error }}</p>
+          </div>
+        </section>
+
+        <section v-if="evidence" class="panel evidence-panel" aria-labelledby="evidence-title">
+          <div class="panel-heading">
+            <div>
+              <span class="section-kicker">CLUSTER EVIDENCE</span>
+              <h2 id="evidence-title">{{ evidence.subject.namespace }} / {{ evidence.subject.name }}</h2>
+            </div>
+            <span class="output-label">{{ collectedEvidence }} / {{ evidence.items.length }} collected</span>
+          </div>
+          <div class="evidence-body">
+            <p class="output-note">Captured {{ recordingDate(evidence.capturedAt) }} {{ approach === 'mcp' ? 'from tool results and frozen before assessment' : 'before agent execution' }}. Pod UID: <code>{{ evidence.subject.uid }}</code>. Expand an evidence item to inspect exactly what the agents received.</p>
+            <details v-for="item in evidence.items" :key="item.id" :id="`evidence-${item.id}`" class="evidence-item" :data-evidence-id="item.id" :data-evidence-status="item.status">
+              <summary><span class="evidence-id">{{ item.id }}</span><span class="evidence-state" :class="item.status">{{ item.status }}{{ item.truncated ? " · bounded / truncated" : "" }}</span></summary>
+              <p class="evidence-source">{{ item.source }} · {{ recordingDate(item.observedAt) }}</p>
+              <p v-if="item.reason" class="output-note">{{ item.reason }}</p>
+              <pre v-if="item.status === 'collected'">{{ display(item.data) }}</pre>
+            </details>
+            <p class="evidence-limitation">CPU and memory are sampled usage, not historical peaks. Unavailable evidence and redacted fields remain explicit.</p>
+          </div>
+        </section>
+        <div v-else-if="approach === 'collected' && currentRun && currentRun.input?.incident?.source !== 'kubernetes-event'" class="notice" role="status">
+          <strong>Sample investigation</strong><span>No cluster evidence was attached to this sample. Label a workload to trigger an investigation of its real Kubernetes evidence.</span>
+        </div>
+
+        <AssessmentPanel v-if="currentRun?.revision" :audit="currentRun.revision" />
+      </div>
 
       <section
         v-if="hasOutput"

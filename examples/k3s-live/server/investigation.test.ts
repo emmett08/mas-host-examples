@@ -18,12 +18,17 @@ const result = () => ({ status: 'collected', source: 'kubernetes-api', server: '
   subject, evidence_items: [structuredClone(evidence)], context_sha256: hash });
 const observed = () => ({ run_id: 'run-a', cancelled: false, observed_at_ms: Date.parse(at), steps: [
   { id: 'tool-effect-a', actor: 'pod_overview', kind: 'effect', key: 'command', state: 'completed', output: { status: 'completed', output: result() } },
+  ...(['workload_spec', 'pod_logs', 'pod_metrics'] as const).map((tool, index) => ({ id: `tool-effect-${index + 1}`,
+    actor: tool, kind: 'effect', key: 'command', state: 'completed', output: { status: 'completed', output: {
+      ...result(), tool, evidence_items: [{ ...evidence, id: tool.replaceAll('_', '-'), kind: ['workload', 'logs', 'metrics'][index], data: {} }],
+    } } })),
 ] });
 
 test('only recorded tool results form frozen evidence; model prose and admission evidence cannot add observations', () => {
   const audit = freezeInvestigation('run-a', observed(), seed, 'kubernetes-api', hash);
-  assert.deepEqual(audit.evidence!.items.map(item => item.id), ['pod']);
-  assert.deepEqual(audit.calls, [{ id: 'tool-effect-a', tool: 'pod_overview', status: 'collected', evidenceIds: ['pod'] }]);
+  assert.deepEqual(audit.evidence!.items.map(item => item.id), ['pod', 'workload-spec', 'pod-logs', 'pod-metrics']);
+  assert.deepEqual(audit.calls.map(call => call.tool), ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics']);
+  assert.deepEqual(audit.calls[0], { id: 'tool-effect-a', tool: 'pod_overview', status: 'collected', evidenceIds: ['pod'] });
   assert.equal(audit.contextSha256, hash);
 });
 
@@ -40,14 +45,32 @@ test('unknown effects, cancelled runs, mismatched contexts, tool actors and subj
   for (const change of mutations) { const o = observed(); change(o); assert.throws(() => freezeInvestigation('run-a', o, seed, 'kubernetes-api', hash)); }
 });
 
-test('repeated evidence must keep identity and order; the last consistent timed observation is selected', () => {
-  const o = observed(), later = structuredClone(o.steps[0]!);
-  later.id = 'tool-effect-b';
-  later.output.output.evidence_items[0]!.observedAt = '2026-10-17T18:00:01Z';
-  o.steps.push(later);
-  assert.equal(freezeInvestigation('run-a', o, seed, 'kubernetes-api', hash).evidence!.items[0]!.observedAt, '2026-10-17T18:00:01Z');
-  later.output.output.evidence_items[0]!.observedAt = '2026-10-17T17:59:00Z';
-  assert.throws(() => freezeInvestigation('run-a', o, seed, 'kubernetes-api', hash), /backwards/);
+test('all four distinct tool actors are required; duplicate and partial collection cannot freeze evidence', () => {
+  for (const count of [1, 2, 3]) {
+    const o = observed(); o.steps.splice(count);
+    assert.throws(() => freezeInvestigation('run-a', o, seed, 'kubernetes-api', hash), error =>
+      error instanceof InvestigationEvidenceFailure && error.diagnostics.classification === 'investigation-incomplete-tools');
+  }
+  const duplicate = observed(); duplicate.steps[3] = structuredClone(duplicate.steps[0]!);
+  assert.throws(() => freezeInvestigation('run-a', duplicate, seed, 'kubernetes-api', hash), InvestigationEvidenceFailure);
+});
+
+test('unavailable observations remain explicitly unavailable after every required collection was attempted', () => {
+  const o = observed();
+  const metrics = o.steps[3]!.output.output;
+  Object.assign(metrics, { status: 'unavailable', evidence_items: [{ id: 'metrics', kind: 'metrics', source: 'kubernetes-api',
+    status: 'unavailable', observedAt: at, truncated: false, data: null, reason: 'Metrics API unavailable' }] });
+  const audit = freezeInvestigation('run-a', o, seed, 'kubernetes-api', hash);
+  assert.equal(audit.calls.length, 4);
+  assert.equal(audit.calls[3]!.status, 'unavailable');
+  assert.equal(audit.evidence!.items.find(item => item.id === 'metrics')!.status, 'unavailable');
+});
+
+test('a tool cannot supply conflicting duplicate evidence identities', () => {
+  const o = observed(), later = structuredClone(o.steps[0]!.output.output.evidence_items[0]!);
+  later.observedAt = '2026-10-17T18:00:01Z';
+  o.steps[0]!.output.output.evidence_items.push(later);
+  assert.throws(() => freezeInvestigation('run-a', o, seed, 'kubernetes-api', hash), /duplicate evidence/);
 });
 
 test('retained inputs can be reopened exactly but cannot be rewritten', async t => {
@@ -59,7 +82,8 @@ test('retained inputs can be reopened exactly but cannot be rewritten', async t 
   await assert.rejects(retainFile(file, { uid: 'pod-b' }), /changed/);
 });
 
-test('a completed investigator without tools is an explicit application failure and cannot start assessment or replay', async t => {
+test('completed investigators with empty, partial or duplicate tool coverage cannot start assessment or replay', async t => {
+  for (const coverage of ['empty', 'partial', 'duplicate']) await t.test(coverage, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'mas-mcp-no-tools-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   for (const path of ['project', 'dist/mcp', 'dist/operator', 'dist/shared']) await mkdir(join(dir, path), { recursive: true });
@@ -68,6 +92,12 @@ test('a completed investigator without tools is an explicit application failure 
     messages: [], steps: [{ actor: 'investigator', key: 'inference-0', kind: 'effect', state: 'completed',
       output: { certainty: 'completed', output_status: 'valid', output: { decision: { kind: 'complete',
         output: { summary: 'untrusted-provider-prose', limitations: ['no history'] } } } } }] };
+  if (coverage !== 'empty') {
+    const calls = observed().steps;
+    if (coverage === 'partial') calls.splice(1);
+    else calls[3] = structuredClone(calls[0]!);
+    (observation.steps as unknown[]).push(...calls);
+  }
   assert.throws(() => freezeInvestigation('empty-investigation', observation, seed, 'kubernetes-api', hash), InvestigationEvidenceFailure);
   let acquisitions = 0, assessments = 0;
   const host = { options: { project: join(dir, 'project'), revisionPlan: 'revision.json' },
@@ -81,9 +111,9 @@ test('a completed investigator without tools is an explicit application failure 
   await runs.create(request);
   await waitFor(() => runs.get(request.id).status === 'failed');
   const failed = runs.get(request.id);
-  assert.equal(failed.diagnostics?.classification, 'investigation-no-tools');
+  assert.equal(failed.diagnostics?.classification, coverage === 'empty' ? 'investigation-no-tools' : 'investigation-incomplete-tools');
   assert.equal(failed.diagnostics?.automaticRetry, false);
-  assert.match(failed.error!, /completed without calling an MCP tool/);
+  assert.match(failed.error!, coverage === 'empty' ? /completed without calling an MCP tool/ : /all four distinct MCP tool calls/);
   assert.doesNotMatch(failed.error!, /untrusted-provider-prose|uncertain provider/);
   assert.equal(failed.investigation?.error, failed.error);
   assert.equal(failed.investigation?.evidence, undefined);
@@ -91,6 +121,31 @@ test('a completed investigator without tools is an explicit application failure 
   const restarted = new Runs(directory, 'fixture', host); await restarted.initialise();
   assert.deepEqual((await restarted.create(request)).diagnostics, failed.diagnostics);
   assert.equal(acquisitions, 1);
+  assert.equal(assessments, 0);
+  });
+});
+
+test('restart rejects a legacy frozen partial investigation before acquisition or assessment can run', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'mas-mcp-legacy-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const id = 'legacy-partial', folder = join(directory, id);
+  await mkdir(folder);
+  await writeFile(join(folder, 'run.json'), JSON.stringify({ id, status: 'running', mode: 'fixture', approach: 'mcp',
+    startedAt: at, fingerprint: hash, revisionEnabled: true, input: { incident: { evidence: seed } },
+    investigation: { status: 'completed', runId: id, source: 'kubernetes-api', contextSha256: hash, evidence: seed,
+      calls: [{ id: 'old-overview', tool: 'pod_overview', status: 'collected', evidenceIds: ['pod'] }] } }));
+  let acquisitions = 0, assessments = 0;
+  const host = { options: { project: '/unused', revisionPlan: 'revision.json' },
+    runInvestigation: async () => { acquisitions++; throw new Error('Acquisition must not repeat'); },
+    runAssessed: async () => { assessments++; throw new Error('Assessment must not start'); },
+    observe: async () => ({ messages: [] }),
+  } as unknown as Host;
+  const runs = new Runs(directory, 'fixture', host); await runs.initialise();
+  await waitFor(() => runs.get(id).status === 'failed');
+  assert.equal(runs.get(id).diagnostics?.classification, 'investigation-incomplete-tools');
+  assert.equal(runs.get(id).investigation?.status, 'failed');
+  assert.deepEqual(runs.get(id).investigation?.evidence, seed, 'retain the old evidence for inspection');
+  assert.equal(acquisitions, 0);
   assert.equal(assessments, 0);
 });
 

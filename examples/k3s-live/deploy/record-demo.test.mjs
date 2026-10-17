@@ -35,14 +35,32 @@ function mcpComparison(source = comparisonSource()) {
   snapshot.run.id = `mcp-${source.run.id}`;
   snapshot.run.approach = 'mcp';
   snapshot.run.input = structuredClone(source.run.input);
+  const subject = structuredClone(source.run.input.incident.evidence.subject);
+  const observedAt = '2026-10-17T19:00:00.000Z';
+  const probes = { name: 'checkout', readinessProbe: { httpGet: { path: '/readyz' } }, livenessProbe: { httpGet: { path: '/healthz' } } };
+  const item = (id, kind, data) => ({ id, kind, status: 'collected', observedAt, data });
+  const items = [
+    item('pod', 'pod', { kind: 'Pod', metadata: { ...subject, ownerReferences: [{ controller: true, kind: 'ReplicaSet', uid: 'rs-uid' }] },
+      spec: { containers: [probes] }, status: { conditions: [{ type: 'Ready', status: 'False' }] } }),
+    item('events', 'events', [{ type: 'Warning', reason: 'Unhealthy', involvedObject: subject }]),
+    item('workload-replicaset', 'workload', { metadata: { uid: 'rs-uid', ownerReferences: [{ controller: true, kind: 'Deployment', uid: 'deployment-uid' }] } }),
+    item('workload-deployment', 'workload', { kind: 'Deployment', metadata: { namespace: 'mas-demo', name: 'mas-demo-checkout', uid: 'deployment-uid', resourceVersion: '12345' },
+      spec: { template: { spec: { containers: [structuredClone(probes)] } } } }),
+    item('logs-checkout-current', 'logs', { container: 'checkout', previous: false,
+      text: '{"method":"GET","path":"/readyz","status":404}\n{"method":"GET","path":"/healthz","status":200}' }),
+    item('metrics', 'metrics', { metadata: subject, timestamp: observedAt, window: '15s', containers: [{ name: 'checkout', usage: { cpu: '1m', memory: '16Mi' } }] }),
+  ];
+  const tools = ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics'];
+  const ids = [['pod', 'events'], ['workload-replicaset', 'workload-deployment'], ['logs-checkout-current'], ['metrics']];
   snapshot.run.investigation = { runId: 'investigation-run', status: 'completed', source: 'kubernetes-api',
-    evidence: { subject: structuredClone(source.run.input.incident.evidence.subject),
-      items: [{ id: 'mcp-pod', kind: 'pod', data: {} }] },
-    calls: [{ id: 'effect-1', tool: 'pod_overview', status: 'collected', evidenceIds: ['mcp-pod'] }] };
-  snapshot.investigationObservation = { payloads_included: true, observed_at_ms: 1, messages: [
-    { id: 'tool-request', sequence: 1, kind: 'request', sender: 'investigator', recipient: 'pod_overview', payload: {} },
-    { id: 'tool-result', sequence: 2, kind: 'result', sender: 'pod_overview', recipient: 'investigator', correlation: 'tool-request', payload: { output: {} } },
-  ] };
+    evidence: { version: 'mas-k8s-evidence/1', capturedAt: observedAt, subject, items },
+    calls: tools.map((tool, index) => ({ id: `effect-${index}`, tool, status: 'collected', evidenceIds: ids[index] })) };
+  snapshot.run.input.incident.evidence = structuredClone(snapshot.run.investigation.evidence);
+  snapshot.investigationObservation = { payloads_included: true, observed_at_ms: 1,
+    messages: tools.flatMap((tool, index) => [
+      { id: `tool-request-${index}`, sequence: index * 2 + 1, kind: 'request', sender: 'investigator', recipient: tool, payload: {} },
+      { id: `tool-result-${index}`, sequence: index * 2 + 2, kind: 'result', sender: tool, recipient: 'investigator', correlation: `tool-request-${index}`, payload: { output: {} } },
+    ]) };
   return snapshot;
 }
 
@@ -70,16 +88,34 @@ test('MCP capture requires real tool envelopes and frozen evidence for the same 
     [snapshot => { snapshot.run.input.incident.event.involvedObject.uid = 'other-pod'; }, /original incident/],
     [snapshot => { delete snapshot.run.investigation.evidence; }, /frozen incident evidence/],
     [snapshot => { snapshot.run.investigation.source = 'recorded-evidence'; }, /actual Kubernetes API/],
-    [snapshot => { snapshot.run.investigation.calls = []; }, /no actual MCP tool call/],
+    [snapshot => { snapshot.run.investigation.calls = []; }, /all four distinct MCP tool calls/],
     [snapshot => { snapshot.investigationObservation.payloads_included = false; }, /SHOW_PAYLOADS/],
     [snapshot => { delete snapshot.investigationObservation.messages[0].payload; }, /SHOW_PAYLOADS/],
     [snapshot => { snapshot.investigationObservation.messages[1].correlation = 'missing-request'; }, /correlated reverse-routed/],
-    [snapshot => { snapshot.run.investigation.calls[0].tool = 'invented-tool'; }, /differs from its observed/],
+    [snapshot => { snapshot.run.investigation.calls[0].tool = 'invented-tool'; }, /all four distinct MCP tool calls/],
     [snapshot => { snapshot.run.investigation.calls[0].evidenceIds = ['invented-evidence']; }, /frozen evidence/],
     [snapshot => { snapshot.investigationObservation.messages[1].sequence = 1; }, /identities or order/],
   ]) {
     const altered = mcpComparison(source); change(altered);
     assert.throws(() => validateMcpComparison(altered, source, 'live', 'mcp-k8s-uid'), pattern);
+  }
+});
+
+test('MCP capture rejects incomplete endpoint proof and wrongly selected log observations', () => {
+  const source = comparisonSource();
+  for (const change of [
+    bundle => { bundle.items.find(item => item.id === 'logs-checkout-current').data.container = 'sidecar'; },
+    bundle => { bundle.items.find(item => item.id === 'logs-checkout-current').data.previous = true; },
+    bundle => { bundle.items.find(item => item.id === 'logs-checkout-current').data.text = '{"method":"GET","path":"/readyz","status":404}'; },
+    bundle => { bundle.items.find(item => item.id === 'logs-checkout-current').data.text = '{"method":"GET","path":"/healthz","status":200}'; },
+    bundle => { delete bundle.items.find(item => item.id === 'workload-deployment').data.metadata.resourceVersion; },
+    bundle => { bundle.items.find(item => item.id === 'workload-deployment').data.spec.template.spec.containers[0].readinessProbe.httpGet.path = '/other'; },
+    bundle => { bundle.items.find(item => item.id === 'metrics').status = 'unavailable'; },
+  ]) {
+    const snapshot = mcpComparison(source);
+    change(snapshot.run.investigation.evidence);
+    snapshot.run.input.incident.evidence = structuredClone(snapshot.run.investigation.evidence);
+    assert.throws(() => validateMcpComparison(snapshot, source, 'live', snapshot.run.id), /requires|collected/);
   }
 });
 
@@ -151,6 +187,24 @@ test('MCP recorder resumes recovery once evidence is frozen while assessment is 
       } });
     assert.equal(resumed, 1, 'terminal snapshots must not resume the controller again');
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('MCP recorder cannot resume recovery or declare success before frozen practical evidence passes', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'mas-mcp-incomplete-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const source = comparisonSource(), snapshot = mcpComparison(source);
+  snapshot.run.investigation.evidence.items.find(item => item.id === 'logs-checkout-current').data.previous = true;
+  snapshot.run.input.incident.evidence = structuredClone(snapshot.run.investigation.evidence);
+  let resumed = 0;
+  const locator = () => ({ click: async () => {}, waitFor: async () => {}, getByRole: locator,
+    selectOption: async () => {}, scrollIntoViewIfNeeded: async () => {} });
+  const page = { getByRole: locator, locator, reload: async () => {}, screenshot: async () => {} };
+  await assert.rejects(captureMcpComparison({ source, mode: 'live', destination: directory, page,
+    deadline: Date.now() + 5_000, submit: async () => {},
+    fetchSnapshot: async path => path === '/api/topology' ? { nodes: [], edges: [] } : snapshot,
+    onEvidenceFrozen: async () => { resumed++; } }), /requires current checkout logs/);
+  assert.equal(resumed, 0);
+  assert.equal(JSON.parse(await readFile(join(directory, 'failure-diagnostics.json'), 'utf8')).runId, snapshot.run.id);
 });
 
 test('recording selects this Pod UID and rejects duplicate admitted investigations', () => {
