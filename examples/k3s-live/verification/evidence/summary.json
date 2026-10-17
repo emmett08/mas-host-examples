@@ -1,5 +1,6 @@
 {
   "schema": "mas-k3s-application-verification/5",
+  "compiler_optimisation": "-O0",
   "model_sha256": "6973a6aafb8f4984cb029fe6dc285e58118bea7bd03cf51aff98f6f4050ec515",
   "models": {
     "revision.pml": {
@@ -65,7 +66,7 @@
       ]
     }
   },
-  "runner_sha256": "642707d522c5a820bdc00fc7f7fb9eca60f5bec3e21c4f0187edd59310f0ac52",
+  "runner_sha256": "db28974bd68ff21f7731cb10ca69ba6cfc651a139e5a3e2343952761e080fd71",
   "reviewed_application_files": {
     "project/topology.yaml": "4906b13e74b13c870343f06a4d8085105b7f6f406c543c788bb21cad2ba284b7",
     "project/workflows/coordinator.yaml": "7b6f2ca621f5f7602026f5c645bd88dfbbe4015b0bdbaf56bbb87326282d82bb",
@@ -688,6 +689,12 @@
   ],
   "spin": "Spin Version 6.5.2 -- 6 December 2019",
   "compiler": "cc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+  "counterexample_archive": {
+    "path": "counterexamples.zip",
+    "entries": 234,
+    "sha256": "8741bc6ef069832dabb78ed8747beee75d832ae76c824616c9de107496f0cff1",
+    "verified": true
+  },
   "source_changed_during_verification": [],
   "status": "PASS"
 }

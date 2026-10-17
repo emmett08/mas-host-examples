@@ -66,6 +66,11 @@ sudo apt-get install -y spin build-essential
 python3 examples/k3s-live/verification/verify.py
 ```
 
+The runner compiles each generated verifier with `-O0`. The current finite
+suite spends more time compiling than searching. Use
+`--compile-optimisation 2` to compare an optimised verifier when model bounds
+grow. Both choices use the same assertions, state storage and search options.
+
 The runner gives each command 30 seconds, 512 MiB of address space and a search
 depth of 100,000. It uses full state storage, checks assertions and invalid end
 states, checks the inline settlement LTL claim separately, and repeats positive
@@ -87,7 +92,9 @@ identify the configurations compared during review; the runner does not derive
 the Promela model automatically from the YAML. `evidence/commands.json` retains command arguments and raw output;
 the `.trail` files retain the counterexamples. `counterexamples.zip` preserves
 each exact counterexample model, macro/compilation/search configuration,
-generated `pan.*` C verifier sources and replay trail. Build binaries stay in
+generated `pan.*` C verifier sources and replay trail. A single writer creates
+the archive. Before reporting `PASS`, the runner verifies every archived member
+against its recorded source bytes and checks the complete member set. Build binaries stay in
 isolated temporary directories. Use `--out DIRECTORY` to retain
 another run separately. A missing checker, exceeded resource limit, unexpected
 counterexample or missing expected counterexample exits non-zero.
@@ -340,3 +347,40 @@ models for assessment authority, immutable identity, budgets and disclosure.
 Neither these models nor internal deterministic criteria establish that feedback
 improves diagnosis correctness; that requires the separately frozen incident
 experiment and independent outcome measurements.
+
+
+## Verification timing
+
+An interleaved comparison on 17 October 2026 used the complete 42-case suite
+at revision `f086e3e51d4c18c2ff851a00b70422bdbfd8aa50`, GCC 13.3.0,
+SPIN 6.5.2 and Python 3.12.14 on Ubuntu 24.04.3, x86-64. Each invocation
+compiled into fresh temporary directories. The run order was `-O2`, `-O0`,
+`-O0`, `-O2`.
+
+| Compiler option | Whole-suite times (s) | Median (s) | Compilation times (s) |
+| --- | --- | --- | --- |
+| `-O2` | 74.24, 66.42 | 70.33 | 67.96, 59.05 |
+| `-O0` | 27.02, 26.65 | 26.83 | 15.31, 13.43 |
+
+The local median fell by **43.50 seconds, or 61.85%**. All 42 result
+classifications and stored-state/error counts matched. The 26 counterexample
+trails were byte-identical. The largest reported verifier memory use remained
+164.091 MiB. The 16 positive checks completed their searches, and all
+26 expected counterexamples replayed. Faster compilation outweighed the
+additional search time for these models.
+
+The [timing record](evidence/performance.json) contains the individual
+measurements, source hashes, CI step timings and action-runtime references.
+These local measurements cover compilation, searches and evidence writing.
+GitHub job measurements also include package installation and runner overhead.
+Recheck the trade-off after increasing the model bounds.
+
+Run the same comparison into a new directory:
+
+```sh
+python3 examples/k3s-live/verification/benchmark.py --out /tmp/mas-spin-timing
+```
+
+The script retains each run's complete evidence and `benchmark.json`, then
+requires equal sources, bounds, outcomes, state/error counts and replay trails.
+It leaves the published `evidence/` files intact.
