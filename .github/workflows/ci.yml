@@ -33,6 +33,23 @@ jobs:
         run: make verify
       - name: Run documented commands
         run: make go rust cpp python python-client command star tree mesh composed
+      - name: Verify A2A discovery, authorisation and durable retry without provider credentials
+        timeout-minutes: 3
+        run: make a2a
+      - name: Verify interoperability with the pinned official A2A Python SDK
+        timeout-minutes: 4
+        run: |
+          python3 -m venv .tools/a2a-sdk
+          .tools/a2a-sdk/bin/python -m pip install -r examples/a2a-review/requirements-sdk.txt
+          .tools/a2a-sdk/bin/python examples/a2a-review/sdk_check.py --report .state/a2a-review/official-sdk.json
+      - name: Retain A2A fixture evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nehemiah-a2a-fixture
+          path: .state/a2a-review
+          if-no-files-found: warn
+          retention-days: 14
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'

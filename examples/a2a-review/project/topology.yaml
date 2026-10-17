@@ -1,0 +1,10 @@
+version: mas-topology/1
+edges:
+  - [client, review]
+  - [review, client]
+  - [client, policy]
+  - [policy, client]
+  - [review, policy]
+  - [policy, review]
+  - [review, reviewer]
+  - [reviewer, review]

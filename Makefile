@@ -11,7 +11,7 @@ export PYTHONDONTWRITEBYTECODE := 1
 export GOWORK := off
 export GOTOOLCHAIN := local
 
-.PHONY: setup check test acceptance recovery verify go rust cpp python python-client command command-agent star tree mesh composed
+.PHONY: setup check test acceptance recovery verify go rust cpp python python-client command command-agent star tree mesh composed a2a a2a-sdk
 
 setup:
 	bash scripts/setup.sh
@@ -61,3 +61,10 @@ star tree composed:
 
 mesh:
 	"$(MAS_HOST_BIN)" run --project examples/composable-agents --agent mesh_a --input examples/composable-agents/input.yaml --state .state --run review-mesh
+
+a2a:
+	python3 examples/a2a-review/demo.py --report .state/a2a-review/demo.json
+
+# Install examples/a2a-review/requirements-sdk.txt in this interpreter first.
+a2a-sdk:
+	python3 examples/a2a-review/sdk_check.py --report .state/a2a-review/official-sdk.json
