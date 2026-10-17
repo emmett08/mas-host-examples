@@ -27,9 +27,23 @@ export function selectRemediationForRun(items, runId) {
   return matches[0];
 }
 
+class RemediationNotProposedError extends Error {
+  constructor() {
+    super('The completed assessment requires engineer review or proposes no permitted correction; automatic recovery will not be attempted. See run.json for the agent reason and next checks.');
+    this.name = 'RemediationNotProposedError';
+  }
+}
+
 export function validateControllerResolution(snapshot, journal, sourceRunUID) {
   const resolution = snapshot?.run?.resolution;
-  if (!resolution) return false;
+  if (!resolution) {
+    const decision = snapshot?.run?.output;
+    // A final abstention cannot produce a controller journal or recovery. Keep
+    // this a failed practical demonstration, with its actual cause, immediately.
+    if (snapshot?.run?.status === 'completed' && (decision?.requires_human !== false ||
+        decision?.remediation?.action !== 'replace_readiness_probe_path')) throw new RemediationNotProposedError();
+    return false;
+  }
   if (resolution.status !== 'verified') throw new Error(`Practical recovery was ${resolution.status}: ${resolution.reason}`);
   if (resolution.version === 'mas-k8s-resolution/2' && (resolution.effectOutcome !== 'applied' || resolution.verificationOutcome !== 'passed')) {
     throw new Error('Practical recovery requires an acknowledged applied effect and passed verification');
@@ -100,11 +114,18 @@ export function validateSnapshot(snapshot, mode, id) {
 }
 
 export function failureReport(snapshot, error) {
+  const notProposed = error instanceof RemediationNotProposedError;
+  const decision = snapshot?.run?.output;
   return {
     runId: snapshot?.run?.id,
-    classification: snapshot?.run?.diagnostics?.classification ?? 'host-or-capture-failure',
+    classification: snapshot?.run?.diagnostics?.classification ?? (notProposed ? 'remediation-not-proposed' : 'host-or-capture-failure'),
     error: snapshot?.run?.error ?? error.message,
     ...(snapshot?.run?.diagnostics ? { diagnostics: snapshot.run.diagnostics } : {}),
+    ...(notProposed ? { proposal: {
+      requiresHuman: decision?.requires_human,
+      action: decision?.remediation?.action,
+      reason: decision?.remediation?.reason,
+    } } : {}),
   };
 }
 

@@ -32,6 +32,7 @@ test('recording selects this Pod UID and rejects duplicate admitted investigatio
 
 test('recording requires the actual finished controller journal to match its published recovery', () => {
   const snapshot = completed();
+  snapshot.run.output = { requires_human: false, remediation: { action: 'replace_readiness_probe_path' } };
   assert.equal(validateControllerResolution(snapshot, undefined, 'source-uid'), false);
   snapshot.run.resolution = { version: 'mas-k8s-resolution/2', effectOutcome: 'applied', verificationOutcome: 'passed', status: 'verified', reason: 'Ready, HTTP 200 and metrics verified' };
   const journal = { spec: { runId: snapshot.run.id, sourceRunUID: 'source-uid' },
@@ -45,6 +46,36 @@ test('recording requires the actual finished controller journal to match its pub
   assert.throws(() => validateControllerResolution(snapshot, { ...journal, status: { ...journal.status, reportJson: '{}' } }, 'source-uid'), /differs from/);
   snapshot.run.resolution.status = 'failed';
   assert.throws(() => validateControllerResolution(snapshot, journal, 'source-uid'), /Practical recovery was failed/);
+});
+
+test('a completed abstention stops recovery capture and retains the actual decision in failure diagnostics', () => {
+  for (const [requiresHuman, action] of [[true, 'none'], [true, 'replace_readiness_probe_path'], [false, 'none']]) {
+    const snapshot = completed();
+    snapshot.run.output = { requires_human: requiresHuman, remediation: { action,
+      reason: 'The endpoint contract has not been established.' } };
+    assert.throws(() => validateControllerResolution(snapshot, undefined, 'source-uid'), error => {
+      const report = failureReport(snapshot, error);
+      assert.equal(report.classification, 'remediation-not-proposed');
+      assert.match(report.error, /completed assessment.*automatic recovery/i);
+      assert.deepEqual(report.proposal, { requiresHuman, action, reason: snapshot.run.output.remediation.reason });
+      assert.equal('observation' in report, false);
+      return true;
+    });
+  }
+});
+
+test('recovery capture waits for unfinished assessments and eligible proposals, and fails closed on missing decisions', () => {
+  const snapshot = completed();
+  snapshot.run.status = 'running';
+  assert.equal(validateControllerResolution(snapshot, undefined, 'source-uid'), false);
+  snapshot.run.status = 'completed';
+  for (const output of [undefined, {}, { requires_human: false },
+    { requires_human: 'false', remediation: { action: 'replace_readiness_probe_path' } }]) {
+    snapshot.run.output = output;
+    assert.throws(() => validateControllerResolution(snapshot, undefined, 'source-uid'), /automatic recovery/i);
+  }
+  snapshot.run.output = { requires_human: false, remediation: { action: 'replace_readiness_probe_path' } };
+  assert.equal(validateControllerResolution(snapshot, undefined, 'source-uid'), false);
 });
 
 test('recording requires actual completed observations in the requested provider mode', () => {

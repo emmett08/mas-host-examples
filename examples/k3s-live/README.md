@@ -137,6 +137,14 @@ returning 200. The live Pod, ReplicaSet and Deployment specifications identify
 the faulty readiness path and the owning workload. Because the process remains
 running, metrics-server can sample its real CPU and memory usage.
 
+All three agent prompts state the bundled `probe-app.mjs` endpoint contract:
+`/healthz` serves readiness and liveness, `/` serves the application, and
+`/readyz` is unsupported. That contract applies only to this managed example
+running the bundled command. Collected logs and specifications must still
+support the diagnosis. The controller checks current execution preconditions
+and subsequent recovery; those pending checks do not themselves prevent a
+conditional recommendation.
+
 The expected useful outcome is a specific proposal to change the owning
 Deployment's named container readiness path to `/healthz`. The LLM must cite
 collected evidence IDs. It can return `action: none` and request further work
@@ -451,6 +459,11 @@ enable payload capture. Recordings observe its retained outcome and include the
 `MASRemediation` resource. Successful practical capture requires collected logs, live resource
 specifications, real metric samples, every message payload and a verified
 recovery. It fails explicitly when that evidence or outcome is missing.
+If the final assessment requests human review or proposes no permitted action,
+capture fails immediately with classification `remediation-not-proposed`.
+`failure-diagnostics.json` retains the proposed action and the agent's reason;
+`run.json` retains its next checks. The recorder does not wait for a recovery
+that this decision cannot initiate, override the assessment or report success.
 Recordings and traces
 remain available for seven days; the cluster is deleted when its job finishes,
 including after failure.
