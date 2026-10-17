@@ -1,0 +1,4 @@
+version = "mas-connections/1"
+[connections.investigation]
+kind = "command"
+command = ["node", "fixture-provider.mjs", "investigate"]

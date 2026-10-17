@@ -29,6 +29,86 @@ service.** See [GitHub Actions](#github-actions) for the single required secret.
    correction after the selected candidate passes its internal checks. It records the exact patch and checks
    rollout, replacement Pod identity, application health and fresh metrics.
 
+## Compare collected evidence with LLM-selected MCP tools
+
+The dashboard has two tabs on the same page:
+
+- **Collected evidence** keeps the original operator collection and hybrid assessment.
+- **LLM tools + MCP** selects the same incident, asks an LLM investigator to choose
+  tools, freezes their recorded results, then runs the same hybrid assessment and
+  bounded revision. Select **Investigation** or **Assessment** to inspect each
+  phase's own topology and request/result trace.
+
+First select a collected run with a Pod-bound evidence bundle. In the MCP tab,
+**Investigate same incident** copies its event and Pod identity into a new run.
+The investigator receives the event and subject, but does not receive the earlier
+logs and specifications. It can request `pod_overview`, `workload_spec`, `pod_logs`
+and `pod_metrics`, then return its findings. Tool arguments cannot choose another
+namespace, Pod, API path or executable. These are read operations; the existing
+remediation controller remains the owner of permitted workload changes.
+
+`project/agents.mcp.toml` binds the investigator and four ordinary command actors.
+The retained executable `project/mcp-client.mjs` connects to the custom stdio MCP
+server in `mcp/server.ts` using the pinned official TypeScript SDK. It discovers
+and invokes one registered tool per admitted MAS command effect. The model
+selects operations through the existing `delegates` decision loop; it does not
+receive Kubernetes credentials or open MCP connections itself. Both protocols
+are used: Nehemiah carries admitted actor requests/results and MCP carries the
+client/server tool calls. The server belongs to this application because it owns
+Kubernetes-specific evidence, permissions and projection rules. No host runtime
+or Nehemiah wire-format change is required.
+
+`DEMO_MCP_SOURCE` selects `kubernetes-api` or `recorded-evidence` on the server.
+It is independent of `DEMO_MODE`, which selects live model calls or deterministic
+provider fixtures. Deployment explicitly sets `kubernetes-api` in both provider
+modes. Local fixture runs default to `recorded-evidence`; that mode only reads
+previously supplied observations and never claims fresh cluster measurements.
+Live mode defaults to `kubernetes-api` and does not fall back when access fails.
+The dashboard's MCP subprocess uses the projected service-account token; the
+existing namespace-scoped operator role has workload read permissions and CRD
+administration permissions. The tool implementation exposes no mutation method.
+
+Each investigation permits five model turns, at most four tool calls and nine
+external effects within 180 seconds. Each tool call has a 20-second host limit,
+a 15-second client limit and an 8 KiB result bound. The assessment retains its
+300-second bound; the combined API run has a retained 600-second deadline. These
+are execution limits, not supplier billing guarantees. Context bytes, deployed
+MCP/operator/shared modules and the dependency lockfile are digest-bound. The
+Node interpreter and installed SDK dependency tree remain pinned deployment
+requirements; use `npm ci` and retain the deployed image with the run.
+
+Only completed command results in the host journal enter the final evidence
+bundle. Model-authored prose and the earlier admission bundle cannot add evidence.
+Each result must match the admitted context, tool, source and Pod UID. Sequential
+reads retain their individual timestamps; they are not an atomic cluster snapshot.
+The controller persists the frozen evidence before starting assessment, and
+reopening the same run reuses completed calls. Unknown effects prevent automatic
+repetition. Shutdown prevents subsequent phase launch and asks each active host
+to cancel; already admitted work can settle before cancellation is acknowledged.
+
+The recording workflow pauses remediation until both approaches have acquired
+evidence from the same faulty Pod. Once MCP evidence is frozen, it restores the
+original remediation flow while the MCP assessment continues. Its downloadable
+HTML embeds both captured approaches, including the MCP calls and their evidence.
+This compares behaviour on one incident; it does not establish that one method
+has better diagnostic accuracy. A run initiated directly from the MCP tab does
+not create a Kubernetes remediation custom resource.
+
+After `make setup`, run application and real-host integration checks:
+
+```sh
+cd examples/k3s-live
+npm ci
+npm test
+npm run build
+npm run test:host
+```
+
+The integration checks use deterministic model responses and real stdio MCP
+exchanges. The Kubernetes workflow additionally exercises actual cluster reads;
+its explicit live mode calls the configured LLMs. For deployment, continue with
+the existing GitHub Actions instructions below.
+
 ## Auditable assessment and bounded revision
 
 `project/revision.json` freezes the evaluator, three binary criteria, permitted
@@ -118,9 +198,11 @@ The native-host integration suite runs the same mixed review and checks passing
 agreement, candidate mismatch, context mismatch and changed candidate content.
 It also checks reply-route preflight, rejection of host-reserved evidence source
 identities, forged evaluator bindings, foreign evidence, frozen-plan conflicts,
-exhaustion and replay. Run it from this directory after building the pinned host:
+exhaustion and replay. After installing dependencies and building the pinned host,
+build the application before running the suite from this directory:
 
 ```bash
+npm run build
 MAS_HOST_BIN=../../.tools/mas-host/target/debug/mas-host \
 MAS_SDK_ROOT=../../.tools/mas-host npm run test:host
 ```

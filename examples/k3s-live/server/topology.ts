@@ -25,3 +25,12 @@ export async function topology(project: string, mode: string) {
     .map(([from, to]: string[]) => ({ from, to,
     ...((from === 'platform' && to === 'security') || (from === 'security' && to === 'platform') ? { kind: 'peer' } : {}) })) };
 }
+
+export async function investigationTopology(project: string, mode: string) {
+  const config = parse(await readFile(join(project, 'topology.mcp.yaml'), 'utf8'));
+  return { mode, nodes: [
+    { id: 'client', label: 'Bound incident', kind: 'client', group: 'ingress' },
+    { id: 'investigator', label: 'Tool-using investigator', kind: 'llm', group: 'coordination', model: 'GPT-5.4 Mini' },
+    ...['pod_overview', 'pod_logs', 'pod_metrics', 'workload_spec'].map(id => ({ id, label: id.replaceAll('_', ' '), kind: 'tool', group: 'specialists' })),
+  ], edges: config.edges.map(([from, to]: string[]) => ({ from, to })) };
+}

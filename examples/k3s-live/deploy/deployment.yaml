@@ -51,6 +51,11 @@ spec:
             - {name: DEMO_DATA_DIR, value: /data}
             - {name: MAS_HOST_BIN, value: /opt/mas-host/mas-host}
             - {name: MAS_SDK_ROOT, value: /opt/mas-host}
+            # Fixture mode scripts LLM decisions; both modes read real k3s tools.
+            - {name: DEMO_MCP_SOURCE, value: kubernetes-api}
+            - name: MAS_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
             - name: DEMO_MODE
               valueFrom:
                 configMapKeyRef: {name: mas-demo-settings, key: provider}
@@ -76,6 +81,9 @@ spec:
           volumeMounts:
             - {name: state, mountPath: /data}
             - {name: tmp, mountPath: /tmp}
+            # The custom MCP subprocess reads only the incident's evidence.
+            # Workload mutation remains with the separate remediation account.
+            - {name: operator-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
         - name: operator
           image: mas-k3s-live:demo
           imagePullPolicy: IfNotPresent

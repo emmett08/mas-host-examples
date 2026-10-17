@@ -1,6 +1,7 @@
 // Execute the pinned host without a shell; observation never receives or acknowledges messages.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { resolve } from 'node:path';
 import { failureMessage, projectFailure, type FailureDiagnostics } from './diagnostics.js';
 import { canonicalJson, parseRevisionAudit, redactRevisionAudit, type RevisionAudit } from '../shared/revision.mjs';
 
@@ -32,20 +33,29 @@ export class Host {
     if (!selected || canonicalJson(selected.output) !== canonicalJson(result.output)) throw new Error('Selected output differs from the assessed candidate');
     return { output: result.output, revision: this.options.payloads ? revision : redactRevisionAudit(revision) };
   }
-  private async invoke(id: string, input: string, state: string, mode: 'live' | 'fixture', assessed: boolean) {
+  async runInvestigation(id: string, input: string, state: string, mode: 'live' | 'fixture', contextFile: string, contextSha256: string) {
+    return (await this.invoke(id, input, state, mode, false, { contextFile, contextSha256 })).output as unknown;
+  }
+  private async invoke(id: string, input: string, state: string, mode: 'live' | 'fixture', assessed: boolean,
+    investigation?: { contextFile: string; contextSha256: string }) {
     const args = ['run', '--project', this.options.project, '--sdk-root', this.options.sdk,
-      '--agent', assessed ? 'assessed_draft' : 'coordinator', '--input', input, '--state', state, '--run', id];
+      '--agent', investigation ? 'investigator' : assessed ? 'assessed_draft' : 'coordinator', '--input', input, '--state', state, '--run', id];
+    if (investigation) args.push('--agents', 'agents.mcp.toml', '--topology', 'topology.mcp.yaml');
     if (assessed) {
       if (!this.options.revisionPlan) throw new Error('An assessed run requires a frozen revision plan');
       args.push('--revision-plan', this.options.revisionPlan);
     }
-    const profile = mode === 'fixture' && assessed
+    const profile = mode === 'fixture' && investigation ? 'connections.mcp-fixture.toml' : mode === 'fixture' && assessed
       ? this.options.fixtureRecording ? 'connections.assessment-recording.toml' : 'connections.assessment-fixture.toml'
       : fixtureConnectionProfile(mode, this.options.fixtureRecording);
     if (profile) args.push('--connections', profile);
     // The verifier credential belongs to the HTTP report channel, never to
     // MAS workers or provider adapters. Other credentials keep their scope.
-    const environment = hostEnvironment();
+    const environment = { ...hostEnvironment(), ...(investigation ? {
+      MAS_MCP_CONTEXT_FILE: investigation.contextFile, MAS_MCP_CONTEXT_SHA256: investigation.contextSha256,
+      MAS_MCP_PACKAGE_ROOT: resolve(this.options.project, '..'),
+      MAS_MCP_SERVER_MODULE: resolve(this.options.project, '../dist/mcp/server.js'),
+    } : {}) };
     try {
       const { stdout } = await execute(this.options.binary, args,
         { timeout: 330_000, maxBuffer: 2 * 1024 * 1024, env: environment });
@@ -63,9 +73,9 @@ export class Host {
       throw new HostRunFailure(projectFailure(observation, id));
     }
   }
-  async observe(id: string, state: string) {
+  async observe(id: string, state: string, includePayloads = this.options.payloads) {
     const { stdout } = await execute(this.options.binary,
-      ['observe', '--state', state, '--run', id, '--include-payloads', String(this.options.payloads)],
+      ['observe', '--state', state, '--run', id, '--include-payloads', String(includePayloads)],
       { timeout: 3000, maxBuffer: 4 * 1024 * 1024, env: hostEnvironment() });
     const raw = JSON.parse(stdout);
     if (raw.version !== 'mas-host-observation/1') throw new Error('Unsupported host observation version');

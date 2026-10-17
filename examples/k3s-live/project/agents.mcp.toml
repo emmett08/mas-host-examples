@@ -1,0 +1,83 @@
+version = "mas-agents/3"
+[[agents]]
+name = "investigator"
+operation = "investigate_with_mcp/1"
+output_schema = "schemas/investigation.json"
+[agents.implementation]
+kind = "llm"
+connection = "investigation"
+model = "gpt-5.4-mini-2026-03-17"
+instructions = "prompts/investigator.md"
+max_output_tokens = 2048
+max_turns = 5
+delegates = ["pod_overview", "workload_spec", "pod_logs", "pod_metrics"]
+
+[[agents]]
+name = "pod_overview"
+operation = "pod_overview/1"
+input_schema = "schemas/mcp-input.json"
+output_schema = "schemas/mcp-result.json"
+environment = ["MAS_MCP_PACKAGE_ROOT", "MAS_MCP_SERVER_MODULE", "MAS_MCP_CONTEXT_FILE", "MAS_MCP_CONTEXT_SHA256", "KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT_HTTPS"]
+[agents.implementation]
+kind = "command"
+executable = "mcp-client.mjs"
+arguments = [{literal = "pod_overview"}]
+stdin = "json"
+stdout = "json-object"
+timeout_seconds = 20
+max_output_bytes = 8192
+
+[[agents]]
+name = "pod_logs"
+operation = "pod_logs/1"
+input_schema = "schemas/mcp-logs-input.json"
+output_schema = "schemas/mcp-result.json"
+environment = ["MAS_MCP_PACKAGE_ROOT", "MAS_MCP_SERVER_MODULE", "MAS_MCP_CONTEXT_FILE", "MAS_MCP_CONTEXT_SHA256", "KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT_HTTPS"]
+[agents.implementation]
+kind = "command"
+executable = "mcp-client.mjs"
+arguments = [{literal = "pod_logs"}]
+stdin = "json"
+stdout = "json-object"
+timeout_seconds = 20
+max_output_bytes = 8192
+
+[[agents]]
+name = "pod_metrics"
+operation = "pod_metrics/1"
+input_schema = "schemas/mcp-input.json"
+output_schema = "schemas/mcp-result.json"
+environment = ["MAS_MCP_PACKAGE_ROOT", "MAS_MCP_SERVER_MODULE", "MAS_MCP_CONTEXT_FILE", "MAS_MCP_CONTEXT_SHA256", "KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT_HTTPS"]
+[agents.implementation]
+kind = "command"
+executable = "mcp-client.mjs"
+arguments = [{literal = "pod_metrics"}]
+stdin = "json"
+stdout = "json-object"
+timeout_seconds = 20
+max_output_bytes = 8192
+
+[[agents]]
+name = "workload_spec"
+operation = "workload_spec/1"
+input_schema = "schemas/mcp-input.json"
+output_schema = "schemas/mcp-result.json"
+environment = ["MAS_MCP_PACKAGE_ROOT", "MAS_MCP_SERVER_MODULE", "MAS_MCP_CONTEXT_FILE", "MAS_MCP_CONTEXT_SHA256", "KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT_HTTPS"]
+[agents.implementation]
+kind = "command"
+executable = "mcp-client.mjs"
+arguments = [{literal = "workload_spec"}]
+stdin = "json"
+stdout = "json-object"
+timeout_seconds = 20
+max_output_bytes = 8192
+
+[connections.investigation]
+kind = "openai"
+api_key_env = "OPENAI_API_KEY"
+[limits]
+wall_seconds = 180
+max_calls = 9
+max_messages = 16
+max_bytes = 524288
+mailbox_capacity = 8

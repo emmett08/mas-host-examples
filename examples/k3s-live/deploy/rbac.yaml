@@ -18,6 +18,8 @@ metadata:
   name: mas-demo-operator
   namespace: mas-demo
 rules:
+  # Shared by the event collector and dashboard's read-only MCP subprocess.
+  # This role grants no create, update, patch or delete access to workloads.
   - apiGroups: ['']
     resources: [events, pods]
     verbs: [get, list]

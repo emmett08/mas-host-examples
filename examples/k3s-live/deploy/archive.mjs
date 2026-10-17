@@ -18,7 +18,7 @@ function parse(text, filename) {
 }
 
 /** Retain actual observation timestamps; unavailable observations have no replay frame. */
-export async function readArchive(directory) {
+export async function readArchive(directory, comparisonDirectories = []) {
   const [topologyText, snapshotText, observationsText] = await Promise.all([
     optionalText(directory, 'topology.json'),
     optionalText(directory, 'snapshot.json'),
@@ -44,9 +44,18 @@ export async function readArchive(directory) {
   if (JSON.stringify(candidates.at(-1)) !== JSON.stringify(final)) candidates.push(final);
   const snapshots = [];
   let retainedRevision;
-  for (const snapshot of candidates) {
+  for (const candidate of candidates) {
+    // Each host journal retains its own timestamp. The replay frame advances
+    // to the latest real observation, including acquisition-only snapshots.
+    const observedTimes = [candidate.observation?.observed_at_ms, candidate.investigationObservation?.observed_at_ms]
+      .filter(value => Number.isSafeInteger(value));
+    const snapshot = candidate.investigationObservation === undefined ? candidate
+      : { ...candidate, observation: candidate.observation ?? { messages: [] },
+          ...(observedTimes.length ? { observedAtMs: Math.max(...observedTimes) } : {}) };
     if (snapshot?.run?.id !== final.run.id || snapshot.run.mode !== final.run.mode ||
-        snapshot.run.startedAt !== final.run.startedAt || typeof snapshot.run.status !== 'string') {
+        snapshot.run.startedAt !== final.run.startedAt || typeof snapshot.run.status !== 'string' ||
+        (snapshot.run.approach ?? 'collected') !== (final.run.approach ?? 'collected') ||
+        !['collected', 'mcp'].includes(snapshot.run.approach ?? 'collected')) {
       throw new Error('Cannot archive inconsistent run identities');
     }
     if (snapshot.run.revision) {
@@ -55,9 +64,13 @@ export async function readArchive(directory) {
         checkSelectedOutput(retainedRevision, snapshot.run.output);
       }
     } else if (retainedRevision) throw new Error('Cannot archive disappearing revision history');
-    const timestamp = snapshot.observation?.observed_at_ms;
+    const timestamp = snapshot.observedAtMs ?? snapshot.observation?.observed_at_ms;
     if (snapshot.observationAvailable === false && timestamp === undefined) continue;
     if (!Number.isSafeInteger(timestamp) || timestamp < 0 ||
+        (snapshot.observation?.observed_at_ms !== undefined &&
+          (!Number.isSafeInteger(snapshot.observation.observed_at_ms) || snapshot.observation.observed_at_ms < 0)) ||
+        (snapshot.investigationObservation !== undefined &&
+          (!Number.isSafeInteger(snapshot.investigationObservation.observed_at_ms) || snapshot.investigationObservation.observed_at_ms < 0)) ||
         !Array.isArray(snapshot.observation?.messages)) {
       throw new Error('Cannot archive an observation without a valid recorded timestamp and envelopes');
     }
@@ -70,7 +83,7 @@ export async function readArchive(directory) {
         new Set(messages.map(message => message.id)).size !== messages.length) {
       throw new Error('Cannot archive malformed or unordered envelopes');
     }
-    if (snapshots.length && timestamp < snapshots.at(-1).observation.observed_at_ms) {
+    if (snapshots.length && timestamp < (snapshots.at(-1).observedAtMs ?? snapshots.at(-1).observation.observed_at_ms)) {
       throw new Error('Cannot archive observations whose recorded timestamps move backwards');
     }
     snapshots.push(snapshot);
@@ -80,8 +93,26 @@ export async function readArchive(directory) {
     await verifyRevisionDigests(retainedRevision);
     if (final.run.output !== undefined) await verifySelectedOutput(retainedRevision, final.run.output);
   }
-  return { version: 'mas-demo-archive/1', capturedAt: new Date(snapshots.at(-1).observation.observed_at_ms).toISOString(),
+  const archive = { version: 'mas-demo-archive/1', capturedAt: new Date(snapshots.at(-1).observedAtMs ?? snapshots.at(-1).observation.observed_at_ms).toISOString(),
     topology, runId: final.run.id, snapshots };
+  if (comparisonDirectories.length > 1) throw new Error('A comparison dashboard supports two approaches');
+  if (comparisonDirectories.length) {
+    archive.comparisons = [];
+    for (const comparisonDirectory of comparisonDirectories) {
+      if (resolve(comparisonDirectory) === resolve(directory)) throw new Error('Comparison capture must be a different directory');
+      const comparison = await readArchive(comparisonDirectory);
+      if (!comparison) {
+        console.log('Comparison recording unavailable: no retained timed observations; preserving the primary dashboard.');
+        continue;
+      }
+      if (comparison.runId === archive.runId ||
+          (comparison.snapshots[0].run.approach ?? 'collected') === (snapshots[0].run.approach ?? 'collected')) {
+        throw new Error('Comparison captures must contain distinct runs and approaches');
+      }
+      archive.comparisons.push(comparison);
+    }
+  }
+  return archive;
 }
 
 export function archiveDocument(archive, javascript, css) {
@@ -105,9 +136,9 @@ export function archiveDocument(archive, javascript, css) {
 }
 
 /** Return undefined for missing capture data; reject malformed captures or incomplete bundles. */
-export async function createArchive(captureDirectory) {
+export async function createArchive(captureDirectory, comparisonDirectories = []) {
   const directory = resolve(captureDirectory);
-  const archive = await readArchive(directory);
+  const archive = await readArchive(directory, comparisonDirectories);
   if (!archive) {
     console.log('Offline dashboard skipped: no retained timed observation is available yet.');
     return undefined;
@@ -146,7 +177,9 @@ export async function createArchive(captureDirectory) {
     '# Retained MAS dashboard', '',
     'Open `index.html` in a browser. The Vue application, styles and captured observations are embedded in this one file.',
     'No server, npm install, CDN or network connection is required.', '',
-    `Run: ${archive.runId}. Provider mode: ${archive.snapshots.at(-1).run.mode}.`,
+    `Run: ${archive.runId}. Approach: ${archive.snapshots.at(-1).run.approach ?? 'collected'}. Provider mode: ${archive.snapshots.at(-1).run.mode}.`,
+    ...(archive.comparisons?.map(recording => `Comparison run: ${recording.runId}. Approach: ${recording.snapshots.at(-1).run.approach}. Provider mode: ${recording.snapshots.at(-1).run.mode}.`) ?? []),
+    'Use the Collected evidence and LLM tools + MCP tabs to select the approach. An uncaptured approach is explicitly marked unavailable.',
     archive.snapshots.at(-1).observation.payloads_included === true
       ? 'Payloads are included. Select a message in the log to inspect its recorded request input or agent result.'
       : 'Payloads were omitted when this recording was captured. A new capture with SHOW_PAYLOADS=true is required to include them.',
@@ -162,9 +195,9 @@ export async function createArchive(captureDirectory) {
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   if (!process.argv[2]) {
-    console.error('Usage: npm run archive -- <capture-directory>');
+    console.error('Usage: npm run archive -- <capture-directory> [comparison-capture-directory]');
     process.exitCode = 1;
   } else {
-    createArchive(process.argv[2]).catch(error => { console.error(error.message); process.exitCode = 1; });
+    createArchive(process.argv[2], process.argv.slice(3)).catch(error => { console.error(error.message); process.exitCode = 1; });
   }
 }

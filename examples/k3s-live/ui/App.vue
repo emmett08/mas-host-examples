@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import TopologyCanvas from "./components/TopologyCanvas.vue";
 import AssessmentPanel from "./components/AssessmentPanel.vue";
-import { ArchivePlayback, playbackTime, type PlaybackFrame } from "./archive";
+import { ArchivePlayback, archiveTime, playbackTime, type PlaybackFrame } from "./archive";
+import { approachOf, approachRuns, archiveRuns, phaseMessages, selectApproachRun, type Phase } from "./approach";
 import {
   deduplicateMessages,
   formatDuration,
   isRequestComplete,
   messageTone,
 } from "./topology";
-import type { Message, Run, RunArchive, Snapshot, Topology } from "./types";
+import type { Approach, Message, Run, RunArchive, Snapshot, Topology } from "./types";
 import { outcomeLabels } from "../shared/resolution";
 import { parseRevisionAudit } from "../shared/revision.mjs";
 
@@ -20,9 +21,20 @@ const canvasReset = ref(0);
 let playbackClock: ArchivePlayback | undefined;
 let playbackWallTime = 0;
 
-const topology = ref<Topology>({ nodes: [], edges: [] });
+const approach = ref<Approach>("collected");
+const phase = ref<Phase>("assessment");
+const rememberedRuns = reactive<Record<Approach, string>>({ collected: "", mcp: "" });
+const topologies = ref<Partial<Record<Approach, Topology>>>({});
+const lastSnapshot = ref<Snapshot>();
+const availableArchives = computed(() => archiveRuns(props.archive));
+const activeArchive = computed(() => availableArchives.value.find(item => approachOf(item.snapshots[0]?.run) === approach.value));
+const archiveClocks = new Map<string, ArchivePlayback>();
+const topology = computed<Topology>(() => phase.value === "investigation"
+  ? lastSnapshot.value?.investigationTopology ?? { nodes: [], edges: [], mode: topologies.value[approach.value]?.mode }
+  : topologies.value[approach.value] ?? { nodes: [], edges: [] });
 const runs = ref<Run[]>([]);
 const selectedRunId = ref("");
+const visibleRuns = computed(() => approachRuns(runs.value, approach.value));
 const messages = ref<Message[]>([]);
 const arrivals = ref<Message[]>([]);
 const selectedMessageId = ref<string | null>(null);
@@ -48,14 +60,18 @@ let disposed = false;
 let hasSnapshot = false;
 let seen = new Set<string>();
 
+const comparisonSource = computed(() => {
+  const choices = approachRuns(runs.value, "collected").filter(run => run.input?.incident?.event && run.input?.incident?.evidence);
+  return choices.find(run => run.id === rememberedRuns.collected) ?? choices[0];
+});
 const currentRun = computed(() =>
   runs.value.find((run) => run.id === selectedRunId.value),
 );
 const mode = computed(() => currentRun.value?.mode ?? topology.value.mode);
 const isLive = computed(() => mode.value === "live");
 const isFixture = computed(() => mode.value === "fixture");
-const isLaunchLive = computed(() => topology.value.mode === "live");
-const isLaunchFixture = computed(() => topology.value.mode === "fixture");
+const isLaunchLive = computed(() => topologies.value[approach.value]?.mode === "live");
+const isLaunchFixture = computed(() => topologies.value[approach.value]?.mode === "fixture");
 const selectedMessage = computed(() =>
   messages.value.find((message) => message.id === selectedMessageId.value),
 );
@@ -89,7 +105,8 @@ const output = computed(() => currentRun.value?.output);
 const hasOutput = computed(
   () => output.value !== undefined && output.value !== null,
 );
-const evidence = computed(() => currentRun.value?.input?.incident?.evidence);
+const investigation = computed(() => currentRun.value?.investigation);
+const evidence = computed(() => approach.value === "mcp" ? investigation.value?.evidence : currentRun.value?.input?.incident?.evidence);
 const resolution = computed(() => currentRun.value?.resolution);
 const executionLabels = computed(() => resolution.value ? outcomeLabels(resolution.value) : undefined);
 const reconciliations = computed(() => currentRun.value?.reconciliations ?? []);
@@ -232,6 +249,7 @@ function connect(id: string) {
   stream?.close();
   epoch++;
   const thisEpoch = epoch;
+  lastSnapshot.value = undefined;
   messages.value = [];
   arrivals.value = [];
   selectedMessageId.value = null;
@@ -262,8 +280,9 @@ function connect(id: string) {
         !Array.isArray(data.observation?.messages)
       )
         throw new Error("The observation snapshot has an unexpected format.");
-      const next = deduplicateMessages(data.observation.messages);
-      observationAvailable.value = data.observationAvailable ?? true;
+      lastSnapshot.value = data;
+      const next = deduplicateMessages(phaseMessages(data, phase.value));
+      observationAvailable.value = phase.value === "investigation" ? Boolean(data.investigationObservation) : data.observationAvailable ?? true;
       const unseen = next.filter((message) => !seen.has(message.id));
       // Initial and reconnect snapshots restore state. Only envelopes first observed
       // after initial state are animated; replayed IDs cannot create new pulses.
@@ -302,6 +321,7 @@ function connect(id: string) {
 
 watch(selectedRunId, (id) => {
   if (isArchive.value) return;
+  rememberedRuns[approach.value] = id;
   if (newRunId.value === id) newRunId.value = "";
   connect(id);
 });
@@ -319,9 +339,8 @@ async function refreshRuns() {
     );
     const previous = new Map(runs.value.map((run) => [run.id, run]));
     runs.value = history.map((run) => ({ ...previous.get(run.id), ...run }));
-    if (!selectedRunId.value && history.length)
-      selectedRunId.value = history[0].id;
-    else if (unknown.length) newRunId.value = unknown[0].id;
+    if (!selectedRunId.value) selectedRunId.value = selectApproachRun(runs.value, approach.value, rememberedRuns[approach.value]);
+    else if (unknown.some(run => approachOf(run) === approach.value)) newRunId.value = unknown.find(run => approachOf(run) === approach.value)!.id;
     historyError.value = "";
   } catch {
     if (!disposed)
@@ -337,10 +356,9 @@ async function load() {
     loading.value = false;
     error.value = props.archiveError ?? "";
     if (props.archive) {
-      topology.value = props.archive.topology;
-      playbackClock = new ArchivePlayback(props.archive);
-      selectedRunId.value = props.archive.runId;
-      applyPlayback(playbackClock.current(), true);
+      approach.value = approachOf(props.archive.snapshots[0]?.run);
+      phase.value = approach.value === "mcp" ? "investigation" : "assessment";
+      openArchive();
     }
     return;
   }
@@ -352,10 +370,9 @@ async function load() {
       api<Run[] | { runs: Run[] }>("/api/runs"),
     ]);
     if (disposed) return;
-    topology.value = graph;
+    topologies.value.collected = graph;
     runs.value = Array.isArray(history) ? history : history.runs;
-    if (!selectedRunId.value && runs.value.length)
-      selectedRunId.value = runs.value[0].id;
+    if (!selectedRunId.value) selectedRunId.value = selectApproachRun(runs.value, approach.value);
   } catch (caught) {
     if (!disposed)
       error.value =
@@ -368,19 +385,24 @@ async function load() {
 }
 
 async function startRun() {
-  if (isArchive.value) return;
+  if (isArchive.value || (approach.value === "mcp" && !comparisonSource.value)) return;
   starting.value = true;
   error.value = "";
+  const launchedApproach = approach.value;
   try {
     const result = await api<Run | { run: Run }>("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scenario: "pod-crash" }),
+      body: JSON.stringify({ scenario: "pod-incident", approach: launchedApproach,
+        ...(launchedApproach === "mcp" ? { event: comparisonSource.value!.input!.incident!.event,
+          evidence: comparisonSource.value!.input!.incident!.evidence } : {}),
+      }),
     });
     if (disposed) return;
     const run = "run" in result ? result.run : result;
     upsertRun(run);
-    selectedRunId.value = run.id;
+    rememberedRuns[launchedApproach] = run.id;
+    if (approach.value === launchedApproach) selectedRunId.value = run.id;
   } catch (caught) {
     if (!disposed)
       error.value =
@@ -396,12 +418,74 @@ function applyPlayback(frame: PlaybackFrame, reset = false) {
   playback.value = frame;
   // Replacing the complete record removes future output/error fields on seek.
   runs.value = [frame.snapshot.run];
-  messages.value = frame.snapshot.observation.messages;
-  arrivals.value = reset ? [] : frame.arrivals;
-  observationAvailable.value = frame.snapshot.observationAvailable ?? true;
-  now.value = frame.snapshot.observation.observed_at_ms;
+  const previousIds = new Set(messages.value.map(message => message.id));
+  lastSnapshot.value = frame.snapshot;
+  messages.value = phaseMessages(frame.snapshot, phase.value);
+  arrivals.value = reset ? [] : messages.value.filter(message => !previousIds.has(message.id));
+  observationAvailable.value = phase.value === "investigation" ? Boolean(frame.snapshot.investigationObservation) : frame.snapshot.observationAvailable ?? true;
+  now.value = archiveTime(frame.snapshot);
   if (reset) canvasReset.value++;
   if (selectedMessageId.value && !messages.value.some(message => message.id === selectedMessageId.value)) selectedMessageId.value = null;
+}
+
+function openArchive() {
+  playbackClock?.pause();
+  const archive = activeArchive.value;
+  if (!archive) {
+    playbackClock = undefined;
+    playback.value = undefined;
+    runs.value = [];
+    selectedRunId.value = "";
+    lastSnapshot.value = undefined;
+    messages.value = []; arrivals.value = [];
+    return;
+  }
+  topologies.value[approach.value] = archive.topology;
+  playbackClock = archiveClocks.get(archive.runId) ?? new ArchivePlayback(archive);
+  archiveClocks.set(archive.runId, playbackClock);
+  selectedRunId.value = archive.runId;
+  applyPlayback(playbackClock.current(), true);
+}
+
+function focusApproach(next: Approach) {
+  void selectApproach(next);
+  document.getElementById(`tab-${next}`)?.focus();
+}
+
+async function selectApproach(next: Approach) {
+  if (approach.value === next) return;
+  rememberedRuns[approach.value] = selectedRunId.value;
+  approach.value = next;
+  phase.value = next === "mcp" ? "investigation" : "assessment";
+  selectedMessageId.value = null;
+  selectedNodeId.value = next === "mcp" ? "investigator" : "coordinator";
+  newRunId.value = "";
+  error.value = "";
+  if (isArchive.value) { openArchive(); return; }
+  selectedRunId.value = selectApproachRun(runs.value, next, rememberedRuns[next]);
+  if (!selectedRunId.value) connect("");
+  if (!topologies.value[next]) {
+    loading.value = true;
+    try {
+      const graph = await api<Topology>(`/api/topology?approach=${next}`);
+      if (!disposed) topologies.value[next] = graph;
+    } catch (caught) {
+      if (!disposed && approach.value === next) error.value = caught instanceof Error ? caught.message : "Unable to load the approach topology.";
+    } finally { if (!disposed) loading.value = false; }
+  }
+}
+
+function selectPhase(next: Phase) {
+  phase.value = next;
+  selectedMessageId.value = null;
+  selectedNodeId.value = next === "investigation" ? "investigator" : "coordinator";
+  if (lastSnapshot.value) {
+    messages.value = phaseMessages(lastSnapshot.value, next);
+    observationAvailable.value = next === "investigation" ? Boolean(lastSnapshot.value.investigationObservation) : lastSnapshot.value.observationAvailable ?? true;
+  }
+  arrivals.value = [];
+  seen = new Set(messages.value.map(message => message.id));
+  canvasReset.value++;
 }
 
 function togglePlayback() {
@@ -537,6 +621,17 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
+      <div class="approach-tabs" role="tablist" aria-label="Investigation approach">
+        <button id="tab-collected" data-approach="collected" data-testid="approach-collected" role="tab" :aria-selected="approach === 'collected'" aria-controls="approach-panel" :tabindex="approach === 'collected' ? 0 : -1" @click="selectApproach('collected')" @keydown.right.prevent="focusApproach('mcp')">Collected evidence</button>
+        <button id="tab-mcp" data-approach="mcp" data-testid="approach-mcp" role="tab" :aria-selected="approach === 'mcp'" aria-controls="approach-panel" :tabindex="approach === 'mcp' ? 0 : -1" @click="selectApproach('mcp')" @keydown.left.prevent="focusApproach('collected')">LLM tools + MCP</button>
+      </div>
+      <div id="approach-panel" role="tabpanel" :aria-labelledby="`tab-${approach}`">
+      <div class="approach-description">
+        <template v-if="approach === 'mcp'"><strong>The LLM chooses what to inspect.</strong><p>MAS host admits each delegated request. A custom MCP server executes the permitted evidence tools. Recorded results are frozen before the assessment and revision stages.</p></template>
+        <template v-else><strong>Evidence is collected before the LLM assessment.</strong><p>The operator supplies a bounded evidence bundle. Specialist agents assess the same recorded observations and propose a response.</p></template>
+      </div>
+      <div v-if="isArchive && !activeArchive && !error" class="notice" role="status">This download contains no recording for this approach. Open a comparison capture to view both approaches on this page.</div>
+
       <div v-if="error" class="notice error-notice" role="alert">
         <span>{{ error }}</span
         ><button
@@ -558,11 +653,11 @@ onBeforeUnmount(() => {
       <section v-if="isArchive" class="playback-bar" aria-label="Recording playback controls">
         <div class="recording-heading">
           <div><strong>Recorded run · playback</strong><span>{{ mode === "live" ? "Real LLM run" : mode === "fixture" ? "Fixture · no LLM calls" : "Recording unavailable" }}</span></div>
-          <span v-if="props.archive" class="capture-date">Captured {{ recordingDate(props.archive.capturedAt) }}</span>
+          <span v-if="activeArchive" class="capture-date">Captured {{ recordingDate(activeArchive!.capturedAt) }}</span>
         </div>
         <template v-if="playback">
           <div class="playback-controls">
-            <button class="playback-button primary" :disabled="props.archive?.snapshots.length === 1" @click="togglePlayback">{{ playback.playing ? "Pause" : "Play" }}</button>
+            <button class="playback-button primary" :disabled="activeArchive?.snapshots.length === 1" @click="togglePlayback">{{ playback.playing ? "Pause" : "Play" }}</button>
             <button class="playback-button" @click="restartPlayback">Restart</button>
             <button class="playback-button" @click="finalPlayback">View final</button>
             <label class="playback-speed">Speed <select :value="playback.speed" aria-label="Playback speed" @change="changePlaybackSpeed"><option v-for="speed in [1, 2, 4, 8]" :key="speed" :value="speed">{{ speed }}×</option></select></label>
@@ -599,7 +694,7 @@ onBeforeUnmount(() => {
           </div>
           <button
             class="start-button"
-            :disabled="loading || starting || !topology.nodes.length"
+            :disabled="loading || starting || !topologies[approach]?.nodes.length || (approach === 'mcp' && !comparisonSource)"
             @click="startRun"
           >
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -607,7 +702,9 @@ onBeforeUnmount(() => {
             >{{
               starting
                 ? "Starting…"
-                : isLaunchFixture
+                : approach === 'mcp'
+                  ? "Investigate same incident"
+                  : isLaunchFixture
                   ? "Run fixture"
                   : isLaunchLive
                     ? "Run sample with LLMs"
@@ -617,6 +714,11 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
+      <div v-if="!isArchive && approach === 'mcp'" class="notice comparison-source" role="status">
+        <template v-if="comparisonSource">Using incident evidence from run {{ comparisonSource.id }}: {{ comparisonSource.input?.incident?.evidence?.subject.namespace }} / {{ comparisonSource.input?.incident?.evidence?.subject.name }}. Tools inspect this captured incident through MCP.</template>
+        <template v-else>Collect a Kubernetes incident first. This approach needs a recorded event and its evidence bundle to identify the same pod.</template>
+      </div>
+
       <div v-if="isFixture" class="notice fixture-notice">
         <strong>{{ isArchive ? "Recorded fixture" : "Fixture mode" }}</strong
         ><span
@@ -624,7 +726,7 @@ onBeforeUnmount(() => {
         >
       </div>
 
-      <div v-if="newRunId" class="notice new-run-notice" role="status">
+      <div v-if="newRunId && visibleRuns.some(run => run.id === newRunId)" class="notice new-run-notice" role="status">
         <span
           >A new investigation is available. The current view stays on your
           selected run.</span
@@ -632,6 +734,19 @@ onBeforeUnmount(() => {
           View new run →
         </button>
       </div>
+
+      <section v-if="approach === 'mcp' && currentRun" class="panel investigation-panel" aria-labelledby="investigation-title" :data-investigation-status="investigation?.status ?? 'waiting'">
+        <div class="panel-heading"><div><span class="section-kicker">EVIDENCE ACQUISITION</span><h2 id="investigation-title">LLM-directed tool calls</h2></div><span class="run-state" :class="investigation?.status">{{ investigation?.status ?? 'Waiting' }}</span></div>
+        <div class="evidence-body">
+          <p class="output-note">{{ isFixture ? 'Fixture decisions exercise the delegation and MCP path; no LLM is called.' : 'The investigator requests tools and reads their results before choosing its next action.' }} The MCP server executes each admitted tool. Assessment uses the frozen tool results.</p>
+          <p v-if="investigation?.runId" class="assessment-reference">Investigation host run: <code>{{ investigation.runId }}</code></p>
+          <ol v-if="investigation?.calls?.length" class="tool-calls">
+            <li v-for="call in investigation.calls" :key="call.id" :data-tool-call-id="call.id"><div><strong>{{ call.tool }}</strong><span class="run-state" :class="call.status">{{ call.status }}</span></div><p class="assessment-reference"><code>{{ call.id }}</code></p><p class="tool-evidence"><template v-if="call.evidenceIds.length">Evidence: <a v-for="id in call.evidenceIds" :key="id" :href="`#evidence-${id}`">{{ id }}</a></template><span v-else>No evidence item recorded for this call.</span></p></li>
+          </ol>
+          <p v-else class="output-note">No tool calls have been recorded in this observation.</p>
+          <p v-if="investigation?.error" class="run-error" role="alert">{{ investigation.error }}</p>
+        </div>
+      </section>
 
       <section v-if="evidence" class="panel evidence-panel" aria-labelledby="evidence-title">
         <div class="panel-heading">
@@ -642,8 +757,8 @@ onBeforeUnmount(() => {
           <span class="output-label">{{ collectedEvidence }} / {{ evidence.items.length }} collected</span>
         </div>
         <div class="evidence-body">
-          <p class="output-note">Captured {{ recordingDate(evidence.capturedAt) }} before agent execution. Pod UID: <code>{{ evidence.subject.uid }}</code>. Expand an evidence item to inspect exactly what the agents received.</p>
-          <details v-for="item in evidence.items" :key="item.id" class="evidence-item" :data-evidence-id="item.id" :data-evidence-status="item.status">
+          <p class="output-note">Captured {{ recordingDate(evidence.capturedAt) }} {{ approach === 'mcp' ? 'from tool results and frozen before assessment' : 'before agent execution' }}. Pod UID: <code>{{ evidence.subject.uid }}</code>. Expand an evidence item to inspect exactly what the agents received.</p>
+          <details v-for="item in evidence.items" :key="item.id" :id="`evidence-${item.id}`" class="evidence-item" :data-evidence-id="item.id" :data-evidence-status="item.status">
             <summary><span class="evidence-id">{{ item.id }}</span><span class="evidence-state" :class="item.status">{{ item.status }}{{ item.truncated ? " · bounded / truncated" : "" }}</span></summary>
             <p class="evidence-source">{{ item.source }} · {{ recordingDate(item.observedAt) }}</p>
             <p v-if="item.reason" class="output-note">{{ item.reason }}</p>
@@ -652,12 +767,15 @@ onBeforeUnmount(() => {
           <p class="evidence-limitation">CPU and memory are sampled usage, not historical peaks. Unavailable evidence and redacted fields remain explicit.</p>
         </div>
       </section>
-      <div v-else-if="currentRun && currentRun.input?.incident?.source !== 'kubernetes-event'" class="notice" role="status">
+      <div v-else-if="approach === 'collected' && currentRun && currentRun.input?.incident?.source !== 'kubernetes-event'" class="notice" role="status">
         <strong>Sample investigation</strong><span>No cluster evidence was attached to this sample. Label a workload to trigger an investigation of its real Kubernetes evidence.</span>
       </div>
 
       <AssessmentPanel v-if="currentRun?.revision" :audit="currentRun.revision" />
 
+      <div v-if="approach === 'mcp' && currentRun" class="phase-controls" aria-label="Host observation phase">
+        <span>Message trace</span><button :aria-pressed="phase === 'investigation'" @click="selectPhase('investigation')">Investigation</button><button :aria-pressed="phase === 'assessment'" @click="selectPhase('assessment')">Assessment</button><small>Each phase retains its own host sequence numbers.</small>
+      </div>
       <section class="workspace" :aria-label="isArchive ? 'Recorded investigation workspace' : 'Live investigation workspace'">
         <div class="primary-column">
           <section
@@ -671,7 +789,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="stream-status" :class="isArchive ? 'recorded' : connection">
                 <span class="status-dot" />{{
-                  isArchive ? playback?.playing ? "Playing recording" : playback?.index === (props.archive?.snapshots.length ?? 0) - 1 ? "Recording ended" : "Recording paused" : connection === "connected"
+                  isArchive ? playback?.playing ? "Playing recording" : playback?.index === (activeArchive?.snapshots.length ?? 0) - 1 ? "Recording ended" : "Recording paused" : connection === "connected"
                     ? "Observing"
                     : connection === "connecting"
                       ? "Connecting"
@@ -686,6 +804,7 @@ onBeforeUnmount(() => {
             <TopologyCanvas
               :key="`${selectedRunId}:${canvasReset}`"
               :topology="topology"
+              :investigation="phase === 'investigation'"
               :messages="messages"
               :arrivals="arrivals"
               :selected-message="selectedMessage"
@@ -825,8 +944,8 @@ onBeforeUnmount(() => {
                 class="run-picker"
                 :disabled="isArchive"
               >
-                <option v-if="!runs.length" value="">No runs yet</option>
-                <option v-for="run in runs" :key="run.id" :value="run.id">
+                <option v-if="!visibleRuns.length" value="">No runs yet</option>
+                <option v-for="run in visibleRuns" :key="run.id" :value="run.id">
                   {{ shortTime(run.startedAt) }} · {{ run.mode }} ·
                   {{ run.id.slice(-8) }}
                 </option>
@@ -944,7 +1063,7 @@ onBeforeUnmount(() => {
                       ? "LLM agent"
                       : selectedNode.kind === "workflow"
                         ? "Deterministic workflow"
-                        : selectedNode.kind === "tool" ? "Deterministic evaluator"
+                        : selectedNode.kind === "tool" ? phase === "investigation" ? "MCP tool adapter" : "Deterministic evaluator"
                         : "Incident event source"
                   }}
                 </div>
@@ -954,7 +1073,7 @@ onBeforeUnmount(() => {
                       ? isArchive ? "This specialist used the recorded run's configured provider. Its observed request and result can be inspected in the message log." : "This agent sends its assigned task to the configured LLM provider. Its request and result appear in the message log."
                       : selectedNode.kind === "workflow"
                         ? isArchive ? "mas-host executed this workflow, routed requests and combined the resulting messages in the recorded run." : "mas-host executes this workflow, routes requests and combines the resulting messages."
-                        : selectedNode.kind === "tool" ? "This evaluator checks the exact candidate against frozen constraints. Its findings do not establish independent diagnosis accuracy or authorise remediation."
+                        : selectedNode.kind === "tool" ? phase === "investigation" ? "This registered actor invokes an approved tool on the custom MCP server. The server executes the operation and returns evidence; the LLM chooses which permitted tool to request." : "This evaluator checks the exact candidate against frozen constraints. Its findings do not establish independent diagnosis accuracy or authorise remediation."
                         : isArchive ? "The recorded run used a Kubernetes incident as its investigation input." : "The demo submits a Kubernetes incident as the input to this investigation."
                   }}
                 </p>
@@ -1068,6 +1187,7 @@ onBeforeUnmount(() => {
             ? `${isArchive ? 'Recorded run' : 'Run'} ${currentRun.status}. ${messages.length} envelopes observed. ${pending.length} awaiting replies.`
             : isArchive ? "Recording unavailable." : "Ready to start an investigation."
         }}
+      </div>
       </div>
     </main>
   </div>

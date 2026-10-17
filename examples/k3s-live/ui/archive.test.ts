@@ -154,3 +154,72 @@ test("seeking restores captured evidence but never reveals a future tool recover
   assert.equal(earlier.resolution, undefined);
   assert.deepEqual(earlier.input?.incident?.evidence, evidence);
 });
+
+test('comparison archives retain separate approaches and reject duplicates or nested comparisons', () => {
+  const baseline = archive();
+  const mcp = archive();
+  mcp.runId = 'mcp-run';
+  for (const snapshot of mcp.snapshots) Object.assign(snapshot.run, { id: mcp.runId, approach: 'mcp' });
+  const parsed = parseArchive({ ...baseline, comparisons: [mcp] });
+  assert.equal(parsed.comparisons![0]!.snapshots[0]!.run.approach, 'mcp');
+  assert.equal(parsed.snapshots[0]!.run.approach, undefined);
+  assert.throws(() => parseArchive({ ...baseline, comparisons: [baseline] }), /distinct runs and approaches/);
+  assert.throws(() => parseArchive({ ...baseline, comparisons: [{ ...mcp, comparisons: [] }] }), /nested/);
+  assert.throws(() => parseArchive({ ...baseline, comparisons: [mcp, mcp] }), /comparison archives/);
+  const changed = archive();
+  Object.assign(changed.snapshots.at(-1)!.run, { approach: 'mcp' });
+  assert.throws(() => parseArchive(changed), /identity changed/);
+});
+
+test('MCP traces and frozen evidence survive replay without merging host sequences', () => {
+  const data = archive();
+  const investigationTopology = { nodes: [{ id: 'client', label: 'Incident', kind: 'client' },
+    { id: 'investigator', label: 'Investigator', kind: 'llm' }], edges: [{ from: 'client', to: 'investigator' }] };
+  const probe = { ...request, id: 'probe-1', recipient: 'investigator' };
+  for (const [index, snapshot] of data.snapshots.entries()) {
+    Object.assign(snapshot.run, { approach: 'mcp', investigation: { runId: data.runId,
+      status: index === data.snapshots.length - 1 ? 'completed' : 'running', calls: [] } });
+    Object.assign(snapshot, { investigationTopology,
+      investigationObservation: { observed_at_ms: snapshot.observation.observed_at_ms, messages: index ? [{ ...probe }] : [] } });
+  }
+  Object.assign(data.snapshots.at(-1)!.run, { investigation: { runId: data.runId, status: 'completed',
+    evidence: { items: [{ id: 'pod.status', status: 'collected', data: { ready: false } }] },
+    calls: [{ id: 'call-1', tool: 'get_pod_status', status: 'collected', evidenceIds: ['pod.status'] }] } });
+  const parsed = parseArchive(data);
+  const clock = new ArchivePlayback(parsed);
+  assert.equal(clock.current().snapshot.run.investigation!.calls!.length, 0);
+  assert.equal(clock.final().snapshot.investigationObservation!.messages[0]!.sequence, 1);
+  assert.equal(clock.final().snapshot.observation.messages[0]!.sequence, 1);
+  assert.equal(clock.final().snapshot.run.investigation!.calls![0]!.tool, 'get_pod_status');
+  assert.equal(clock.seek(0).snapshot.run.investigation!.evidence, undefined);
+  const changed = structuredClone(parsed);
+  changed.snapshots.at(-1)!.investigationObservation!.messages[0]!.recipient = 'client';
+  assert.throws(() => parseArchive(changed), /investigation envelope changed identity/);
+  const changedEvidence = structuredClone(parsed);
+  const extra = structuredClone(changedEvidence.snapshots.at(-1)!);
+  extra.observation.observed_at_ms += 100;
+  extra.investigationObservation!.observed_at_ms! += 100;
+  extra.run.investigation!.evidence!.items[0]!.data = { ready: true };
+  changedEvidence.snapshots.push(extra);
+  assert.throws(() => parseArchive(changedEvidence), /frozen investigation evidence changed/);
+});
+
+test('replay orders concurrent host observations without rewriting either journal timestamp', () => {
+  const data = archive();
+  const first = data.snapshots[0]!, final = data.snapshots.at(-1)!;
+  delete (first.observation as { observed_at_ms?: number }).observed_at_ms;
+  final.observation.observed_at_ms = 1_900;
+  Object.assign(first, { observedAtMs: 2_000, observationAvailable: false,
+    investigationObservation: { observed_at_ms: 2_000, messages: [] } });
+  Object.assign(final, { observedAtMs: 2_100,
+    investigationObservation: { observed_at_ms: 2_100, messages: [] } });
+  Object.assign(first.run, { approach: 'mcp' }); Object.assign(final.run, { approach: 'mcp' });
+  data.snapshots = [first, final];
+  const parsed = parseArchive(data), clock = new ArchivePlayback(parsed);
+  assert.deepEqual(clock.offsets, [0, 100]);
+  assert.equal(parsed.snapshots[0]!.observation.observed_at_ms, undefined);
+  assert.equal(parsed.snapshots[1]!.observation.observed_at_ms, 1_900);
+  assert.equal(parsed.snapshots[1]!.investigationObservation!.observed_at_ms, 2_100);
+  const fabricated = structuredClone(parsed); fabricated.snapshots[1]!.observedAtMs = 2_500;
+  assert.throws(() => parseArchive(fabricated), /observation time/);
+});

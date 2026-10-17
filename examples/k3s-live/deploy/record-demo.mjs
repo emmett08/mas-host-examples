@@ -113,6 +113,75 @@ export function validateSnapshot(snapshot, mode, id) {
   }
 }
 
+/** Compare both approaches against the same admitted incident, before recovery. */
+export function comparisonRequest(snapshot) {
+  const incident = snapshot?.run?.input?.incident;
+  const target = incident?.event?.involvedObject;
+  const subject = incident?.evidence?.subject;
+  if (snapshot?.run?.status !== 'completed' || !snapshot.run.id ||
+      target?.kind !== 'Pod' || !target.uid || target.uid !== subject?.uid ||
+      target.name !== subject?.name || target.namespace !== subject?.namespace) {
+    throw new Error('The MCP comparison requires a completed run with evidence bound to the incident Pod');
+  }
+  // Clone the original observations; the comparison must not rewrite its source.
+  return { scenario: 'pod-incident', approach: 'mcp', id: `mcp-${snapshot.run.id}`,
+    event: structuredClone(incident.event), evidence: structuredClone(incident.evidence) };
+}
+
+export function validateMcpComparison(snapshot, source, mode, id) {
+  validateSnapshot(snapshot, mode, id);
+  validateMcpInvestigation(snapshot, source, mode, id);
+}
+
+function validateMcpInvestigation(snapshot, source, mode, id) {
+  if (snapshot?.run?.id !== id || snapshot.run.mode !== mode) {
+    throw new Error('The recorded investigation identity or provider mode is incorrect');
+  }
+  const request = comparisonRequest(source);
+  const investigation = snapshot.run.investigation;
+  if (snapshot.run.approach !== 'mcp' ||
+      !isDeepStrictEqual(snapshot.run.input?.incident?.event, request.event) ||
+      !isDeepStrictEqual(snapshot.run.input?.incident?.evidence?.subject, request.evidence.subject)) {
+    throw new Error('The MCP comparison is not bound to the original incident');
+  }
+  if (investigation?.status !== 'completed' || !investigation.runId || !investigation.evidence ||
+      !isDeepStrictEqual(investigation.evidence.subject, request.evidence.subject)) {
+    throw new Error('The MCP comparison has no completed investigation with frozen incident evidence');
+  }
+  if (investigation.source !== 'kubernetes-api') {
+    throw new Error('The k3s comparison requires actual Kubernetes API tool observations in either provider mode');
+  }
+  if (!Array.isArray(investigation.calls) || investigation.calls.length === 0) {
+    throw new Error('The MCP comparison recorded no actual MCP tool call');
+  }
+  const observation = snapshot.investigationObservation;
+  if (observation?.payloads_included !== true || !Array.isArray(observation.messages) ||
+      observation.messages.some(message => !Object.hasOwn(message, 'payload'))) {
+    throw new Error('The MCP investigation requires retained request/result payloads; deploy with SHOW_PAYLOADS=true');
+  }
+  const messages = observation.messages;
+  if (!messages.length || new Set(messages.map(message => message.id)).size !== messages.length ||
+      messages.some((message, index) => !Number.isSafeInteger(message.sequence) || message.sequence < 1 ||
+        (index > 0 && message.sequence <= messages[index - 1].sequence))) {
+    throw new Error('The MCP investigation envelopes have invalid identities or order');
+  }
+  const requests = messages.filter(message => message.kind === 'request');
+  const results = messages.filter(message => message.kind === 'result');
+  if (requests.length !== results.length || requests.length + results.length !== messages.length ||
+      requests.some(request => results.filter(result => result.correlation === request.id &&
+        result.sender === request.recipient && result.recipient === request.sender &&
+        result.sequence > request.sequence).length !== 1)) {
+    throw new Error('The MCP investigation requires one correlated reverse-routed result per request');
+  }
+  const evidenceIds = new Set(investigation.evidence.items.map(item => item.id));
+  if (new Set(investigation.calls.map(call => call.id)).size !== investigation.calls.length ||
+      investigation.calls.some(call => !call.id || !['collected', 'unavailable', 'error'].includes(call.status) ||
+        !requests.some(request => request.recipient === call.tool) || !Array.isArray(call.evidenceIds) ||
+        call.evidenceIds.some(id => !evidenceIds.has(id)))) {
+    throw new Error('The MCP call record differs from its observed requests or frozen evidence');
+  }
+}
+
 export function failureReport(snapshot, error) {
   const notProposed = error instanceof RemediationNotProposedError;
   const decision = snapshot?.run?.output;
@@ -153,6 +222,78 @@ async function api(path, allowMissing = false) {
   if (allowMissing && response.status === 404) return undefined;
   if (!response.ok) throw new Error(`Dashboard ${path} returned HTTP ${response.status}`);
   return response.json();
+}
+
+async function postRun(request) {
+  const response = await fetch(`${baseURL}/api/runs`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify(request),
+    signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) throw new Error(`MCP comparison submission returned HTTP ${response.status}`);
+  const run = await response.json();
+  if (run.id !== request.id || run.approach !== 'mcp') throw new Error('The dashboard admitted an unexpected MCP comparison identity');
+  return run;
+}
+
+/** A direct API run has no MASDemoRun resource and cannot trigger remediation. */
+export async function captureMcpComparison({ source, mode, destination, page, deadline,
+  fetchSnapshot = api, submit = postRun, checkHealth = () => {}, onEvidenceFrozen = async () => {} }) {
+  await mkdir(destination, { recursive: true });
+  const json = (filename, value) => writeFile(join(destination, filename), `${JSON.stringify(value, null, 2)}\n`);
+  const snapshotsPath = join(destination, 'snapshots.ndjson');
+  await writeFile(snapshotsPath, '');
+  const request = comparisonRequest(source);
+  await json('comparison-source.json', { sourceRunId: source.run.id, request });
+  // The main graph describes assessment envelopes; acquisition has its own
+  // investigationTopology on each snapshot and its own sequence numbers.
+  await json('topology.json', await fetchSnapshot('/api/topology'));
+  let snapshot, previous = '', evidenceFrozen = false;
+  try {
+    await page.getByRole('tab', { name: 'LLM tools + MCP', exact: true }).click();
+    await submit(request);
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.getByRole('tab', { name: 'LLM tools + MCP', exact: true }).click();
+    await page.locator(`#run-picker option[value="${request.id}"]`).waitFor({ state: 'attached', timeout: 15_000 });
+    await page.locator('#run-picker').selectOption(request.id);
+    await page.locator('.topology-panel').scrollIntoViewIfNeeded();
+    while (Date.now() < deadline) {
+      checkHealth();
+      snapshot = await fetchSnapshot(`/api/runs/${encodeURIComponent(request.id)}/snapshot`);
+      const encoded = JSON.stringify(snapshot);
+      if (encoded !== previous) { await appendFile(snapshotsPath, `${encoded}\n`); previous = encoded; }
+      await json('snapshot.json', snapshot);
+      await json('run.json', snapshot.run);
+      if (snapshot.run.investigation) {
+        await json('investigation.json', snapshot.run.investigation);
+        await json('tool-calls.json', snapshot.run.investigation.calls ?? []);
+        if (snapshot.run.investigation.evidence) await json('evidence.json', snapshot.run.investigation.evidence);
+      }
+      if (snapshot.investigationObservation) await json('investigation-observation.json', snapshot.investigationObservation);
+      if (!evidenceFrozen && snapshot.run.investigation?.status === 'completed') {
+        validateMcpInvestigation(snapshot, source, mode, request.id);
+        // No further tools run after this freeze. Recovery can now proceed
+        // while assessment reads the retained pre-recovery observations. Waiting
+        // for both assessments could expire the original admission evidence.
+        await onEvidenceFrozen(snapshot);
+        evidenceFrozen = true;
+      }
+      if (['completed', 'failed'].includes(snapshot.run.status)) {
+        validateMcpComparison(snapshot, source, mode, request.id);
+        if (snapshot.run.revision) await json('assessment-audit.json', snapshot.run.revision);
+        await page.locator('.investigation-panel[data-investigation-status="completed"]').waitFor({ state: 'visible', timeout: 15_000 });
+        await page.screenshot({ path: join(destination, 'investigation-completed.png'), fullPage: true });
+        await page.locator('.phase-controls').getByRole('button', { name: 'Assessment', exact: true }).click();
+        await page.locator('.output-panel').waitFor({ state: 'visible', timeout: 15_000 });
+        await page.screenshot({ path: join(destination, 'assessment-completed.png'), fullPage: true });
+        return snapshot;
+      }
+      await delay(500);
+    }
+    throw new Error('No completed MCP comparison was captured within the shared recording deadline');
+  } catch (error) {
+    await json('failure-diagnostics.json', failureReport(snapshot, error));
+    await page.screenshot({ path: join(destination, 'failure.png'), fullPage: true }).catch(() => {});
+    throw error;
+  }
 }
 
 // Keep the actual faulty Pod unlabelled until its real metrics sample and probe
@@ -203,8 +344,16 @@ export async function main() {
   await mkdir(destination, { recursive: true });
   const json = (filename, value) => writeFile(join(destination, filename), `${JSON.stringify(value, null, 2)}\n`);
   const startedAt = new Date().toISOString();
-  const deadline = Date.now() + 900_000;
+  // Both approaches collect evidence before the controller repairs the incident.
+  // Twenty minutes leaves ten minutes of the job for build/deploy and packaging.
+  const deadline = Date.now() + 1_200_000;
   let browser, context, page, forward, forwardError, forwardLog = '', runId, snapshot, resultError, failure;
+  let remediatorReplicas, remediatorPaused = false, comparisonError, comparison;
+  const resumeRemediator = async () => {
+    if (!remediatorPaused) return;
+    await kubectl(['scale', 'deployment/mas-demo-remediator', `--replicas=${remediatorReplicas}`]);
+    remediatorPaused = false;
+  };
   let workloadCreated = false;
   let triggerStopped = false;
   let podName;
@@ -260,6 +409,18 @@ export async function main() {
       return button && !button.disabled && document.querySelector('canvas')?.width > 0;
     }, undefined, { timeout: 30_000 });
     await page.screenshot({ path: join(destination, 'before-trigger.png'), fullPage: true });
+    const remediator = JSON.parse(await kubectl(['get', 'deployment', 'mas-demo-remediator', '-o', 'json']));
+    remediatorReplicas = remediator.spec.replicas ?? 1;
+    if (remediatorReplicas !== 1) throw new Error('Comparison recording requires the single dedicated remediation controller to be enabled');
+    remediatorPaused = true;
+    await kubectl(['scale', 'deployment/mas-demo-remediator', '--replicas=0']);
+    const pauseDeadline = Date.now() + 60_000;
+    while (true) {
+      const pods = JSON.parse(await kubectl(['get', 'pods', '-l', 'app.kubernetes.io/name=mas-demo-remediator', '-o', 'json']));
+      if (pods.items.length === 0) break;
+      if (Date.now() >= pauseDeadline) throw new Error('The remediation controller did not stop before the comparison incident');
+      await delay(500);
+    }
     workloadCreated = true;
     const namespaceUID = JSON.parse(await kubectl(['get', 'namespace', namespace, '-o', 'json'])).metadata.uid;
     const prepared = await prepareIncident(destination);
@@ -331,6 +492,25 @@ export async function main() {
               await json('evidence.json', snapshot.run.input.incident.evidence);
               if (snapshot.run.revision) await json('assessment-audit.json', snapshot.run.revision);
               assessmentCaptured = true;
+              // Hold recovery until both approaches have inspected this Pod.
+              // The second run is API-only and cannot create a remediation CRD.
+              try {
+                comparison = await captureMcpComparison({ source: snapshot, mode,
+                  destination: join(destination, 'mcp'), page, deadline: deadline - 120_000,
+                  onEvidenceFrozen: resumeRemediator,
+                  checkHealth: () => {
+                    if (forwardError || forward.exitCode !== null) throw new Error('Dashboard port-forward exited during MCP recording');
+                    if (browserErrors.length) throw new Error('The dashboard reported a browser error');
+                  } });
+              } catch (error) {
+                comparisonError = error;
+                // Retain the failed comparison and still permit the original
+                // controller-owned recovery to run and be recorded independently.
+              } finally {
+                await resumeRemediator();
+                await page.getByRole('tab', { name: 'Collected evidence', exact: true }).click();
+                await page.locator('#run-picker').selectOption(runId);
+              }
             }
             // The recorder only observes. The in-cluster controller owns admission,
             // journal persistence, Kubernetes mutation, verification and publication.
@@ -353,10 +533,11 @@ export async function main() {
       }
       await delay(500);
     }
-    if (snapshot?.run?.status !== 'completed') throw new Error('No completed event investigation was captured within 900 seconds');
-    if (!recoveryCaptured) throw new Error('The dedicated remediation controller did not publish verified recovery within 900 seconds');
+    if (snapshot?.run?.status !== 'completed') throw new Error('No completed event investigation was captured within 1200 seconds');
+    if (!recoveryCaptured) throw new Error('The dedicated remediation controller did not publish verified recovery within 1200 seconds');
+    if (comparisonError) throw new Error(`MCP comparison failed: ${comparisonError.message}`);
     if (browserErrors.length) throw new Error('The dashboard reported a browser error');
-    console.log(`Recorded ${mode} investigation ${runId} with ${snapshot.observation.messages.length} actual MAS envelopes`);
+    console.log(`Recorded ${mode} investigations ${runId} and ${comparison.run.id}, with ${comparison.run.investigation.calls.length} actual MCP tool calls`);
   } catch (error) {
     resultError = error;
     failure = failureReport(snapshot, error);
@@ -370,6 +551,11 @@ export async function main() {
   } finally {
     if (workloadCreated) {
       await kubectl(['delete', 'deployment,service', workloadName, '--ignore-not-found', '--wait=false']).catch(() => {});
+    }
+    if (remediatorPaused) {
+      await resumeRemediator().catch(error => {
+        console.error(`Could not restore remediation controller replicas: ${error.message}`);
+      });
     }
     await json('browser-errors.json', browserErrors);
     await json('canvas-progress.json', { ...canvasProgress, frames: canvasFrames });
@@ -401,14 +587,18 @@ export async function main() {
       `Result: **${resultError ? 'failed' : 'completed'}**.`,
       `Capture started: ${startedAt}.`,
       `Run identity: ${runId ?? 'not admitted'}.`, '',
+      `MCP comparison identity: ${comparison?.run?.id ?? 'see mcp/failure-diagnostics.json if present'}.`, '',
+      `MCP tool source: **${comparison?.run?.investigation?.source ?? 'comparison incomplete; inspect the retained mcp/snapshot.json'}**.`, '',
       'The video records the real Vue canvas while the runner-local k3s cluster exists.',
       'The cluster is removed when the workflow finishes; this artifact is a recording, not a running dashboard.',
       'JSON and NDJSON contain observed server snapshots. Envelope sequences and timestamps are retained unchanged.',
       'assessment-audit.json retains exact candidates, criterion findings, supporting evidence and supplied feedback. Fixture drafts deliberately include an unsupported citation; their correction is a control demonstration, not empirical model improvement.',
       'Successful demonstration capture requires application payloads in every envelope. These are embedded in the offline inspector.',
       'The practical incident uses real logs, resource specifications, Warning Events and metrics-server samples.',
+      'The MCP tab reuses the same incident identity. Its read-only tool calls run before recovery and their observed results are frozen before assessment.',
+      'mcp/ contains the comparison snapshots, actual host request/result envelopes, tool-call record and frozen evidence. The deployed MCP source is the Kubernetes API in both provider modes. Fixture providers choose tools deterministically; they are not LLM measurements.',
       'A dedicated in-cluster remediation controller admits only the managed checkout Deployment readiness path /readyz to /healthz.',
-      'The recorder observes that controller; it never patches workloads or reads the report credential.',
+      'The recorder pauses that controller until MCP evidence is frozen, then restores it while the second assessment reads its retained observations. It never patches the incident workload or reads the report credential.',
       'remediation-journal.json retains the immutable admission identity and terminal report independently of the controller Pod.',
       'outcome.json records the exact precondition-tested patch and independently checked rollout, HTTP response and fresh metrics.',
       'A completed investigation is not treated as a recovered application: successful recording requires verified recovery.',

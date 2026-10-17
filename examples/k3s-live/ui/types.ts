@@ -27,14 +27,26 @@ export interface Message {
   payload?: unknown;
 }
 
+export type Approach = "collected" | "mcp";
+
+export interface Investigation {
+  status: "running" | "completed" | "failed";
+  runId: string;
+  evidence?: EvidenceBundle;
+  calls?: { id: string; tool: string; status: string; evidenceIds: string[] }[];
+  error?: string;
+}
+
 export interface Run {
+  approach?: Approach;
+  investigation?: Investigation;
   id: string;
   status: string;
   mode: string;
   startedAt: string;
   error?: string | null;
   output?: unknown;
-  input?: { incident?: { source?: string; scenario?: string; context?: string; evidence?: EvidenceBundle } };
+  input?: { incident?: { event?: unknown; source?: string; scenario?: string; context?: string; evidence?: EvidenceBundle } };
   resolution?: ResolutionReport;
   reconciliations?: ReconciliationObservation[];
   revision?: RevisionAudit;
@@ -44,10 +56,13 @@ export interface Snapshot {
   run: Run;
   observation: { messages: Message[]; observed_at_ms?: number };
   observationAvailable?: boolean;
+  investigationObservation?: Snapshot["observation"];
+  investigationTopology?: Topology;
 }
 
 export interface ArchiveSnapshot extends Snapshot {
-  observation: Snapshot["observation"] & { observed_at_ms: number };
+  /** Replay frame time; independent host observation timestamps stay unchanged. */
+  observedAtMs?: number;
 }
 
 export interface RunArchive {
@@ -56,4 +71,5 @@ export interface RunArchive {
   topology: Topology;
   runId: string;
   snapshots: ArchiveSnapshot[];
+  comparisons?: RunArchive[];
 }

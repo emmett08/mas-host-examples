@@ -1,9 +1,28 @@
 {
   "compilerOptions": {
-    "target": "ES2023", "module": "NodeNext", "moduleResolution": "NodeNext",
-    "strict": true, "noUncheckedIndexedAccess": true, "skipLibCheck": true, "allowJs": true,
-    "rootDir": ".", "outDir": "dist", "types": ["node"], "ignoreDeprecations": "6.0"
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "rootDir": ".",
+    "outDir": "dist",
+    "types": [
+      "node"
+    ],
+    "ignoreDeprecations": "6.0"
   },
-  "include": ["server/**/*.ts", "operator/**/*.ts", "remediator/**/*.ts", "shared/**/*.mjs"],
-  "exclude": ["**/*.test.ts", "**/*.integration.ts"]
+  "include": [
+    "server/**/*.ts",
+    "operator/**/*.ts",
+    "remediator/**/*.ts",
+    "shared/**/*.mjs",
+    "mcp/**/*.ts"
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.integration.ts"
+  ]
 }

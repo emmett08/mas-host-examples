@@ -85,7 +85,7 @@ jobs:
         run: |
           kubectl -n mas-demo set env deployment/mas-demo --containers=dashboard DEMO_FIXTURE_RECORDING=true
           kubectl -n mas-demo rollout status deployment/mas-demo --timeout=180s
-      - name: Record the actual canvas while another event-driven fixture run executes
+      - name: Record both approaches before controller-owned fixture recovery
         env:
           DEMO_MODE: fixture
           DEMO_FIXTURE_RECORDING: 'true'
@@ -94,7 +94,7 @@ jobs:
       - name: Package the same Vue dashboard with captured fixture observations
         if: always()
         working-directory: examples/k3s-live
-        run: npm run archive -- "${{ runner.temp }}/mas-demo-artifacts"
+        run: npm run archive -- "${{ runner.temp }}/mas-demo-artifacts" "${{ runner.temp }}/mas-demo-artifacts/mcp"
       - name: Verify the downloaded dashboard opens offline and plays its observations
         if: always()
         working-directory: examples/k3s-live
@@ -199,7 +199,7 @@ jobs:
           SHOW_PAYLOADS: 'true'
           DEMO_AUTO_REMEDIATE: 'true'
         run: examples/k3s-live/deploy/apply.sh
-      - name: Record the live canvas and retain the actual result
+      - name: Record collected evidence and MCP tool use before live recovery
         env:
           DEMO_MODE: live
           DEMO_ARTIFACT_DIR: ${{ runner.temp }}/mas-demo-artifacts
@@ -207,7 +207,7 @@ jobs:
       - name: Package the same Vue dashboard with captured live observations
         if: always()
         working-directory: examples/k3s-live
-        run: npm run archive -- "${{ runner.temp }}/mas-demo-artifacts"
+        run: npm run archive -- "${{ runner.temp }}/mas-demo-artifacts" "${{ runner.temp }}/mas-demo-artifacts/mcp"
       - name: Verify the downloaded dashboard opens offline and plays its observations
         if: always()
         working-directory: examples/k3s-live

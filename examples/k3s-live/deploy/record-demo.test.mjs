@@ -4,7 +4,7 @@ import test from 'node:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { failureReport, observeCanvasProgress, prepareIncident, selectRemediationForRun, selectRunForPod, validateCanvasProgress, validateControllerResolution, validateSnapshot } from './record-demo.mjs';
+import { captureMcpComparison, comparisonRequest, failureReport, observeCanvasProgress, prepareIncident, selectRemediationForRun, selectRunForPod, validateCanvasProgress, validateControllerResolution, validateMcpComparison, validateSnapshot } from './record-demo.mjs';
 import { canonicalJson, verifyRevisionDigests, verifySelectedOutput } from '../shared/revision.mjs';
 
 function completed() {
@@ -21,6 +21,125 @@ function completed() {
   return { run: { id: 'k8s-uid', mode: 'live', status: 'completed', output: {} },
     observationAvailable: true, observation: { payloads_included: true, messages } };
 }
+
+function comparisonSource() {
+  const snapshot = completed();
+  const subject = { kind: 'Pod', namespace: 'mas-demo', name: 'checkout', uid: 'pod-uid' };
+  snapshot.run.input = { incident: { event: { namespace: 'mas-demo', involvedObject: subject },
+    evidence: { subject, capturedAt: '2026-10-17T19:00:00.000Z', items: [{ id: 'original-pod', kind: 'pod' }] } } };
+  return snapshot;
+}
+
+function mcpComparison(source = comparisonSource()) {
+  const snapshot = completed();
+  snapshot.run.id = `mcp-${source.run.id}`;
+  snapshot.run.approach = 'mcp';
+  snapshot.run.input = structuredClone(source.run.input);
+  snapshot.run.investigation = { runId: 'investigation-run', status: 'completed', source: 'kubernetes-api',
+    evidence: { subject: structuredClone(source.run.input.incident.evidence.subject),
+      items: [{ id: 'mcp-pod', kind: 'pod', data: {} }] },
+    calls: [{ id: 'effect-1', tool: 'pod_overview', status: 'collected', evidenceIds: ['mcp-pod'] }] };
+  snapshot.investigationObservation = { payloads_included: true, observed_at_ms: 1, messages: [
+    { id: 'tool-request', sequence: 1, kind: 'request', sender: 'investigator', recipient: 'pod_overview', payload: {} },
+    { id: 'tool-result', sequence: 2, kind: 'result', sender: 'pod_overview', recipient: 'investigator', correlation: 'tool-request', payload: { output: {} } },
+  ] };
+  return snapshot;
+}
+
+test('MCP comparison copies one admitted incident and preserves original observations', () => {
+  const source = comparisonSource();
+  const request = comparisonRequest(source);
+  assert.equal(request.approach, 'mcp');
+  assert.equal(request.id, 'mcp-k8s-uid');
+  assert.deepEqual(request.event, source.run.input.incident.event);
+  assert.deepEqual(request.evidence, source.run.input.incident.evidence);
+  request.evidence.items[0].id = 'changed';
+  assert.equal(source.run.input.incident.evidence.items[0].id, 'original-pod');
+  const mismatch = comparisonSource();
+  mismatch.run.input.incident.evidence.subject = { ...mismatch.run.input.incident.evidence.subject, uid: 'different-pod' };
+  assert.throws(() => comparisonRequest(mismatch), /bound to the incident Pod/);
+  const pending = comparisonSource(); pending.run.status = 'running';
+  assert.throws(() => comparisonRequest(pending), /completed run/);
+});
+
+test('MCP capture requires real tool envelopes and frozen evidence for the same Pod', () => {
+  const source = comparisonSource();
+  assert.doesNotThrow(() => validateMcpComparison(mcpComparison(source), source, 'live', 'mcp-k8s-uid'));
+  for (const [change, pattern] of [
+    [snapshot => { snapshot.run.approach = 'collected'; }, /original incident/],
+    [snapshot => { snapshot.run.input.incident.event.involvedObject.uid = 'other-pod'; }, /original incident/],
+    [snapshot => { delete snapshot.run.investigation.evidence; }, /frozen incident evidence/],
+    [snapshot => { snapshot.run.investigation.source = 'recorded-evidence'; }, /actual Kubernetes API/],
+    [snapshot => { snapshot.run.investigation.calls = []; }, /no actual MCP tool call/],
+    [snapshot => { snapshot.investigationObservation.payloads_included = false; }, /SHOW_PAYLOADS/],
+    [snapshot => { delete snapshot.investigationObservation.messages[0].payload; }, /SHOW_PAYLOADS/],
+    [snapshot => { snapshot.investigationObservation.messages[1].correlation = 'missing-request'; }, /correlated reverse-routed/],
+    [snapshot => { snapshot.run.investigation.calls[0].tool = 'invented-tool'; }, /differs from its observed/],
+    [snapshot => { snapshot.run.investigation.calls[0].evidenceIds = ['invented-evidence']; }, /frozen evidence/],
+    [snapshot => { snapshot.investigationObservation.messages[1].sequence = 1; }, /identities or order/],
+  ]) {
+    const altered = mcpComparison(source); change(altered);
+    assert.throws(() => validateMcpComparison(altered, source, 'live', 'mcp-k8s-uid'), pattern);
+  }
+});
+
+test('MCP recorder retains actual tool output and reports failed investigation without fabricating completion', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mas-mcp-capture-'));
+  const source = comparisonSource(), snapshot = mcpComparison(source), submitted = [];
+  const actions = [];
+  const locator = name => ({ click: async () => actions.push(name), waitFor: async () => {}, getByRole: (_role, { name }) => locator(name),
+    selectOption: async id => actions.push(id), scrollIntoViewIfNeeded: async () => {} });
+  const page = { getByRole: (_role, { name }) => locator(name), locator,
+    reload: async () => {}, screenshot: async () => {} };
+  const fetchSnapshot = async path => path === '/api/topology'
+    ? { nodes: [{ id: 'coordinator', label: 'Coordinator', kind: 'workflow' }], edges: [] } : snapshot;
+  try {
+    await captureMcpComparison({ source, mode: 'live', destination: directory, page,
+      deadline: Date.now() + 5_000, fetchSnapshot, submit: async request => submitted.push(request) });
+    assert.deepEqual(submitted[0], comparisonRequest(source));
+    assert.deepEqual(JSON.parse(await readFile(join(directory, 'investigation-observation.json'), 'utf8')), snapshot.investigationObservation);
+    assert.deepEqual(JSON.parse(await readFile(join(directory, 'tool-calls.json'), 'utf8')), snapshot.run.investigation.calls);
+    assert.deepEqual(JSON.parse(await readFile(join(directory, 'evidence.json'), 'utf8')), snapshot.run.investigation.evidence);
+    assert.ok(actions.includes('LLM tools + MCP'));
+    assert.ok(actions.includes('Assessment'));
+    snapshot.run.status = 'failed'; snapshot.run.error = 'No permitted tool was requested';
+    await assert.rejects(captureMcpComparison({ source, mode: 'live', destination: directory, page,
+      deadline: Date.now() + 5_000, fetchSnapshot, submit: async () => {} }), /No permitted tool was requested/);
+    const failure = JSON.parse(await readFile(join(directory, 'failure-diagnostics.json'), 'utf8'));
+    assert.equal(failure.error, snapshot.run.error);
+    assert.equal(JSON.parse(await readFile(join(directory, 'snapshot.json'), 'utf8')).run.status, 'failed');
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('MCP recorder resumes recovery once evidence is frozen while assessment is still running', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mas-mcp-freeze-'));
+  const source = comparisonSource(), final = mcpComparison(source);
+  const acquiring = structuredClone(final);
+  acquiring.run.status = 'running'; acquiring.run.investigation.status = 'running';
+  delete acquiring.run.investigation.evidence;
+  const assessing = structuredClone(final); assessing.run.status = 'running';
+  const sequence = [acquiring, assessing, final];
+  let reads = 0, resumed = 0;
+  const locator = () => ({ click: async () => {}, waitFor: async () => {}, getByRole: locator,
+    selectOption: async () => {}, scrollIntoViewIfNeeded: async () => {} });
+  const page = { getByRole: locator, locator, reload: async () => {}, screenshot: async () => {} };
+  try {
+    await captureMcpComparison({ source, mode: 'live', destination: directory, page,
+      deadline: Date.now() + 5_000, submit: async () => {},
+      fetchSnapshot: async path => {
+        if (path === '/api/topology') return { nodes: [], edges: [] };
+        if (reads === 1) assert.equal(resumed, 0, 'the controller must remain paused during tool collection');
+        if (reads === 2) assert.equal(resumed, 1, 'recovery must start before final assessment is polled');
+        return sequence[reads++];
+      }, onEvidenceFrozen: async snapshot => {
+        assert.equal(snapshot.run.status, 'running');
+        assert.equal(snapshot.run.investigation.status, 'completed');
+        assert.deepEqual(snapshot.run.investigation.evidence, final.run.investigation.evidence);
+        resumed++;
+      } });
+    assert.equal(resumed, 1, 'terminal snapshots must not resume the controller again');
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 test('recording selects this Pod UID and rejects duplicate admitted investigations', () => {
   const old = { spec: { event: { involvedObject: { uid: 'old-pod' } } } };
