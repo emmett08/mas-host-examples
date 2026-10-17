@@ -1,6 +1,29 @@
 version = "mas-agents/3"
 
 [[agents]]
+name = "assessed_draft"
+operation = "draft_incident/1"
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/assessed-draft.yaml"
+
+[[agents]]
+name = "assessed_revision"
+operation = "revise_incident/1"
+[agents.implementation]
+kind = "workflow"
+plan = "workflows/assessed-revision.yaml"
+
+[[agents]]
+name = "incident_checks"
+operation = "check_incident_candidate/1"
+[agents.implementation]
+kind = "native"
+language = "python"
+source = "assessment.py"
+handler = "assess"
+
+[[agents]]
 name = "coordinator"
 operation = "incident_review/1"
 [agents.implementation]

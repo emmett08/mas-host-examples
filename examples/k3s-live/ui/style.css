@@ -1377,3 +1377,25 @@ h2 {
     scroll-behavior: auto !important;
   }
 }
+.assessment-panel { margin-bottom: 24px; }
+.assessment-body { padding: 20px 24px; }
+.assessment-body pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 var(--mono); max-height: 440px; overflow: auto; color: #c3d1e5; background: #0c1420; padding: 14px; border-radius: 6px; }
+.assessment-budget { display: flex; gap: 32px; flex-wrap: wrap; margin: 20px 0; }
+.assessment-budget dt { color: #94a3b8; font-size: 12px; }
+.assessment-budget dd { margin: 5px 0 0; color: #e2e8f0; }
+.candidate-card { border: 1px solid #334155; border-radius: 8px; padding: 18px; margin: 16px 0; }
+.candidate-card[data-selected="true"] { border-color: #aa9bff; }
+.candidate-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.candidate-heading h3, .candidate-heading h4 { margin: 0; }
+.candidate-heading > span { font-size: 12px; }
+.assessment-reference { color: #94a3b8; font-size: 12px; overflow-wrap: anywhere; line-height: 1.6; }
+.assessment-reference code { font-size: 11px; }
+.criterion-assessment { border-top: 1px solid #334155; margin-top: 16px; padding-top: 16px; }
+.criterion-finding { background: #0b111b; padding: 12px 14px; margin-top: 12px; border-radius: 5px; }
+.criterion-finding p { font-size: 13px; line-height: 1.6; color: #bbc7d8; }
+.finding-verdict { font-size: 12px; color: #d6c285; }
+.finding-verdict.pass { color: #65d7a0; }
+.finding-verdict.fail { color: #fb8494; }
+.assessment-evidence-links { padding-left: 18px; color: #94a3b8; font-size: 12px; }
+.assessment-evidence-links code { display: block; overflow-wrap: anywhere; font-size: 10px; margin: 4px 0 8px; }
+.assessment-evidence-links a { color: #4bd3df; }

@@ -1,0 +1,8 @@
+# Revision is a proposal only. The separate remediation controller owns effects.
+type: request
+key: incident-revision
+target: decision
+input:
+  incident: {$input: /sources/incident}
+  candidate: {$input: /candidate}
+  feedback: {$input: /feedback}

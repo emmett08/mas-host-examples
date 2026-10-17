@@ -3,6 +3,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { checkSelectedOutput, parseRevisionAudit, verifyRevisionDigests, verifySelectedOutput } from '../shared/revision.mjs';
 
 const application = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -30,7 +31,7 @@ export async function readArchive(directory) {
   if (topology === undefined || final === undefined || observed === undefined) return undefined;
   if (!Array.isArray(topology?.nodes) || !topology.nodes.length || !Array.isArray(topology.edges) ||
       !topology.nodes.every(node => typeof node.id === 'string' && typeof node.label === 'string' &&
-        ['client', 'workflow', 'llm'].includes(node.kind)) ||
+        ['client', 'workflow', 'llm', 'tool'].includes(node.kind)) ||
       !topology.edges.every(edge => typeof edge.from === 'string' && typeof edge.to === 'string')) {
     throw new Error('Cannot archive malformed topology');
   }
@@ -42,11 +43,18 @@ export async function readArchive(directory) {
   const candidates = [...observed];
   if (JSON.stringify(candidates.at(-1)) !== JSON.stringify(final)) candidates.push(final);
   const snapshots = [];
+  let retainedRevision;
   for (const snapshot of candidates) {
     if (snapshot?.run?.id !== final.run.id || snapshot.run.mode !== final.run.mode ||
         snapshot.run.startedAt !== final.run.startedAt || typeof snapshot.run.status !== 'string') {
       throw new Error('Cannot archive inconsistent run identities');
     }
+    if (snapshot.run.revision) {
+      retainedRevision = parseRevisionAudit(snapshot.run.revision, retainedRevision);
+      if (snapshot.run.output !== undefined) {
+        checkSelectedOutput(retainedRevision, snapshot.run.output);
+      }
+    } else if (retainedRevision) throw new Error('Cannot archive disappearing revision history');
     const timestamp = snapshot.observation?.observed_at_ms;
     if (snapshot.observationAvailable === false && timestamp === undefined) continue;
     if (!Number.isSafeInteger(timestamp) || timestamp < 0 ||
@@ -68,6 +76,10 @@ export async function readArchive(directory) {
     snapshots.push(snapshot);
   }
   if (!snapshots.length) return undefined;
+  if (retainedRevision) {
+    await verifyRevisionDigests(retainedRevision);
+    if (final.run.output !== undefined) await verifySelectedOutput(retainedRevision, final.run.output);
+  }
   return { version: 'mas-demo-archive/1', capturedAt: new Date(snapshots.at(-1).observation.observed_at_ms).toISOString(),
     topology, runId: final.run.id, snapshots };
 }
@@ -139,6 +151,8 @@ export async function createArchive(captureDirectory) {
       ? 'Payloads are included. Select a message in the log to inspect its recorded request input or agent result.'
       : 'Payloads were omitted when this recording was captured. A new capture with SHOW_PAYLOADS=true is required to include them.',
     'This is a replay of retained observations. It performs no inference and sends no cluster commands.',
+    'Candidate identities, criterion findings, exact evidence references and supplied invocation feedback are retained at their recorded observations.',
+    'Disclosure-withheld content is absent from the archive. Internal deterministic checks and model judgements are separate from held-out outcome measurements.',
     'Replay uses the recorded observation times; intervals between samples do not establish network message timing.',
     'The same Vue application connects to the live host when deployed to a cluster without embedded archive data.', '',
   ].join('\n'));

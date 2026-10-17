@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import TopologyCanvas from "./components/TopologyCanvas.vue";
+import AssessmentPanel from "./components/AssessmentPanel.vue";
 import { ArchivePlayback, playbackTime, type PlaybackFrame } from "./archive";
 import {
   deduplicateMessages,
@@ -10,6 +11,7 @@ import {
 } from "./topology";
 import type { Message, Run, RunArchive, Snapshot, Topology } from "./types";
 import { outcomeLabels } from "../shared/resolution";
+import { parseRevisionAudit } from "../shared/revision.mjs";
 
 const props = defineProps<{ archive?: RunArchive; archiveError?: string; archiveRequested?: boolean }>();
 const isArchive = computed(() => Boolean(props.archiveRequested || props.archive));
@@ -253,6 +255,7 @@ function connect(id: string) {
     if (thisEpoch !== epoch || disposed) return;
     try {
       const data = JSON.parse(event.data) as Snapshot;
+      if (data.run.revision) parseRevisionAudit(data.run.revision, currentRun.value?.revision);
       if (
         !data.run?.id ||
         data.run.id !== id ||
@@ -653,6 +656,8 @@ onBeforeUnmount(() => {
         <strong>Sample investigation</strong><span>No cluster evidence was attached to this sample. Label a workload to trigger an investigation of its real Kubernetes evidence.</span>
       </div>
 
+      <AssessmentPanel v-if="currentRun?.revision" :audit="currentRun.revision" />
+
       <section class="workspace" :aria-label="isArchive ? 'Recorded investigation workspace' : 'Live investigation workspace'">
         <div class="primary-column">
           <section
@@ -939,6 +944,7 @@ onBeforeUnmount(() => {
                       ? "LLM agent"
                       : selectedNode.kind === "workflow"
                         ? "Deterministic workflow"
+                        : selectedNode.kind === "tool" ? "Deterministic evaluator"
                         : "Incident event source"
                   }}
                 </div>
@@ -948,6 +954,7 @@ onBeforeUnmount(() => {
                       ? isArchive ? "This specialist used the recorded run's configured provider. Its observed request and result can be inspected in the message log." : "This agent sends its assigned task to the configured LLM provider. Its request and result appear in the message log."
                       : selectedNode.kind === "workflow"
                         ? isArchive ? "mas-host executed this workflow, routed requests and combined the resulting messages in the recorded run." : "mas-host executes this workflow, routes requests and combines the resulting messages."
+                        : selectedNode.kind === "tool" ? "This evaluator checks the exact candidate against frozen constraints. Its findings do not establish independent diagnosis accuracy or authorise remediation."
                         : isArchive ? "The recorded run used a Kubernetes incident as its investigation input." : "The demo submits a Kubernetes incident as the input to this investigation."
                   }}
                 </p>

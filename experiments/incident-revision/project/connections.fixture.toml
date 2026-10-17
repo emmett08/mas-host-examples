@@ -1,0 +1,4 @@
+version = "mas-connections/1"
+[connections.study]
+kind = "command"
+command = ["python3", "fixture_provider.py"]

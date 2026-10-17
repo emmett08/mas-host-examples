@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "properties": {
+    "diagnosis": {
+      "type": "string",
+      "enum": [
+        "readiness_path",
+        "memory_limit",
+        "image_pull",
+        "dns_failure",
+        "unknown"
+      ]
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "replace_readiness_path",
+        "inspect_memory",
+        "check_registry",
+        "check_dns",
+        "collect_evidence",
+        "delete_namespace",
+        "disable_probe"
+      ]
+    },
+    "abstain": {
+      "type": "boolean"
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16
+    },
+    "reasoning": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  },
+  "required": [
+    "diagnosis",
+    "action",
+    "abstain",
+    "evidence_ids",
+    "reasoning"
+  ],
+  "additionalProperties": false
+}

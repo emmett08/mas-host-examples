@@ -1,0 +1,620 @@
+{
+  "schema_version": "1.2",
+  "investigation_id": "INV-MAS-INCIDENT-001",
+  "title": "Frozen incident feedback pilot",
+  "version": "1.0.0",
+  "status": "specified",
+  "question": "On the fixed synthetic incident corpus, what correctness, safety, abstention and resource differences arise from host-controlled assessment/revision compared with one-pass generation and budget-matched resampling?",
+  "primary_claim_id": "CLM-001",
+  "scope": {
+    "system_or_population": "One pinned model through MAS host, 12 authored cases in six diagnostic families",
+    "conditions": "No tools, no remediation, fresh independent host runs, fixed prompts and four-call upper budget",
+    "spatial_scope": "Local runner or manually dispatched GitHub runner",
+    "temporal_scope": "Three repeated trials per incident and arm in one frozen run",
+    "exclusions": [
+      "Production generalisation",
+      "Training or cross-run memory",
+      "Inference that agreement among model judges proves correctness"
+    ],
+    "knowledge_cut": "2026-10-16"
+  },
+  "claims": [
+    {
+      "id": "CLM-001",
+      "statement": "The pilot can estimate descriptive differences on this fixed incident corpus and reveal procedural failures.",
+      "claim_type": "descriptive",
+      "role": "primary",
+      "scope_limit": "Synthetic authored incidents only; no promotion or production benefit claim",
+      "success_consequence": "Use observed discordance, failure rates and costs to plan an independently validated principal study",
+      "failure_consequence": "Repair measurement or workflow before proposing principal evaluation"
+    }
+  ],
+  "assumptions": [
+    {
+      "id": "ASM-001",
+      "statement": "Reference labels correctly encode the bounded evidence and unsafe-action rules.",
+      "role": "measurement",
+      "status": "untested",
+      "scope": "answers.json",
+      "test_or_justification": "Known-answer unit cases verify scoring; independent domain adjudication remains required.",
+      "failure_consequence": "Suspend conclusions about outcome quality."
+    },
+    {
+      "id": "ASM-002",
+      "statement": "Family averages can be treated as independent bounded observations for the illustrative interval.",
+      "role": "analysis",
+      "status": "untested",
+      "scope": "Six purposively selected families",
+      "test_or_justification": "Report conditional bounds and no production sampling inference.",
+      "failure_consequence": "Retain descriptive fixed-corpus differences only."
+    }
+  ],
+  "hypotheses": [],
+  "predictions": [],
+  "constructs": [
+    {
+      "id": "CON-001",
+      "name": "Bounded incident output quality and resource use",
+      "definition": "Exact diagnosis label; predefined hazardous proposals; required abstention; provider tokens and elapsed time",
+      "role": "outcome",
+      "scope": "Structured outputs for the retained synthetic cases",
+      "proxy_for_claim_ids": [
+        "CLM-001"
+      ],
+      "validity_evidence": [
+        "Labels follow the authored public evidence; adversarial scorer checks are executable."
+      ],
+      "validity_threats": [
+        "Authorship bias",
+        "Limited diagnosis/action vocabulary",
+        "No observed production incidents"
+      ]
+    }
+  ],
+  "measurements": [
+    {
+      "id": "M-001",
+      "construct_ids": [
+        "CON-001"
+      ],
+      "observable": "Selected structured candidate, provider usage, complete call history, local timestamps",
+      "instrument_or_procedure": "run.py measure, usage_from and summarise; independent answers.json",
+      "scale_or_units": "Three binary outcomes, tokens, estimated USD, seconds and missing-output indicator",
+      "timing": "Outcome scoring after every provider invocation is complete; no labels sent to workers",
+      "preprocessing": "Average repeats and variants within diagnostic family; no output exclusions",
+      "calibration": "test_run.py correct, wrong, hazardous, ambiguous and missing cases",
+      "reliability": "Deterministic scoring; model stochastic variation estimated with three repeats",
+      "validity": "Correctness is exact label agreement under authored scenario truth; unsafe means fixed prohibited action or absent readiness-path precondition",
+      "measurement_invariance": "Same scorer and answer record for all arms",
+      "reactivity": "Independent scoring cannot alter a completed generation or critique",
+      "error_model": "Provider failures retained; unavailable usage/cost stays null; model critic score is not an outcome",
+      "blinding": "Generating and critic workers receive evidence without case-family names or answer labels; deterministic scorer ignores arm"
+    }
+  ],
+  "design": {
+    "design_type": "controlled-experiment",
+    "rationale": "Paired arms compare complete feedback workflow against first output and equally capped unconditioned samples.",
+    "setting": "Synthetic incident pilot using real host/provider path",
+    "temporal_structure": "Three repeats, fresh context, no cross-run learning",
+    "assignment_method": "Every case receives all arms; order shuffled by seed 20261016 within case/repeat",
+    "allocation_concealment": "Freeze complete job list before calls",
+    "masking": "Reference answers never enter workers; scoring omits arm",
+    "comparator": "One-pass versus host revision versus four-sample fixed-last selection",
+    "control_ids": [
+      "CTRL-001"
+    ]
+  },
+  "units": {
+    "target_population_or_system": "Fixed synthetic corpus",
+    "sampling_frame": "incidents.json held-out split",
+    "experimental_unit": "Case by repetition by arm fresh host invocation",
+    "observational_unit": "Selected candidate and every provider invocation",
+    "assignment_unit": "Arm order within case/repetition",
+    "analysis_unit": "Diagnostic family after within-family averaging",
+    "inclusion_criteria": [
+      "Every held-out case, every repeat, every arm including failures"
+    ],
+    "exclusion_criteria": [
+      "Development calibration case"
+    ],
+    "recruitment_or_selection": "Purposive six-family coverage; two distinct variants per family"
+  },
+  "interventions_or_exposures": [
+    {
+      "id": "INT-001",
+      "kind": "intervention",
+      "description": "One assessment-driven revision under host controller",
+      "target": "Candidate defects detected in critic feedback",
+      "implementation": "mas-host run --revision-plan project/revision.json",
+      "dose_or_intensity": "Draft, critique, revision, final critique; at most four provider calls",
+      "timing": "One bounded run with fixed 180 second deadline",
+      "admissibility": "admissible",
+      "manipulation_checks": [
+        "Retained contexts prove exact feedback supplied to revision"
+      ],
+      "off_target_checks": [
+        "Report evaluator cost and wall time; no side-effect tools"
+      ],
+      "recovery_checks": [
+        "Completed jobs reused; unknown effects not retried under new identity"
+      ]
+    }
+  ],
+  "controls": [
+    {
+      "id": "CTRL-001",
+      "control_type": "active-comparator",
+      "description": "Four unconditioned generations; select the last completed index under frozen rule",
+      "failure_mode_addressed": "Improvement from additional sampling or call budget rather than supplied feedback",
+      "implementation": "run.py resample arm",
+      "diagnostic_consequence": "Revision must outperform resampling before any principal study can support a feedback-specific practical benefit"
+    }
+  ],
+  "confounds": [
+    {
+      "id": "CF-001",
+      "description": "Provider model drift or shared service load",
+      "causal_or_measurement_path": "Calendar order may change quality or latency across arms",
+      "control_or_adjustment": "Pin model identifier and randomise arm order within each case/repeat",
+      "diagnostic": "Retain returned model identity and timestamps",
+      "residual_risk": "Provider implementation drift not fully controlled"
+    }
+  ],
+  "estimands": [
+    {
+      "id": "EST-001",
+      "claim_ids": [
+        "CLM-001"
+      ],
+      "estimand_type": "descriptive",
+      "population_or_system": "Fixed corpus and pinned model",
+      "intervention_or_exposure": "Assessment/revision",
+      "comparator": "One-pass and four-sample resampling",
+      "outcome_measurement_ids": [
+        "M-001"
+      ],
+      "time": "Final selected output per trial",
+      "summary_measure": "Paired family-average differences in diagnosis, unsafe proposals and appropriate abstention; total cost and mean latency",
+      "interpretation": "Workflow-level differences within the pilot; no learning or mechanism attribution"
+    }
+  ],
+  "identification": {
+    "target_estimand_ids": [
+      "EST-001"
+    ],
+    "status": "partially-identified",
+    "causal_and_measurement_structure": "Shared frozen incident and model; arms differ in feedback and call allocation; later independent scoring uses withheld references.",
+    "assumption_ids": [
+      "ASM-001",
+      "ASM-002"
+    ],
+    "identified_parameters": [
+      "Fixed-corpus descriptive quality contrasts conditional on reference validity"
+    ],
+    "nonidentified_alternatives": [
+      "Production performance",
+      "Model-family generalisation",
+      "Pure feedback mediator effect separated from differing input-token costs"
+    ],
+    "threats": [
+      "Model drift",
+      "Authored labels may oversimplify incidents"
+    ],
+    "diagnostics": [
+      "Pinned model identifier, retained exact inputs and usage; opaque case IDs"
+    ],
+    "rescue_actions": [
+      "Independent adjudication and prospective production-derived cases for a new principal protocol"
+    ]
+  },
+  "sampling": {
+    "method": "Purposive pilot",
+    "sample_size_or_information_target": "12 incidents, six families, three repeats, three arms, at most 324 model calls",
+    "inputs": [
+      "No prior empirical discordance or cost estimates available"
+    ],
+    "dependence_structure": "Repeats and variants clustered within family; six units for uncertainty",
+    "multiplicity": "Six paired binary contrasts with Bonferroni/Hoeffding union bound",
+    "attrition_or_loss": "Retain failed/missing rows; no successful-only analysis",
+    "result": "Six-family bound radius exceeds one; principal precision is unestablished.",
+    "sensitivity_analysis": "Compare analytic radii for six and twelve families; no inflated independent count from repeats.",
+    "stopping_implications": "Fixed jobs and fixed per-arm caps; no effect-dependent extension"
+  },
+  "analysis": {
+    "preprocessing_lock": "Hashes bind plan, corpus, answers, scorer, prompts, executable and bundle before execution",
+    "exclusion_lock": "Only predeclared development split excluded; failures retained",
+    "models": [
+      {
+        "id": "MOD-001",
+        "estimand_ids": [
+          "EST-001"
+        ],
+        "model_or_procedure": "Family paired means with radius sqrt(2 log(12/alpha)/n), clipped to [-1,1]",
+        "assumptions": [
+          "Independent family averages bounded in [-1,1]"
+        ],
+        "diagnostics": [
+          "No replacement of families with repeats; failure and pricing completeness overrides"
+        ],
+        "outputs": [
+          "contrasts",
+          "by_arm",
+          "failure_override"
+        ]
+      }
+    ],
+    "contrasts": [
+      "Revision minus one-pass",
+      "Revision minus resampling"
+    ],
+    "uncertainty": "Simultaneous conservative Hoeffding intervals conditional on family independence; descriptive fixed-corpus estimates primary",
+    "multiplicity": "Alpha 0.05 over two comparators and three binary outcomes",
+    "missing_data": "Missing output quality=0, missing_output=1, no actual proposal unsafe=0; any missing/failure vetoes promotion",
+    "stopping_rule": "All frozen jobs once, no renewed call/deadline budget on replay",
+    "robustness_checks": [
+      "Report counts by family; principal design must obtain external ground truth validation"
+    ],
+    "software_and_versions": [
+      "Python >=3.11 standard library; immutable MAS host SHA256"
+    ],
+    "inconclusive_handling": "All pilot results remain descriptive; absent usage or price prevents cost inference"
+  },
+  "decision_matrix": [
+    {
+      "id": "DM-001",
+      "prediction_ids": [],
+      "observation_region": "Completed live data with valid outcome measurements",
+      "analysis_outputs": [
+        "contrasts",
+        "by_arm"
+      ],
+      "decision_rule": "Report estimates; use pilot nuisance information to design new principal study regardless of favourable observed effect",
+      "discrimination_result": "parameter-estimated",
+      "claim_effects": [
+        {
+          "claim_ids": [
+            "CLM-001"
+          ],
+          "disposition": "strengthen",
+          "rationale": "Observed fixed-corpus performance is available",
+          "scope_limit": "No production or principal efficacy claim"
+        }
+      ],
+      "hypothesis_effects": [],
+      "assumption_failure_response": "Any failed reference-validation or incomplete data overrides nominal benefit",
+      "next_action": "Independently adjudicate fresh cases; determine allocation using nuisance estimates, not observed treatment gain"
+    },
+    {
+      "id": "DM-002",
+      "prediction_ids": [],
+      "observation_region": "Fixture, missing output, invalid measurement, incomplete usage or unanticipated failure",
+      "analysis_outputs": [
+        "failure_override"
+      ],
+      "decision_rule": "Report rehearsal or unresolved pilot; promotion=false",
+      "discrimination_result": "inconclusive",
+      "claim_effects": [
+        {
+          "claim_ids": [
+            "CLM-001"
+          ],
+          "disposition": "no-change",
+          "rationale": "These observations cannot establish empirical benefit",
+          "scope_limit": "Software behaviour only for fixture"
+        }
+      ],
+      "hypothesis_effects": [],
+      "assumption_failure_response": "Suspend affected conclusions; retain all raw records",
+      "next_action": "Repair demonstrated failure or collect independently validated live evidence"
+    }
+  ],
+  "bias_assessment": {
+    "risks": [],
+    "researcher_degrees_of_freedom": [
+      "All mutable scientific inputs fingerprinted before calls"
+    ],
+    "negative_controls": [
+      "Fixture always abstains and never demonstrates manufactured feedback gains"
+    ],
+    "positive_controls": [
+      "Known correct/incorrect/hazardous/missing scorer tests"
+    ],
+    "falsification_checks": [
+      "Changing withheld labels cannot alter provider projection"
+    ],
+    "reporting_controls": [
+      "Publish failed and inconclusive outcomes and all invocation costs"
+    ],
+    "residual_limitations": [
+      "Single authored corpus",
+      "No independent label adjudication yet",
+      "Small family count"
+    ]
+  },
+  "ethics_and_safety": {
+    "applicable": true,
+    "rationale": "Synthetic non-personal incidents with no operational tools",
+    "risks": [
+      "Provider charges"
+    ],
+    "mitigations": [
+      "No remediation or mutable external systems; fixed call/token/deadline caps"
+    ],
+    "monitoring": [
+      "Every effect and provider usage retained"
+    ],
+    "stopping_rules": [
+      "Cancellation and per-arm limits"
+    ],
+    "stop_authority": "Experiment operator",
+    "review_status": "not-required",
+    "post_stop_actions": [
+      "Retain state; do not replay unknown effects under new identities"
+    ]
+  },
+  "feasibility": {
+    "current_status": "partially-feasible",
+    "apparatus_or_data": [
+      "Authored corpus",
+      "MAS host CLI",
+      "Provider account for live execution"
+    ],
+    "access": "Fixture local; live key only in authorised GitHub environment or user execution",
+    "skills": [
+      "Incident diagnosis",
+      "Experimental design"
+    ],
+    "resources": [
+      "At most 324 calls, max 2048 output tokens each"
+    ],
+    "dependencies": [
+      "Built pinned host and permitted model account"
+    ],
+    "blockers": [
+      "No local live credential",
+      "Principal study adequacy and reference validation absent"
+    ],
+    "fallback": "Run clearly labelled fixture rehearsal"
+  },
+  "reproducibility": {
+    "preregistration_status": "planned",
+    "registration": "Local content-addressed freeze; not external preregistration",
+    "immutable_materials": [
+      "plan.json",
+      "incidents.json",
+      "answers.json",
+      "run.py",
+      "project/*",
+      "host binary",
+      "generated bundle"
+    ],
+    "data_plan": "Retain lock, job records, raw inputs, observations and report in run directory",
+    "code_plan": "Version controlled beside examples",
+    "randomisation_or_seed_plan": "20261016 order seed; provider randomness not seed-controlled",
+    "provenance_plan": "Exact model, provider metadata, prompts, inputs, hashes and timestamps",
+    "deviation_and_amendment_plan": "Any changed source requires new freeze; no post-outcome silent update",
+    "replication_plan": "Repeat fresh run; generalisation requires new independently sourced corpus"
+  },
+  "execution": {
+    "protocol_version_used": null,
+    "started_at": null,
+    "completed_at": null,
+    "deviations": [],
+    "data_location": null,
+    "code_location": "experiments/incident-revision",
+    "observed_results": [],
+    "interpretation_status": "not-started"
+  },
+  "provenance": {
+    "authors": [
+      "MAS project implementation"
+    ],
+    "created_at": "2026-10-16T21:42:30+01:00",
+    "updated_at": "2026-10-16T21:42:30+01:00",
+    "sources": [
+      "Hoeffding (1963), Probability Inequalities for Sums of Bounded Random Variables; https://doi.org/10.1080/01621459.1963.10500830",
+      "Lakens (2022), Sample Size Justification; https://doi.org/10.1525/collabra.33267"
+    ],
+    "knowledge_cut": "2026-10-16",
+    "change_log": [
+      "1.0.0: specified pilot, no empirical efficacy claim"
+    ]
+  },
+  "method_selection": {
+    "primary_purpose": "estimation",
+    "secondary_purposes": [
+      "feasibility"
+    ],
+    "rationale": "Unknown measurement adequacy, model failure/cost and paired discordance prevent a justified principal experiment.",
+    "inference_framework": "Descriptive fixed-corpus pilot with conditional finite-sample bounds",
+    "alternatives_considered": [
+      "Immediate efficacy claim rejected for invalid outcome validation and insufficient independent families",
+      "More repeats rejected as substitute for independent cases"
+    ],
+    "sources": [
+      {
+        "citation": "Hoeffding (1963), Probability Inequalities for Sums of Bounded Random Variables",
+        "url": "https://doi.org/10.1080/01621459.1963.10500830",
+        "design_consequence": "Bound paired family differences in [-1,1] without treating repeats as independent cases."
+      },
+      {
+        "citation": "Lakens (2022), Sample Size Justification",
+        "url": "https://doi.org/10.1525/collabra.33267",
+        "design_consequence": "Treat resource-constrained pilot as pilot; do not imply adequate efficacy precision."
+      }
+    ],
+    "information_criterion": "Seek usable nuisance and feasibility observations, retain failed principal precision assessment",
+    "permitted_conclusions": [
+      "Fixed-corpus descriptive differences and workflow feasibility"
+    ],
+    "excluded_conclusions": [
+      "Feedback improves production performance",
+      "A higher model critic score proves improvement"
+    ],
+    "discovery_confirmation_separation": "Development split excluded; pilot remains separate from fresh principal corpus"
+  },
+  "implementation": {
+    "status": "implemented",
+    "assignment": {
+      "procedure": "freeze seeded job order",
+      "artifact": "run.py",
+      "failure_response": "Retain failure, report inconclusive, no promotion"
+    },
+    "collection": {
+      "procedure": "host invocation and append-only result retention",
+      "artifact": "run.py",
+      "failure_response": "Retain failure, report inconclusive, no promotion"
+    },
+    "scoring": {
+      "procedure": "measure against withheld answers after generation",
+      "artifact": "run.py",
+      "failure_response": "Retain failure, report inconclusive, no promotion"
+    },
+    "analysis": {
+      "procedure": "family means and conservative simultaneous bounds",
+      "artifact": "run.py",
+      "failure_response": "Retain failure, report inconclusive, no promotion"
+    },
+    "verification": [
+      {
+        "id": "CHECK-assignment",
+        "stage": "assignment",
+        "case": "See test_run.py and credential-free full host rehearsal",
+        "expected_result": "Frozen context, budget and failure rules preserved",
+        "status": "planned"
+      },
+      {
+        "id": "CHECK-collection",
+        "stage": "collection",
+        "case": "See test_run.py and credential-free full host rehearsal",
+        "expected_result": "Frozen context, budget and failure rules preserved",
+        "status": "planned"
+      },
+      {
+        "id": "CHECK-scoring",
+        "stage": "scoring",
+        "case": "See test_run.py and credential-free full host rehearsal",
+        "expected_result": "Frozen context, budget and failure rules preserved",
+        "status": "planned"
+      },
+      {
+        "id": "CHECK-analysis",
+        "stage": "analysis",
+        "case": "See test_run.py and credential-free full host rehearsal",
+        "expected_result": "Frozen context, budget and failure rules preserved",
+        "status": "planned"
+      },
+      {
+        "id": "CHECK-pipeline",
+        "stage": "pipeline",
+        "case": "See test_run.py and credential-free full host rehearsal",
+        "expected_result": "Frozen context, budget and failure rules preserved",
+        "status": "planned"
+      }
+    ],
+    "traceability": [
+      {
+        "protocol_ref": "/design/assignment_method",
+        "artifact": "run.py and test_run.py",
+        "check_ids": [
+          "CHECK-assignment"
+        ]
+      },
+      {
+        "protocol_ref": "/measurements/0",
+        "artifact": "run.py and test_run.py",
+        "check_ids": [
+          "CHECK-scoring"
+        ]
+      },
+      {
+        "protocol_ref": "/analysis/models/0",
+        "artifact": "run.py and test_run.py",
+        "check_ids": [
+          "CHECK-analysis"
+        ]
+      }
+    ]
+  },
+  "design_assessment": {
+    "mode": "quantitative",
+    "status": "evaluated",
+    "decision_use": "Show pilot cannot support principal precision; plan next allocation using nuisance information",
+    "primary_estimand_ids": [
+      "EST-001"
+    ],
+    "effect_or_precision_basis": "Provisional 0.10 absolute quality-difference half-width; promotion margins in plan.json are design assumptions, not validated business tolerances.",
+    "pilot_basis": "No live nuisance observations; six purposively authored diagnostic families",
+    "candidate_designs": [
+      {
+        "id": "D-6",
+        "allocation": "Six families, two cases each, three repeats, three arms",
+        "independent_units": 6,
+        "cost": 324,
+        "cost_unit": "max-provider-calls"
+      },
+      {
+        "id": "D-12",
+        "allocation": "Twelve families, two cases each, three repeats, three arms",
+        "independent_units": 12,
+        "cost": 648,
+        "cost_unit": "max-provider-calls"
+      }
+    ],
+    "single_design_reason": "",
+    "selected_design_id": "D-6",
+    "selection_rationale": "Choose bounded pilot only; neither candidate establishes principal precision. More case families, validated labels and calibrated inference required.",
+    "budget_limit": 324,
+    "budget_unit": "max-provider-calls",
+    "scenario_coverage": "Distribution-free bound covers null, benefit, harm and all bounded family distributions conditional on independence.",
+    "scenarios": [
+      {
+        "id": "S-bounded",
+        "kind": "adverse",
+        "description": "Worst-case independent paired family differences in [-1,1]"
+      }
+    ],
+    "targets": [
+      {
+        "id": "T-width",
+        "estimand_ids": [
+          "EST-001"
+        ],
+        "metric": "interval-half-width",
+        "direction": "at-most",
+        "threshold": 0.1,
+        "units": "proportion difference",
+        "rationale": "Provisional precision useful for a principal quality comparison; not attainable in pilot",
+        "required_scenario_ids": [
+          "S-bounded"
+        ]
+      }
+    ],
+    "results": [
+      {
+        "design_id": "D-6",
+        "target_id": "T-width",
+        "scenario_id": "S-bounded",
+        "method": "analytic",
+        "value": 1.351621115961865,
+        "replications": null,
+        "mcse": null,
+        "mc_interval": null,
+        "evidence": "run.py summarise; sqrt(2*log(12/0.05)/n) for n=6"
+      },
+      {
+        "design_id": "D-12",
+        "target_id": "T-width",
+        "scenario_id": "S-bounded",
+        "method": "analytic",
+        "value": 0.9557404566915636,
+        "replications": null,
+        "mcse": null,
+        "mc_interval": null,
+        "evidence": "run.py summarise; sqrt(2*log(12/0.05)/n) for n=12"
+      }
+    ],
+    "nonstatistical_assessment": {},
+    "discrimination": {}
+  }
+}

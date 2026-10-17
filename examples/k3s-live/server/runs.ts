@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { HostRunFailure, type Host } from './host.js';
 import type { FailureDiagnostics } from './diagnostics.js';
 import { parseEvidence, type EvidenceBundle } from '../shared/evidence.js';
+import { parseRevisionAudit, verifySelectedOutput, type RevisionAudit } from '../shared/revision.mjs';
 
 import { validOutcomeCombination, type ResolutionReport, type ReconciliationObservation } from '../shared/resolution.js';
 export type { ResolutionReport, ReconciliationObservation };
@@ -13,6 +14,7 @@ export interface Run {
   id: string; status: 'queued' | 'running' | 'completed' | 'failed';
   mode: 'live' | 'fixture'; startedAt: string; error?: string; output?: unknown;
   diagnostics?: FailureDiagnostics;
+  revisionEnabled?: boolean; revision?: RevisionAudit;
   resolution?: ResolutionReport;
   reconciliations?: ReconciliationObservation[];
   input: { incident: unknown }; fingerprint: string;
@@ -35,6 +37,7 @@ export class Runs {
   }
   async initialise() {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    const resumable: Run[] = [];
     for (const item of await readdir(this.directory, { withFileTypes: true })) {
       if (!item.isDirectory()) continue;
       const folder = this.folder(item.name);
@@ -52,11 +55,24 @@ export class Runs {
       const run = JSON.parse(manifest) as Run;
       if (run.id !== item.name) throw new Error('Stored run identity mismatch');
       if (run.status === 'running' || run.status === 'queued') {
-        run.status = 'failed';
-        run.error = 'Server restarted during execution. Retained host state needs inspection; this demo will not repeat inference automatically.';
-        await this.persist(run);
+        if (run.revisionEnabled && this.host.options?.revisionPlan) resumable.push(run);
+        else {
+          run.status = 'failed';
+          run.error = 'Server restarted during execution. Retained host state needs inspection; this demo will not repeat inference automatically.';
+          await this.persist(run);
+        }
       }
       this.records.set(run.id, run);
+    }
+    if (resumable.length > 1) throw new Error('More than one interrupted revision run exists; inspect retained state before resuming');
+    if (resumable[0]) {
+      this.active = resumable[0];
+      // The host freezes source input, configuration, policy, deadline and
+      // reservations. Reopening reuses completed work and rejects unknown effects.
+      void this.execute(resumable[0]).catch(() => {
+        resumable[0]!.status = 'failed';
+        resumable[0]!.error = 'Could not retain the resumed outcome. Inspect the existing host journal.';
+      });
     }
   }
   get(id: string) {
@@ -97,7 +113,8 @@ export class Runs {
     if (this.stopping || this.active) throw new RequestError(429, 'One demo is already running; try again after it finishes');
     if (this.records.size >= 50) throw new RequestError(429, 'Demo retains at most 50 runs; archive the data directory before starting a new session');
     if (this.mode === 'live' && !process.env.OPENAI_API_KEY) throw new RequestError(503, 'OPENAI_API_KEY is required for live agents');
-    const run: Run = { id, mode: this.mode, status: 'queued', startedAt: new Date().toISOString(), input, fingerprint };
+    const run: Run = { id, mode: this.mode, status: 'queued', startedAt: new Date().toISOString(), input, fingerprint,
+      ...(this.host.options?.revisionPlan ? { revisionEnabled: true } : {}) };
     this.active = run;
     this.records.set(id, run);
     try { await this.persist(run); }
@@ -175,13 +192,19 @@ export class Runs {
       return pendingObservation;
     };
     const timer = setInterval(() => void observe(), 250);
-    let outcome: { status: 'completed'; output: unknown } | { status: 'failed'; error: string; diagnostics?: FailureDiagnostics };
+    let outcome: { status: 'completed'; output: unknown; revision?: RevisionAudit } |
+      { status: 'failed'; error: string; diagnostics?: FailureDiagnostics; output?: unknown; revision?: RevisionAudit };
     try {
       run.status = 'running';
       await this.persist(run);
       const input = join(folder, 'input.json');
-      await writeFile(input, JSON.stringify(run.input), { mode: 0o600 });
-      outcome = { status: 'completed', output: await this.host.run(run.id, input, state, run.mode) };
+      const supplied = run.revisionEnabled ? { sources: [{ id: 'incident', kind: 'evidence', content: run.input.incident, readers: ['*'] }] } : run.input;
+      await writeFile(input, JSON.stringify(supplied), { mode: 0o600 });
+      if (run.revisionEnabled) {
+        const result = await this.host.runAssessed(run.id, input, state, run.mode);
+        outcome = result.revision.status === 'completed' ? { status: 'completed', ...result }
+          : { status: 'failed', ...result, error: `Revision ended as ${result.revision.status}; unresolved findings remain. No remediation is admitted for this run.` };
+      } else outcome = { status: 'completed', output: await this.host.run(run.id, input, state, run.mode) };
     } catch (error) {
       outcome = error instanceof HostRunFailure
         ? { status: 'failed', error: error.message, diagnostics: error.diagnostics }
@@ -204,8 +227,30 @@ export class Runs {
     if (!this.observations.has(id) && run.status !== 'running' && run.status !== 'queued') {
       try { this.observations.set(id, await this.host.observe(id, join(this.folder(id), 'host'))); } catch { /* Show absence explicitly below. */ }
     }
-    return { run, observation: this.observations.get(id) ?? { messages: [] },
+    const observation = this.observations.get(id) as { revision?: unknown } | undefined;
+    const revision = observation?.revision ? parseRevisionAudit(observation.revision) : run.revision;
+    return { run: revision ? { ...run, revision } : run, observation: observation ?? { messages: [] },
       observationAvailable: this.observations.has(id) };
+  }
+  async remediationSnapshot(id: string) {
+    const run = this.get(id);
+    if ((run.revisionEnabled || run.revision) && run.status === 'completed' &&
+        (run.revision?.status !== 'completed' || !run.revision.selected || run.output === undefined)) {
+      throw new RequestError(409, 'Completed revision evidence is required for remediation');
+    }
+    let revisionSelection;
+    if (run.revision?.selected && run.output !== undefined) {
+      await verifySelectedOutput(run.revision, run.output);
+      const candidate = run.revision.records.find(row => row.kind === 'candidate' && row.id === run.revision!.selected!.id)!;
+      revisionSelection = { status: run.revision.status, candidate: run.revision.selected,
+        output_sha256: candidate.record?.output_sha256 ?? candidate.output_sha256 };
+    }
+    // The controller needs the original incident and exact selected output, not
+    // observer history or repeated invocation contexts. Preserve its byte bound
+    // and every existing admission/recovery field without granting new authority.
+    return { run: { id: run.id, status: run.status, startedAt: run.startedAt, input: run.input,
+      output: run.output, resolution: run.resolution, reconciliations: run.reconciliations,
+      ...(revisionSelection ? { revisionSelection } : {}) } };
   }
   async shutdown() {
     this.stopping = true;

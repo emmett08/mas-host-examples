@@ -34,12 +34,13 @@ export function application(runs: Runs, topology: unknown, ui: string, verifierT
       return reply(res, 202, { accepted: true, runId: resolution[1], kind: resolution[2],
         recordId: createHash('sha256').update(JSON.stringify(body)).digest('hex') });
     }
-    const match = /^\/api\/runs\/([a-zA-Z0-9_-]{1,64})(\/(?:events|snapshot))?$/.exec(path);
+    const match = /^\/api\/runs\/([a-zA-Z0-9_-]{1,64})(\/(?:events|snapshot|remediation))?$/.exec(path);
     if (req.method === 'GET' && match) {
       const id = match[1]!;
       runs.get(id);
       if (!match[2]) return reply(res, 200, runs.get(id));
       if (match[2] === '/snapshot') return reply(res, 200, await runs.snapshot(id));
+      if (match[2] === '/remediation') return reply(res, 200, await runs.remediationSnapshot(id));
       if (clients >= 20) throw new RequestError(429, 'Too many event viewers');
       clients++;
       res.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });

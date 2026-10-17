@@ -1,0 +1,86 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "inconclusive"
+      ]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "criterion_id": {
+            "type": "string",
+            "enum": [
+              "diagnosis_support",
+              "proposal_safety",
+              "abstention"
+            ]
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "inconclusive"
+            ]
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "sha256"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "explanation": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "criterion_id",
+          "verdict",
+          "score",
+          "evidence",
+          "explanation"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 3,
+      "maxItems": 3
+    }
+  },
+  "required": [
+    "status",
+    "findings"
+  ],
+  "additionalProperties": false
+}

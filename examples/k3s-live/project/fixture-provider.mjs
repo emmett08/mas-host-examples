@@ -1,5 +1,5 @@
 // Deterministic CI provider: inspect actual supplied evidence; never call an LLM.
-export function fixtureOutput(request, mode = 'review', paced = false) {
+export function fixtureOutput(request, mode = 'review', paced = false, draftDefect = false) {
   const input = JSON.parse(request.input_json);
   const items = Array.isArray(input?.incident?.evidence?.items) ? input.incident.evidence.items : [];
   const collected = items.filter(item => item.status === 'collected');
@@ -37,7 +37,7 @@ export function fixtureOutput(request, mode = 'review', paced = false) {
     confidence: matched ? 'high' : 'low',
     next_checks: matched ? ['Revalidate live Deployment identity, version, template and readiness-path preconditions.', 'Verify rollout readiness and health after applying the single allowlisted path replacement.'] : ['Collect the Deployment specification, Pod status, Warning events, logs and CPU/memory samples; compare their timestamps.'],
     requires_human: !matched,
-    evidence_ids: collected.map(item => item.id),
+    evidence_ids: [...collected.map(item => item.id), ...(draftDefect && !input.candidate ? ['fixture-missing-evidence'] : [])],
     remediation: {
       action: matched ? 'replace_readiness_probe_path' : 'none',
       target: {kind: matched ? 'Deployment' : '', namespace: matched ? metadata.namespace : '', name: matched ? metadata.name : '', uid: matched ? metadata.uid : '', resource_version: matched ? metadata.resourceVersion : '', container: matched ? 'checkout' : ''},
@@ -57,6 +57,6 @@ if (process.argv[1] && import.meta.url === new URL(process.argv[1], 'file:').hre
   if (request.version !== 'mas-provider/1') process.exit(2);
   const paced = process.argv.includes('--paced');
   if (paced) await new Promise(resolve => setTimeout(resolve, 5000));
-  const output = fixtureOutput(request, process.argv[2], paced);
+  const output = fixtureOutput(request, process.argv[2], paced, process.argv.includes('--draft-defect'));
   process.stdout.write(JSON.stringify({version: 'mas-provider/1', status: 'completed', output_json: JSON.stringify(output), evidence: {id: paced ? 'paced-evidence-aware-fixture' : 'evidence-aware-fixture', cleanup: 'confirmed'}}));
 }

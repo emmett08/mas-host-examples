@@ -1,5 +1,15 @@
 version: mas-topology/1
 edges:
+  - [client, assessed_draft]
+  - [assessed_draft, client]
+  - [assessed_draft, coordinator]
+  - [coordinator, assessed_draft]
+  - [client, assessed_revision]
+  - [assessed_revision, client]
+  - [assessed_revision, decision]
+  - [decision, assessed_revision]
+  - [client, incident_checks]
+  - [incident_checks, client]
   - [client, coordinator]
   - [coordinator, client]
   - [coordinator, platform]

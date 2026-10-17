@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { canonicalJSON } from '../remediator/controller.js';
+import { createRemediationTransport } from '../remediator/transport.js';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +11,7 @@ import { HostRunFailure, type Host } from './host.js';
 import { projectFailure } from './diagnostics.js';
 import { application } from './http.js';
 import { EVIDENCE_VERSION, type EvidenceBundle } from '../shared/evidence.js';
+import { canonicalJson, parseRevisionAudit } from '../shared/revision.mjs';
 
 function incidentEvidence(): EvidenceBundle {
   return { version: EVIDENCE_VERSION, capturedAt: '2026-10-16T12:00:00Z',
@@ -25,6 +27,34 @@ function incidentEvidence(): EvidenceBundle {
 function evidenceRequest(id: string, evidence = incidentEvidence()) {
   return { id, scenario: 'pod-incident', event: { reason: 'Unhealthy', involvedObject: { kind: 'Pod', ...evidence.subject } }, evidence };
 }
+
+test('an exhausted revision retains its selected output but cannot admit remediation or repeat the same run', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-exhausted-revision-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const output = { summary: 'Unresolved finding', requires_human: true };
+  const digest = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
+  const candidate = { schema_version: 1, id: 'candidate-0', output, output_sha256: digest(output), parent: null, feedback: [] };
+  const revision = parseRevisionAudit({ version: 'mas-host-revision-audit/1', status: 'exhausted',
+    selected: { id: candidate.id, sha256: digest(candidate) }, candidates: [candidate], assessments: [], contexts: [],
+    records: [{ kind: 'candidate', id: candidate.id, sha256: digest(candidate), readers: ['*'], record: candidate }] });
+  let calls = 0;
+  const host = { options: { revisionPlan: 'revision.json' }, runAssessed: async (_id: string, input: string) => {
+    calls++;
+    const supplied = JSON.parse(await readFile(input, 'utf8'));
+    assert.deepEqual(supplied.sources.map((row: { id: string; readers: string[] }) => ({ id: row.id, readers: row.readers })), [{ id: 'incident', readers: ['*'] }]);
+    return { output, revision };
+  }, observe: async () => ({ messages: [], revision }) } as unknown as Host;
+  const runs = new Runs(dir, 'fixture', host);
+  await runs.initialise();
+  const request = { id: 'exhausted', scenario: 'pod-incident' };
+  await runs.create(request);
+  await waitFor(() => runs.get('exhausted').status === 'failed');
+  assert.deepEqual(runs.get('exhausted').output, output);
+  assert.equal(runs.get('exhausted').revision!.status, 'exhausted');
+  await assert.rejects(runs.recordResolution('exhausted', {}), error => error instanceof RequestError && error.status === 409);
+  await runs.create(request);
+  assert.equal(calls, 1);
+});
 
 test('idempotent event dispatch, conflicting input rejection, admission bound, and crash recovery', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'mas-live-'));
@@ -75,6 +105,66 @@ test('HTTP rejects cross-origin dispatch and invalid evidence, serves retained s
   assert.equal((await (await fetch(`${url}/api/runs/http-run`)).json()).mode, 'fixture');
   assert.equal((await (await fetch(`${url}/api/runs/http-run/snapshot`)).json()).observationAvailable, true);
   assert.equal((await fetch(`${url}/api/runs/absent`)).status, 404);
+});
+
+test('compact remediation responses preserve selected output and admission inputs despite oversized audit history', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-compact-remediation-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const digest = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
+  const draftOutput = { requires_human: false, summary: 'Unselected draft' };
+  const output = { requires_human: true, summary: 'Selected revision requires review' };
+  const draft = { schema_version: 1, id: 'candidate-0', output: draftOutput, output_sha256: digest(draftOutput), parent: null, feedback: [] };
+  const candidate = { ...draft, id: 'candidate-1', output, output_sha256: digest(output), parent: { id: draft.id, sha256: digest(draft) } };
+  const content = { retained: 'x'.repeat(2 * 1024 * 1024) };
+  const evidence = { schema_version: 1, id: 'large-evidence', content, content_sha256: digest(content) };
+  const revision = parseRevisionAudit({ version: 'mas-host-revision-audit/1', status: 'completed',
+    selected: { id: candidate.id, sha256: digest(candidate) }, candidates: [draft, candidate], assessments: [], contexts: [],
+    records: [draft, candidate, evidence].map(record => ({ kind: record === evidence ? 'evidence' : 'candidate',
+      id: record.id, sha256: digest(record), readers: ['*'], record })) });
+  const host = { options: { revisionPlan: 'revision.json' }, runAssessed: async () => ({ output, revision }),
+    observe: async () => ({ messages: [], revision }) } as unknown as Host;
+  const runs = new Runs(dir, 'fixture', host);
+  await runs.initialise();
+  await runs.create(evidenceRequest('compact'));
+  await waitFor(() => runs.get('compact').status === 'completed');
+  const server = application(runs, {}, dir);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const base = `http://127.0.0.1:${address.port}`;
+  const full = await (await fetch(`${base}/api/runs/compact/snapshot`)).text();
+  assert.ok(Buffer.byteLength(full) > 1024 * 1024);
+  const noKubernetes = async () => { throw new Error('No Kubernetes mutation should occur'); };
+  const transport = createRemediationTransport({ namespace: 'mas-demo', verifierToken: 'a'.repeat(64),
+    client: { get: noKubernetes, list: noKubernetes, text: noKubernetes, patchJSON: noKubernetes },
+    fetch: (input, init) => fetch(`${base}${new URL(String(input)).pathname}`, init) });
+  const compact = await transport.snapshot('compact');
+  assert.ok(compact);
+  assert.ok(Buffer.byteLength(JSON.stringify(compact)) < 64 * 1024);
+  assert.equal(compact.run.status, 'completed');
+  assert.deepEqual(compact.run.input, runs.get('compact').input);
+  assert.deepEqual(compact.run.output, output);
+  assert.deepEqual(compact.run.revisionSelection, { status: 'completed', candidate: revision.selected, output_sha256: candidate.output_sha256 });
+  assert.equal('revision' in compact.run, false);
+  assert.equal('observation' in compact, false);
+  const { resolveIncident } = await import(new URL('../deploy/remediation.mjs', import.meta.url).href);
+  const denied = await resolveIncident(compact, { enabled: true, kubectl: noKubernetes });
+  assert.equal(denied.effectOutcome, 'not_started');
+  assert.match(denied.reason, /collected pod evidence/);
+  assert.equal(denied.reason, (await resolveIncident(JSON.parse(full), { enabled: true, kubectl: noKubernetes })).reason);
+  const retained = runs.get('compact');
+  retained.status = 'failed'; retained.revision!.status = 'exhausted';
+  assert.equal((await transport.snapshot('compact'))!.run.status, 'failed');
+  await assert.rejects(runs.recordResolution('compact', {}), error => error instanceof RequestError && error.status === 409);
+  retained.status = 'completed';
+  assert.equal((await fetch(`${base}/api/runs/compact/remediation`)).status, 409);
+  retained.revision!.status = 'completed'; retained.output = draftOutput;
+  assert.equal((await fetch(`${base}/api/runs/compact/remediation`)).status, 500);
+  retained.output = output; retained.revision!.selected = null;
+  assert.equal((await fetch(`${base}/api/runs/compact/remediation`)).status, 409);
+  retained.revision!.selected = { id: candidate.id, sha256: digest(candidate) }; retained.output = undefined;
+  assert.equal((await fetch(`${base}/api/runs/compact/remediation`)).status, 409);
 });
 
 test('terminal state waits for an in-flight observation and a fresh final snapshot', async t => {

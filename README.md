@@ -10,8 +10,9 @@ custom host implementation.
 The native examples and the default model fixtures run without credentials.
 The composable example also supplies task-specific GPT-5.4/GPT-5.4 Mini settings,
 Cursor, compatible-provider and mixed-provider profiles. The command example has
-an explicit live model-to-CLI entry. The examples demonstrate coordination and recovery;
-they do not evaluate model quality or make production release decisions.
+an explicit live model-to-CLI entry. The examples demonstrate coordination and
+recovery without establishing model quality or making production release decisions.
+A separately frozen incident pilot measures feedback effects under explicit limits.
 
 | Example | Application behaviour | Host feature |
 |---|---|---|
@@ -21,7 +22,8 @@ they do not evaluate model quality or make production release decisions.
 | [Python service review](examples/python-review) | Dataclass inputs and outputs, capacity/security checks, independent acceptance and optional durable receipt | Typed Python client and workers, parallel/request/effect APIs, TOML settings and YAML input |
 | [Command policy check](examples/command-policy) | Standalone CLI with arguments, JSON stdin/stdout and an optional receipt; optional GPT-5.4 delegation | Retained executable, shared operation contracts, model-to-command requests and admitted command recovery |
 | [Composable review agents](examples/composable-agents) | Star, tree and mesh reviews nested into a release workflow; interchangeable model providers | Recursive Composite workflow, provider Strategy/Adapter, MAS admission and durable inference replay |
-| [Live Kubernetes incident room](examples/k3s-live) | Vue/TypeScript canvas, real LLM specialists, parallel review and peer critique; event-triggered k3s operator | Read-only live message observation, hybrid choreography, retained run identities and GitHub deployment workflow |
+| [Live Kubernetes incident room](examples/k3s-live) | Vue/TypeScript canvas, exact candidate assessments, bounded revision and downloaded evidence playback; event-triggered k3s operator | Invocation disclosure controls, immutable assessment history, durable replay and separately guarded remediation |
+| [Frozen incident revision pilot](experiments/incident-revision) | One-pass generation, feedback-driven revision and resampling, scored against withheld reference answers | Frozen budgets and selection, repeated trials, evaluator cost, independent outcome measurements and explicit inconclusive results |
 
 ## Quick start
 

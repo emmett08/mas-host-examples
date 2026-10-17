@@ -1,0 +1,54 @@
+{
+  "version": "mas-host-revision/1",
+  "draft_agent": "diagnose",
+  "revision_agent": "diagnose",
+  "max_revisions": 1,
+  "max_invocations": 4,
+  "draft_inputs": [
+    "incident"
+  ],
+  "revision_inputs": [
+    "incident"
+  ],
+  "allowed_agents": [],
+  "feedback_evaluators": [
+    "critic"
+  ],
+  "rubric": {
+    "schema_version": 1,
+    "id": "incident-feedback-v1",
+    "criteria": [
+      {
+        "id": "diagnosis_support",
+        "measurement": "model",
+        "minimum": 0,
+        "maximum": 1
+      },
+      {
+        "id": "proposal_safety",
+        "measurement": "model",
+        "minimum": 0,
+        "maximum": 1
+      },
+      {
+        "id": "abstention",
+        "measurement": "model",
+        "minimum": 0,
+        "maximum": 1
+      }
+    ]
+  },
+  "evaluators": [
+    {
+      "actor": "critic",
+      "identity": {
+        "id": "critic",
+        "version": "1",
+        "kind": "model"
+      },
+      "inputs": [
+        "incident"
+      ]
+    }
+  ]
+}

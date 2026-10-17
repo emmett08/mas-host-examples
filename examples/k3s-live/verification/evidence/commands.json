@@ -17,6 +17,293 @@
       "output": "cc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
     }
   ],
+  "revision-safety": [
+    {
+      "command": [
+        "/usr/bin/spin",
+        "-a",
+        "revision.pml"
+      ],
+      "exit_code": 0,
+      "output": "ltl revision_settles: <> (done)\n"
+    },
+    {
+      "command": [
+        "/usr/bin/cc",
+        "-O2",
+        "-DMEMLIM=512",
+        "-DSAFETY",
+        "-DNOCLAIM",
+        "-o",
+        "pan",
+        "pan.c"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "/tmp/mas-spin-i63lkvr3/pan",
+        "-b",
+        "-m100000",
+        "-w20"
+      ],
+      "exit_code": 0,
+      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 20 byte, depth reached 20, errors: 0\n      125 states, stored\n        0 states, matched\n      125 transitions (= stored+matched)\n        0 atomic steps\nhash conflicts:         0 (resolved)\n\nStats on memory usage (in Megabytes):\n    0.006\tequivalent memory usage for states (stored*(State-vector + overhead))\n    0.286\tactual memory usage for states\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   13.536\ttotal actual memory usage\n\n\nunreached in proctype Incident\n\t(0 of 49 states)\nunreached in claim revision_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(done))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0 seconds\n"
+    }
+  ],
+  "revision-safety-no-reduction": [
+    {
+      "command": [
+        "/usr/bin/spin",
+        "-a",
+        "revision.pml"
+      ],
+      "exit_code": 0,
+      "output": "ltl revision_settles: <> (done)\n"
+    },
+    {
+      "command": [
+        "/usr/bin/cc",
+        "-O2",
+        "-DMEMLIM=512",
+        "-DSAFETY",
+        "-DNOCLAIM",
+        "-DNOREDUCE",
+        "-o",
+        "pan",
+        "pan.c"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "/tmp/mas-spin-abw8hmms/pan",
+        "-b",
+        "-m100000",
+        "-w20"
+      ],
+      "exit_code": 0,
+      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 20 byte, depth reached 20, errors: 0\n      125 states, stored\n        0 states, matched\n      125 transitions (= stored+matched)\n        0 atomic steps\nhash conflicts:         0 (resolved)\n\nStats on memory usage (in Megabytes):\n    0.005\tequivalent memory usage for states (stored*(State-vector + overhead))\n    0.286\tactual memory usage for states\n    8.000\tmemory used for hash table (-w20)\n    4.578\tmemory used for DFS stack (-m100000)\n   12.773\ttotal actual memory usage\n\n\nunreached in proctype Incident\n\t(0 of 49 states)\nunreached in claim revision_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(done))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0 seconds\n"
+    }
+  ],
+  "revision-settlement": [
+    {
+      "command": [
+        "/usr/bin/spin",
+        "-a",
+        "revision.pml"
+      ],
+      "exit_code": 0,
+      "output": "ltl revision_settles: <> (done)\n"
+    },
+    {
+      "command": [
+        "/usr/bin/cc",
+        "-O2",
+        "-DMEMLIM=512",
+        "-o",
+        "pan",
+        "pan.c"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "/tmp/mas-spin-24q8a4gg/pan",
+        "-a",
+        "-b",
+        "-m100000",
+        "-w20"
+      ],
+      "exit_code": 0,
+      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t+ (revision_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 28 byte, depth reached 38, errors: 0\n      115 states, stored (230 visited)\n      104 states, matched\n      334 transitions (= visited+matched)\n        0 atomic steps\nhash conflicts:         0 (resolved)\n\nStats on memory usage (in Megabytes):\n    0.006\tequivalent memory usage for states (stored*(State-vector + overhead))\n    0.286\tactual memory usage for states\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   13.536\ttotal actual memory usage\n\n\nunreached in proctype Incident\n\t(0 of 49 states)\nunreached in claim revision_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 0 seconds\n"
+    }
+  ],
+  "revision-settlement-no-reduction": [
+    {
+      "command": [
+        "/usr/bin/spin",
+        "-a",
+        "revision.pml"
+      ],
+      "exit_code": 0,
+      "output": "ltl revision_settles: <> (done)\n"
+    },
+    {
+      "command": [
+        "/usr/bin/cc",
+        "-O2",
+        "-DMEMLIM=512",
+        "-DNOREDUCE",
+        "-o",
+        "pan",
+        "pan.c"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "/tmp/mas-spin-7s6jaf14/pan",
+        "-a",
+        "-b",
+        "-m100000",
+        "-w20"
+      ],
+      "exit_code": 0,
+      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t+ (revision_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 28 byte, depth reached 38, errors: 0\n      115 states, stored (230 visited)\n      104 states, matched\n      334 transitions (= visited+matched)\n        0 atomic steps\nhash conflicts:         0 (resolved)\n\nStats on memory usage (in Megabytes):\n    0.006\tequivalent memory usage for states (stored*(State-vector + overhead))\n    0.286\tactual memory usage for states\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   13.536\ttotal actual memory usage\n\n\nunreached in proctype Incident\n\t(0 of 49 states)\nunreached in claim revision_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 0 seconds\n"
+    }
+  ],
+  "revision-wrong-selection": [
+    {
+      "command": [
+        "/usr/bin/spin",
+        "-DBUG_SELECTION",
+        "-a",
+        "revision.pml"
+      ],
+      "exit_code": 0,
+      "output": "ltl revision_settles: <> (done)\n"
+    },
+    {
+      "command": [
+        "/usr/bin/cc",
+        "-O2",
+        "-DMEMLIM=512",
+        "-DSAFETY",
+        "-DNOCLAIM",
+        "-o",
+        "pan",
+        "pan.c"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "/tmp/mas-spin-92ywooyh/pan",
+        "-b",
+        "-m100000",
+        "-w20"
+      ],
+      "exit_code": 0,
+      "output": "pan:1: assertion violated ((selected==candidate)&&exact_selected) (at depth 10)\npan: wrote revision.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 20 byte, depth reached 11, errors: 1\n       31 states, stored\n        0 states, matched\n       31 transitions (= stored+matched)\n        0 atomic steps\nhash conflicts:         0 (resolved)\n\nStats on memory usage (in Megabytes):\n    0.001\tequivalent memory usage for states (stored*(State-vector + overhead))\n    0.286\tactual memory usage for states\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   13.536\ttotal actual memory usage\n\n\n\npan: elapsed time 0 seconds\n"
+    },
+    {
+      "command": [
+        "/usr/bin/spin",
+        "-DBUG_SELECTION",
+        "-t",
+        "-p",
+        "-g",
+        "-l",
+        "revision.pml"
+      ],
+      "exit_code": 0,
+      "output": "ltl revision_settles: <> (done)\n  1:\tproc  0 (Incident:1) revision.pml:17 (state 1)\t[admission = 1]\n\t\tadmission = 1\n  2:\tproc  0 (Incident:1) revision.pml:21 (state 7)\t[passed[0] = 1]\n\t\tpassed[0] = 1\n\t\tpassed[1] = 0\n  3:\tproc  0 (Incident:1) revision.pml:22 (state 11)\t[assessments = (assessments+1)]\n\t\tassessments = 1\n  4:\tproc  0 (Incident:1) revision.pml:24 (state 12)\t[(passed[0])]\n  5:\tproc  0 (Incident:1) revision.pml:24 (state 13)\t[outcome = Completed]\n\t\toutcome = Completed\n  6:\tproc  0 (Incident:1) revision.pml:36 (state 33)\t[(((outcome==Completed)||(outcome==Exhausted)))]\n  7:\tproc  0 (Incident:1) revision.pml:36 (state 34)\t[selected = candidate]\n\t\tselected = 0\n  8:\tproc  0 (Incident:1) revision.pml:39 (state 39)\t[assert(((candidate<=1)&&(assessments<=2)))]\n  9:\tproc  0 (Incident:1) revision.pml:41 (state 40)\t[exact_selected = 0]\n\t\texact_selected = 0\n 10:\tproc  0 (Incident:1) revision.pml:46 (state 41)\t[(((outcome==Completed)&&admission))]\nspin: revision.pml:47, Error: assertion violated\nspin: text of failed assertion: assert(((selected==candidate)&&exact_selected))\n 11:\tproc  0 (Incident:1) revision.pml:47 (state 42)\t[assert(((selected==candidate)&&exact_selected))]\nspin: trail ends after 11 steps\n#processes: 1\n\t\toutcome = Completed\n\t\tcandidate = 0\n\t\tselected = 0\n\t\tsupplied_feedback = 255\n\t\tassessments = 1\n\t\tpassed[0] = 1\n\t\tpassed[1] = 0\n\t\tadmission = 1\n\t\texact_selected = 0\n\t\tmutation = 0\n\t\tdone = 0\n 11:\tproc  0 (Incident:1) revision.pml:48 (state 43)\n1 process created\n"
+    }
+  ],
+  "revision-exhausted-authority": [
+    {
+      "command": [
+        "/usr/bin/spin",
+        "-DBUG_AUTHORITY",
+        "-a",
+        "revision.pml"
+      ],
+      "exit_code": 0,
+      "output": "ltl revision_settles: <> (done)\n"
+    },
+    {
+      "command": [
+        "/usr/bin/cc",
+        "-O2",
+        "-DMEMLIM=512",
+        "-DSAFETY",
+        "-DNOCLAIM",
+        "-o",
+        "pan",
+        "pan.c"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "/tmp/mas-spin-yo793dx7/pan",
+        "-b",
+        "-m100000",
+        "-w20"
+      ],
+      "exit_code": 0,
+      "output": "pan:1: assertion violated ( !(mutation)||(((outcome==4)&&passed[selected])&&admission)) (at depth 18)\npan: wrote revision.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 20 byte, depth reached 22, errors: 1\n       71 states, stored\n        0 states, matched\n       71 transitions (= stored+matched)\n        0 atomic steps\nhash conflicts:         0 (resolved)\n\nStats on memory usage (in Megabytes):\n    0.003\tequivalent memory usage for states (stored*(State-vector + overhead))\n    0.286\tactual memory usage for states\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   13.536\ttotal actual memory usage\n\n\n\npan: elapsed time 0 seconds\n"
+    },
+    {
+      "command": [
+        "/usr/bin/spin",
+        "-DBUG_AUTHORITY",
+        "-t",
+        "-p",
+        "-g",
+        "-l",
+        "revision.pml"
+      ],
+      "exit_code": 0,
+      "output": "ltl revision_settles: <> (done)\n  1:\tproc  0 (Incident:1) revision.pml:17 (state 1)\t[admission = 1]\n\t\tadmission = 1\n  2:\tproc  0 (Incident:1) revision.pml:21 (state 8)\t[passed[0] = 0]\n  3:\tproc  0 (Incident:1) revision.pml:22 (state 11)\t[assessments = (assessments+1)]\n\t\tassessments = 1\n  4:\tproc  0 (Incident:1) revision.pml:25 (state 14)\t[(!(passed[0]))]\n  5:\tproc  0 (Incident:1) revision.pml:26 (state 15)\t[supplied_feedback = 0]\n\t\tsupplied_feedback = 0\n  6:\tproc  0 (Incident:1) revision.pml:27 (state 16)\t[candidate = 1]\n\t\tcandidate = 1\n  7:\tproc  0 (Incident:1) revision.pml:28 (state 17)\t[assert((supplied_feedback==(candidate-1)))]\n  8:\tproc  0 (Incident:1) revision.pml:29 (state 19)\t[passed[1] = 0]\n  9:\tproc  0 (Incident:1) revision.pml:30 (state 22)\t[assessments = (assessments+1)]\n\t\tassessments = 2\n 10:\tproc  0 (Incident:1) revision.pml:32 (state 25)\t[(!(passed[1]))]\n 11:\tproc  0 (Incident:1) revision.pml:32 (state 26)\t[outcome = Exhausted]\n\t\toutcome = Exhausted\n 12:\tproc  0 (Incident:1) revision.pml:36 (state 33)\t[(((outcome==Completed)||(outcome==Exhausted)))]\n 13:\tproc  0 (Incident:1) revision.pml:36 (state 34)\t[selected = candidate]\n\t\tselected = 1\n 14:\tproc  0 (Incident:1) revision.pml:39 (state 39)\t[assert(((candidate<=1)&&(assessments<=2)))]\n 15:\tproc  0 (Incident:1) revision.pml:49 (state 43)\t[else]\n 16:\tproc  0 (Incident:1) revision.pml:49 (state 44)\t[(1)]\n 17:\tproc  0 (Incident:1) revision.pml:52 (state 47)\t[((outcome==Exhausted))]\n 18:\tproc  0 (Incident:1) revision.pml:52 (state 48)\t[mutation = 1]\n\t\tmutation = 1\nspin: revision.pml:54, Error: assertion violated\nspin: text of failed assertion: assert((!(mutation)||(((outcome==Completed)&&passed[selected])&&admission)))\n 19:\tproc  0 (Incident:1) revision.pml:54 (state 53)\t[assert((!(mutation)||(((outcome==Completed)&&passed[selected])&&admission)))]\nspin: trail ends after 19 steps\n#processes: 1\n\t\toutcome = Exhausted\n\t\tcandidate = 1\n\t\tselected = 1\n\t\tsupplied_feedback = 0\n\t\tassessments = 2\n\t\tpassed[0] = 0\n\t\tpassed[1] = 0\n\t\tadmission = 1\n\t\texact_selected = 1\n\t\tmutation = 1\n\t\tdone = 0\n 19:\tproc  0 (Incident:1) revision.pml:58 (state 54)\n1 process created\n"
+    }
+  ],
+  "revision-success-witness": [
+    {
+      "command": [
+        "/usr/bin/spin",
+        "-DWITNESS_REVISION",
+        "-a",
+        "revision.pml"
+      ],
+      "exit_code": 0,
+      "output": "ltl revision_settles: <> (done)\n"
+    },
+    {
+      "command": [
+        "/usr/bin/cc",
+        "-O2",
+        "-DMEMLIM=512",
+        "-DSAFETY",
+        "-DNOCLAIM",
+        "-o",
+        "pan",
+        "pan.c"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "/tmp/mas-spin-rxabbave/pan",
+        "-b",
+        "-m100000",
+        "-w20"
+      ],
+      "exit_code": 0,
+      "output": "pan:1: assertion violated  !(((candidate==1)&&mutation)) (at depth 18)\npan: wrote revision.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 20 byte, depth reached 18, errors: 1\n       53 states, stored\n        0 states, matched\n       53 transitions (= stored+matched)\n        0 atomic steps\nhash conflicts:         0 (resolved)\n\nStats on memory usage (in Megabytes):\n    0.002\tequivalent memory usage for states (stored*(State-vector + overhead))\n    0.286\tactual memory usage for states\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   13.536\ttotal actual memory usage\n\n\n\npan: elapsed time 0 seconds\n"
+    },
+    {
+      "command": [
+        "/usr/bin/spin",
+        "-DWITNESS_REVISION",
+        "-t",
+        "-p",
+        "-g",
+        "-l",
+        "revision.pml"
+      ],
+      "exit_code": 0,
+      "output": "ltl revision_settles: <> (done)\n  1:\tproc  0 (Incident:1) revision.pml:17 (state 1)\t[admission = 1]\n\t\tadmission = 1\n  2:\tproc  0 (Incident:1) revision.pml:21 (state 8)\t[passed[0] = 0]\n  3:\tproc  0 (Incident:1) revision.pml:22 (state 11)\t[assessments = (assessments+1)]\n\t\tassessments = 1\n  4:\tproc  0 (Incident:1) revision.pml:25 (state 14)\t[(!(passed[0]))]\n  5:\tproc  0 (Incident:1) revision.pml:26 (state 15)\t[supplied_feedback = 0]\n\t\tsupplied_feedback = 0\n  6:\tproc  0 (Incident:1) revision.pml:27 (state 16)\t[candidate = 1]\n\t\tcandidate = 1\n  7:\tproc  0 (Incident:1) revision.pml:28 (state 17)\t[assert((supplied_feedback==(candidate-1)))]\n  8:\tproc  0 (Incident:1) revision.pml:29 (state 18)\t[passed[1] = 1]\n\t\tpassed[0] = 0\n\t\tpassed[1] = 1\n  9:\tproc  0 (Incident:1) revision.pml:30 (state 22)\t[assessments = (assessments+1)]\n\t\tassessments = 2\n 10:\tproc  0 (Incident:1) revision.pml:31 (state 23)\t[(passed[1])]\n 11:\tproc  0 (Incident:1) revision.pml:31 (state 24)\t[outcome = Completed]\n\t\toutcome = Completed\n 12:\tproc  0 (Incident:1) revision.pml:36 (state 33)\t[(((outcome==Completed)||(outcome==Exhausted)))]\n 13:\tproc  0 (Incident:1) revision.pml:36 (state 34)\t[selected = candidate]\n\t\tselected = 1\n 14:\tproc  0 (Incident:1) revision.pml:39 (state 39)\t[assert(((candidate<=1)&&(assessments<=2)))]\n 15:\tproc  0 (Incident:1) revision.pml:46 (state 40)\t[(((outcome==Completed)&&admission))]\n 16:\tproc  0 (Incident:1) revision.pml:47 (state 41)\t[assert(((selected==candidate)&&exact_selected))]\n 17:\tproc  0 (Incident:1) revision.pml:48 (state 42)\t[mutation = 1]\n\t\tmutation = 1\n 18:\tproc  0 (Incident:1) revision.pml:54 (state 47)\t[assert((!(mutation)||(((outcome==Completed)&&passed[selected])&&admission)))]\nspin: revision.pml:56, Error: assertion violated\nspin: text of failed assertion: assert(!(((candidate==1)&&mutation)))\n 19:\tproc  0 (Incident:1) revision.pml:56 (state 48)\t[assert(!(((candidate==1)&&mutation)))]\nspin: trail ends after 19 steps\n#processes: 1\n\t\toutcome = Completed\n\t\tcandidate = 1\n\t\tselected = 1\n\t\tsupplied_feedback = 0\n\t\tassessments = 2\n\t\tpassed[0] = 0\n\t\tpassed[1] = 1\n\t\tadmission = 1\n\t\texact_selected = 1\n\t\tmutation = 1\n\t\tdone = 0\n 19:\tproc  0 (Incident:1) revision.pml:58 (state 49)\n1 process created\n"
+    }
+  ],
   "safety": [
     {
       "command": [
@@ -65,7 +352,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-0yihg8jh/pan",
+        "/tmp/mas-spin-kjgb9lnv/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -101,7 +388,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-rlr2pbcx/pan",
+        "/tmp/mas-spin-ifww41z1/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -134,7 +421,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-jp8n4d29/pan",
+        "/tmp/mas-spin-kzf6npnx/pan",
         "-a",
         "-b",
         "-m100000",
@@ -169,7 +456,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-jbv5gsqp/pan",
+        "/tmp/mas-spin-1nn20yq0/pan",
         "-a",
         "-b",
         "-m100000",
@@ -206,7 +493,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-jsmcok4t/pan",
+        "/tmp/mas-spin-9uxveyaq/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -255,7 +542,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-m_wb0q8x/pan",
+        "/tmp/mas-spin-d06uzrpd/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -304,7 +591,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-psic7o4r/pan",
+        "/tmp/mas-spin-kao6gx8e/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -353,7 +640,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-2netupbt/pan",
+        "/tmp/mas-spin-0iccy00y/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -400,7 +687,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-95_oyopl/pan",
+        "/tmp/mas-spin-ko5p0468/pan",
         "-a",
         "-b",
         "-m100000",
@@ -450,7 +737,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-g59hrkx7/pan",
+        "/tmp/mas-spin-4e9gwsgo/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -520,7 +807,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-586sgzsd/pan",
+        "/tmp/mas-spin-bmujbxs9/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -556,7 +843,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-17xdaqyr/pan",
+        "/tmp/mas-spin-ku4vfdux/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -589,7 +876,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-ujiuhkn4/pan",
+        "/tmp/mas-spin-nk620mto/pan",
         "-a",
         "-b",
         "-m100000",
@@ -624,7 +911,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-wyaww0no/pan",
+        "/tmp/mas-spin-u2vei78j/pan",
         "-a",
         "-b",
         "-m100000",
@@ -661,7 +948,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-oedt4o65/pan",
+        "/tmp/mas-spin-esyo4012/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -710,7 +997,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-iyji98mx/pan",
+        "/tmp/mas-spin-92relc79/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -759,7 +1046,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-_touu7oc/pan",
+        "/tmp/mas-spin-ft0q9b16/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -808,7 +1095,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-07811ybh/pan",
+        "/tmp/mas-spin-2h_i34t7/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -855,7 +1142,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-doz107mo/pan",
+        "/tmp/mas-spin-og6ctpq_/pan",
         "-a",
         "-b",
         "-m100000",
@@ -905,7 +1192,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-98s9wnyz/pan",
+        "/tmp/mas-spin-nqge58bw/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -954,7 +1241,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-ftlflm1w/pan",
+        "/tmp/mas-spin-rs4frkme/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1003,7 +1290,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-2n8il46u/pan",
+        "/tmp/mas-spin-hsw0h7g5/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1073,13 +1360,13 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-xqbfgquj/pan",
+        "/tmp/mas-spin-wohzo3f7/pan",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 0\n   556668 states, stored\n   309086 states, matched\n   865754 transitions (= stored+matched)\n   148372 atomic steps\nhash conflicts:     55309 (resolved)\n\nStats on memory usage (in Megabytes):\n   50.964\tequivalent memory usage for states (stored*(State-vector + overhead))\n   41.963\tactual memory usage for states (compression: 82.34%)\n         \tstate-vector as stored = 51 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.235\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\t(0 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(((((workers_done==2)&&expiry_done)&&publisher_done)&&(phase!=Applying))))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0.16 seconds\npan: rate   3479175 states/second\n"
+      "output": "\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 0\n   556668 states, stored\n   309086 states, matched\n   865754 transitions (= stored+matched)\n   148372 atomic steps\nhash conflicts:     55309 (resolved)\n\nStats on memory usage (in Megabytes):\n   50.964\tequivalent memory usage for states (stored*(State-vector + overhead))\n   41.963\tactual memory usage for states (compression: 82.34%)\n         \tstate-vector as stored = 51 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.235\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\t(0 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(((((workers_done==2)&&expiry_done)&&publisher_done)&&(phase!=Applying))))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0.17 seconds\npan: rate 3274517.6 states/second\n"
     }
   ],
   "controller-safety-no-reduction": [
@@ -1109,13 +1396,13 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-o3mqp4aq/pan",
+        "/tmp/mas-spin-7yae0rtd/pan",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "Depth=      97 States=    1e+06 Transitions= 3.57e+06 Memory=    80.449\tt=     0.51 R=   2e+06\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 0\n  1582164 states, stored\n  4024124 states, matched\n  5606288 transitions (= stored+matched)\n   719423 atomic steps\nhash conflicts:   1496795 (resolved)\n\nStats on memory usage (in Megabytes):\n  132.780\tequivalent memory usage for states (stored*(State-vector + overhead))\n  107.405\tactual memory usage for states (compression: 80.89%)\n         \tstate-vector as stored = 51 byte + 20 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    4.578\tmemory used for DFS stack (-m100000)\n  119.902\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\t(0 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(((((workers_done==2)&&expiry_done)&&publisher_done)&&(phase!=Applying))))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0.9 seconds\npan: rate   1757960 states/second\n"
+      "output": "Depth=      97 States=    1e+06 Transitions= 3.57e+06 Memory=    80.449\tt=     0.52 R=   2e+06\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 0\n  1582164 states, stored\n  4024124 states, matched\n  5606288 transitions (= stored+matched)\n   719423 atomic steps\nhash conflicts:   1496795 (resolved)\n\nStats on memory usage (in Megabytes):\n  132.780\tequivalent memory usage for states (stored*(State-vector + overhead))\n  107.405\tactual memory usage for states (compression: 80.89%)\n         \tstate-vector as stored = 51 byte + 20 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    4.578\tmemory used for DFS stack (-m100000)\n  119.902\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\t(0 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:4, state 3, \"(!(((((workers_done==2)&&expiry_done)&&publisher_done)&&(phase!=Applying))))\"\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(2 of 6 states)\n\npan: elapsed time 0.9 seconds\npan: rate   1757960 states/second\n"
     }
   ],
   "controller-settlement": [
@@ -1142,14 +1429,14 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-ac9a4xm7/pan",
+        "/tmp/mas-spin-wkxrjugc/pan",
         "-a",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "Depth=     162 States=    1e+06 Transitions= 2.04e+06 Memory=    51.622\tt=     0.33 R=   3e+06\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t+ (controller_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 84 byte, depth reached 162, errors: 0\n   555547 states, stored (1.11109e+06 visited)\n  1164057 states, matched\n  2275151 transitions (= visited+matched)\n   296744 atomic steps\nhash conflicts:    228019 (resolved)\n\nStats on memory usage (in Megabytes):\n   59.339\tequivalent memory usage for states (stored*(State-vector + overhead))\n   42.541\tactual memory usage for states (compression: 71.69%)\n         \tstate-vector as stored = 52 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.821\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\tcontroller.pml:307, state 27, \"assert((effects<=1))\"\n\tcontroller.pml:308, state 28, \"assert((phase!=Applying))\"\n\tcontroller.pml:309, state 29, \"assert(((durable_report==NoReport)||(durable_report==first_report)))\"\n\tcontroller.pml:316, state 30, \"-end-\"\n\t(4 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 0.37 seconds\npan: rate 3002956.8 states/second\n"
+      "output": "Depth=     162 States=    1e+06 Transitions= 2.04e+06 Memory=    51.622\tt=     0.31 R=   3e+06\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t+ (controller_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 84 byte, depth reached 162, errors: 0\n   555547 states, stored (1.11109e+06 visited)\n  1164057 states, matched\n  2275151 transitions (= visited+matched)\n   296744 atomic steps\nhash conflicts:    228019 (resolved)\n\nStats on memory usage (in Megabytes):\n   59.339\tequivalent memory usage for states (stored*(State-vector + overhead))\n   42.541\tactual memory usage for states (compression: 71.69%)\n         \tstate-vector as stored = 52 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.821\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\tcontroller.pml:307, state 27, \"assert((effects<=1))\"\n\tcontroller.pml:308, state 28, \"assert((phase!=Applying))\"\n\tcontroller.pml:309, state 29, \"assert(((durable_report==NoReport)||(durable_report==first_report)))\"\n\tcontroller.pml:316, state 30, \"-end-\"\n\t(4 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 0.35 seconds\npan: rate 3174554.3 states/second\n"
     }
   ],
   "controller-settlement-no-reduction": [
@@ -1177,14 +1464,14 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-2yzbk5vt/pan",
+        "/tmp/mas-spin-s5rbq21c/pan",
         "-a",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "Depth=     162 States=    1e+06 Transitions= 4.08e+06 Memory=    51.622\tt=     0.51 R=   2e+06\nDepth=     162 States=    2e+06 Transitions= 8.16e+06 Memory=    89.806\tt=     1.16 R=   2e+06\nDepth=     162 States=    3e+06 Transitions= 1.22e+07 Memory=   127.892\tt=     1.88 R=   2e+06\npan: resizing hashtable to -w22..  done\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t+ (controller_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 84 byte, depth reached 162, errors: 0\n  1567475 states, stored (3.13495e+06 visited)\n  9578925 states, matched\n 12713875 transitions (= visited+matched)\n  1438846 atomic steps\nhash conflicts:   3566835 (resolved)\n\nStats on memory usage (in Megabytes):\n  167.424\tequivalent memory usage for states (stored*(State-vector + overhead))\n  126.839\tactual memory usage for states (compression: 75.76%)\n         \tstate-vector as stored = 57 byte + 28 byte overhead\n   32.000\tmemory used for hash table (-w22)\n    5.341\tmemory used for DFS stack (-m100000)\n  164.091\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\tcontroller.pml:307, state 27, \"assert((effects<=1))\"\n\tcontroller.pml:308, state 28, \"assert((phase!=Applying))\"\n\tcontroller.pml:309, state 29, \"assert(((durable_report==NoReport)||(durable_report==first_report)))\"\n\tcontroller.pml:316, state 30, \"-end-\"\n\t(4 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 2.04 seconds\npan: rate 1536740.2 states/second\n"
+      "output": "Depth=     162 States=    1e+06 Transitions= 4.08e+06 Memory=    51.622\tt=      0.5 R=   2e+06\nDepth=     162 States=    2e+06 Transitions= 8.16e+06 Memory=    89.806\tt=     1.07 R=   2e+06\nDepth=     162 States=    3e+06 Transitions= 1.22e+07 Memory=   127.892\tt=     1.71 R=   2e+06\npan: resizing hashtable to -w22..  done\n\n(Spin Version 6.5.2 -- 6 December 2019)\n\nFull statespace search for:\n\tnever claim         \t+ (controller_settles)\n\tassertion violations\t+ (if within scope of claim)\n\tacceptance   cycles \t+ (fairness disabled)\n\tinvalid end states\t- (disabled by never claim)\n\nState-vector 84 byte, depth reached 162, errors: 0\n  1567475 states, stored (3.13495e+06 visited)\n  9578925 states, matched\n 12713875 transitions (= visited+matched)\n  1438846 atomic steps\nhash conflicts:   3566835 (resolved)\n\nStats on memory usage (in Megabytes):\n  167.424\tequivalent memory usage for states (stored*(State-vector + overhead))\n  126.839\tactual memory usage for states (compression: 75.76%)\n         \tstate-vector as stored = 57 byte + 28 byte overhead\n   32.000\tmemory used for hash table (-w22)\n    5.341\tmemory used for DFS stack (-m100000)\n  164.091\ttotal actual memory usage\n\n\nunreached in proctype Worker\n\t(0 of 200 states)\nunreached in proctype Expiry\n\t(0 of 24 states)\nunreached in proctype Outbox\n\t(0 of 49 states)\nunreached in init\n\tcontroller.pml:307, state 27, \"assert((effects<=1))\"\n\tcontroller.pml:308, state 28, \"assert((phase!=Applying))\"\n\tcontroller.pml:309, state 29, \"assert(((durable_report==NoReport)||(durable_report==first_report)))\"\n\tcontroller.pml:316, state 30, \"-end-\"\n\t(4 of 30 states)\nunreached in claim controller_settles\n\t_spin_nvr.tmp:6, state 6, \"-end-\"\n\t(1 of 6 states)\n\npan: elapsed time 1.84 seconds\npan: rate 1703777.2 states/second\n"
     }
   ],
   "controller-lost-create-ack": [
@@ -1214,13 +1501,13 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-q2f6lndk/pan",
+        "/tmp/mas-spin-8543w1jn/pan",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "pan:1: assertion violated  !(lost_create_ack[id]) (at depth 57)\npan: wrote controller.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 1\n   212788 states, stored\n   109979 states, matched\n   322767 transitions (= stored+matched)\n    52303 atomic steps\nhash conflicts:      5359 (resolved)\n\nStats on memory usage (in Megabytes):\n   19.481\tequivalent memory usage for states (stored*(State-vector + overhead))\n   16.174\tactual memory usage for states (compression: 83.02%)\n         \tstate-vector as stored = 52 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   29.454\ttotal actual memory usage\n\n\n\npan: elapsed time 0.05 seconds\npan: rate   4255760 states/second\n"
+      "output": "pan:1: assertion violated  !(lost_create_ack[id]) (at depth 57)\npan: wrote controller.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 1\n   212788 states, stored\n   109979 states, matched\n   322767 transitions (= stored+matched)\n    52303 atomic steps\nhash conflicts:      5359 (resolved)\n\nStats on memory usage (in Megabytes):\n   19.481\tequivalent memory usage for states (stored*(State-vector + overhead))\n   16.174\tactual memory usage for states (compression: 83.02%)\n         \tstate-vector as stored = 52 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   29.454\ttotal actual memory usage\n\n\n\npan: elapsed time 0.06 seconds\npan: rate 3546466.7 states/second\n"
     },
     {
       "command": [
@@ -1263,7 +1550,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-3o36a1tl/pan",
+        "/tmp/mas-spin-fo618h9r/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1312,7 +1599,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-me1wdilc/pan",
+        "/tmp/mas-spin-hnmjfocs/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1361,13 +1648,13 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-qq1ydzoo/pan",
+        "/tmp/mas-spin-x7nvekkn/pan",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "pan:1: assertion violated (phase==5) (at depth 47)\npan: wrote controller.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 90, errors: 1\n    18855 states, stored\n     8935 states, matched\n    27790 transitions (= stored+matched)\n     3531 atomic steps\nhash conflicts:        17 (resolved)\n\nStats on memory usage (in Megabytes):\n    1.726\tequivalent memory usage for states (stored*(State-vector + overhead))\n    1.619\tactual memory usage for states (compression: 93.79%)\n         \tstate-vector as stored = 62 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   14.903\ttotal actual memory usage\n\n\n\npan: elapsed time 0.01 seconds\n"
+      "output": "pan:1: assertion violated (phase==5) (at depth 47)\npan: wrote controller.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 90, errors: 1\n    18855 states, stored\n     8935 states, matched\n    27790 transitions (= stored+matched)\n     3531 atomic steps\nhash conflicts:        17 (resolved)\n\nStats on memory usage (in Megabytes):\n    1.726\tequivalent memory usage for states (stored*(State-vector + overhead))\n    1.619\tactual memory usage for states (compression: 93.79%)\n         \tstate-vector as stored = 62 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   14.903\ttotal actual memory usage\n\n\n\npan: elapsed time 0 seconds\n"
     },
     {
       "command": [
@@ -1410,13 +1697,13 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-bay2vhdx/pan",
+        "/tmp/mas-spin-7_99pa_h/pan",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "pan:1: assertion violated (controller_enabled&&source_bound) (at depth 57)\npan: wrote controller.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 1\n   558210 states, stored\n   309830 states, matched\n   868040 transitions (= stored+matched)\n   148671 atomic steps\nhash conflicts:     55807 (resolved)\n\nStats on memory usage (in Megabytes):\n   51.106\tequivalent memory usage for states (stored*(State-vector + overhead))\n   42.159\tactual memory usage for states (compression: 82.49%)\n         \tstate-vector as stored = 51 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.431\ttotal actual memory usage\n\n\n\npan: elapsed time 0.15 seconds\npan: rate   3721400 states/second\n"
+      "output": "pan:1: assertion violated (controller_enabled&&source_bound) (at depth 57)\npan: wrote controller.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 1\n   558210 states, stored\n   309830 states, matched\n   868040 transitions (= stored+matched)\n   148671 atomic steps\nhash conflicts:     55807 (resolved)\n\nStats on memory usage (in Megabytes):\n   51.106\tequivalent memory usage for states (stored*(State-vector + overhead))\n   42.159\tactual memory usage for states (compression: 82.49%)\n         \tstate-vector as stored = 51 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.431\ttotal actual memory usage\n\n\n\npan: elapsed time 0.16 seconds\npan: rate 3488812.5 states/second\n"
     },
     {
       "command": [
@@ -1459,13 +1746,13 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-1ce9el2a/pan",
+        "/tmp/mas-spin-bef7ep43/pan",
         "-b",
         "-m100000",
         "-w20"
       ],
       "exit_code": 0,
-      "output": "pan:1: assertion violated (evidence_fresh&&fresh_after_claim) (at depth 57)\npan: wrote controller.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 1\n   558254 states, stored\n   309838 states, matched\n   868092 transitions (= stored+matched)\n   148680 atomic steps\nhash conflicts:     55801 (resolved)\n\nStats on memory usage (in Megabytes):\n   51.110\tequivalent memory usage for states (stored*(State-vector + overhead))\n   42.159\tactual memory usage for states (compression: 82.49%)\n         \tstate-vector as stored = 51 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.431\ttotal actual memory usage\n\n\n\npan: elapsed time 0.16 seconds\npan: rate 3489087.5 states/second\n"
+      "output": "pan:1: assertion violated (evidence_fresh&&fresh_after_claim) (at depth 57)\npan: wrote controller.pml.trail\n\n(Spin Version 6.5.2 -- 6 December 2019)\nWarning: Search not completed\n\t+ Partial Order Reduction\n\nFull statespace search for:\n\tnever claim         \t- (not selected)\n\tassertion violations\t+\n\tcycle checks       \t- (disabled by -DSAFETY)\n\tinvalid end states\t+\n\nState-vector 68 byte, depth reached 97, errors: 1\n   558254 states, stored\n   309838 states, matched\n   868092 transitions (= stored+matched)\n   148680 atomic steps\nhash conflicts:     55801 (resolved)\n\nStats on memory usage (in Megabytes):\n   51.110\tequivalent memory usage for states (stored*(State-vector + overhead))\n   42.159\tactual memory usage for states (compression: 82.49%)\n         \tstate-vector as stored = 51 byte + 28 byte overhead\n    8.000\tmemory used for hash table (-w20)\n    5.341\tmemory used for DFS stack (-m100000)\n   55.431\ttotal actual memory usage\n\n\n\npan: elapsed time 0.15 seconds\npan: rate 3721693.3 states/second\n"
     },
     {
       "command": [
@@ -1506,7 +1793,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-hyna_xvs/pan",
+        "/tmp/mas-spin-tzuip6m4/pan",
         "-a",
         "-b",
         "-m100000",
@@ -1556,7 +1843,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-g9bzistp/pan",
+        "/tmp/mas-spin-p_jeonef/pan",
         "-b",
         "-m100000",
         "-w20"
@@ -1605,7 +1892,7 @@
     },
     {
       "command": [
-        "/tmp/mas-spin-xc19iyc3/pan",
+        "/tmp/mas-spin-hyzkro31/pan",
         "-b",
         "-m100000",
         "-w20"

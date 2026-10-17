@@ -19,6 +19,13 @@ TIMEOUT_SECONDS = 30
 MEMORY_BYTES = 512 * 1024 * 1024
 DEPTH = 100_000
 CASES = [
+    ("revision-safety", None, False, False, None),
+    ("revision-safety-no-reduction", None, False, True, None),
+    ("revision-settlement", None, True, False, None),
+    ("revision-settlement-no-reduction", None, True, True, None),
+    ("revision-wrong-selection", "BUG_SELECTION", False, False, "exact_selected"),
+    ("revision-exhausted-authority", "BUG_AUTHORITY", False, False, "admission"),
+    ("revision-success-witness", "WITNESS_REVISION", False, False, "mutation"),
     ("safety", None, False, False, None),
     ("safety-no-reduction", None, False, True, None),
     ("settlement", None, True, False, None),
@@ -86,9 +93,18 @@ def main() -> int:
     compiler = shutil.which(os.environ.get("CC", "cc"))
     source = ROOT / "hybrid.pml"
     summary = {
-        "schema": "mas-k3s-application-verification/4",
+        "schema": "mas-k3s-application-verification/5",
         "model_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "models": {
+            "revision.pml": {
+                "sha256": hashlib.sha256((ROOT / "revision.pml").read_bytes()).hexdigest(),
+                "bounds": {"candidates": 2, "assessments": 2, "revisions": 1, "controller_effects": 1},
+                "assumptions": ["Exact hashes are equality predicates, not cryptographic proofs",
+                                "Completed means the frozen internal checks passed, not independent diagnosis correctness",
+                                "Existing independent remediation admission is separately required",
+                                "Cancellation and unknown effects terminate without controller authority",
+                                "The host preserves immutable candidates and supplied feedback; no storage-loss model"],
+            },
             "hybrid.pml": {"sha256": hashlib.sha256(source.read_bytes()).hexdigest()},
             "remediation.pml": {
                 "sha256": hashlib.sha256((ROOT / "remediation.pml").read_bytes()).hexdigest(),
@@ -135,7 +151,8 @@ def main() -> int:
                          "server/http.ts", "server/runs.ts", "server/runs.test.ts",
                          "remediator/controller.ts", "remediator/controller.test.ts", "remediator/index.ts", "remediator/transport.ts",
                          "remediator/transport.test.ts", "operator/client.ts", "deploy/rbac.yaml",
-                         "deploy/remediation-crd.yaml", "deploy/remediator.yaml")
+                         "deploy/remediation-crd.yaml", "deploy/remediator.yaml", "project/revision.json",
+                         "project/assessment.py", "shared/revision.mjs", "ui/revision.test.ts", "server/host.integration.ts")
         },
         "bounds": {"actors": 7, "request_identities": 8, "runs": 1, "observer_reads": 2},
         "limits": {"seconds_per_command": TIMEOUT_SECONDS, "address_space_bytes": MEMORY_BYTES,
@@ -159,9 +176,9 @@ def main() -> int:
     counterexamples = out / "counterexamples.zip"
     counterexamples.unlink(missing_ok=True)
     for name, macro, liveness, no_reduction, violation in CASES:
-        model = "controller" if name.startswith("controller-") else "remediation" if name.startswith("remediation-") else "hybrid"
+        model = "revision" if name.startswith("revision-") else "controller" if name.startswith("controller-") else "remediation" if name.startswith("remediation-") else "hybrid"
         source = ROOT / f"{model}.pml"
-        claim = {"controller": "controller_settles", "remediation": "remediation_settles", "hybrid": "choreography_settles"}[model]
+        claim = {"revision": "revision_settles", "controller": "controller_settles", "remediation": "remediation_settles", "hybrid": "choreography_settles"}[model]
         commands = []
         check = {"name": name, "model": source.name, "claim": claim if liveness else None,
                  "macro": macro, "mode": "ltl" if liveness else "safety",

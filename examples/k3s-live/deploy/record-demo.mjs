@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { parseAllDocuments } from 'yaml';
 import { validatePracticalEvidence } from './remediation.mjs';
+import { canonicalJson, parseRevisionAudit } from '../shared/revision.mjs';
 
 const execute = promisify(execFile);
 const namespace = 'mas-demo';
@@ -52,12 +53,24 @@ export function validateSnapshot(snapshot, mode, id) {
     throw new Error('The completed investigation has no available observation');
   }
   const messages = snapshot.observation.messages;
+  const audit = snapshot.run.revision ? parseRevisionAudit(snapshot.run.revision) : undefined;
+  if (audit) {
+    const selected = audit.candidates.find(candidate => candidate.id === audit.selected?.id);
+    if (audit.status !== 'completed' || !selected || canonicalJson(selected.output) !== canonicalJson(snapshot.run.output)) {
+      throw new Error('The recording requires a completed assessment of its exact selected candidate');
+    }
+    if (!audit.contexts.length || !audit.assessments.some(assessment =>
+      assessment.candidate.id === audit.selected.id && assessment.candidate.sha256 === audit.selected.sha256)) {
+      throw new Error('The assessed trace requires retained invocations and an assessment of the exact selected candidate');
+    }
+  }
   if (snapshot.observation.payloads_included !== true ||
       messages.some(message => !Object.hasOwn(message, 'payload'))) {
     throw new Error('The demonstration recording requires message payloads; deploy with SHOW_PAYLOADS=true before capturing');
   }
-  if (messages.length !== 16 || new Set(messages.map(message => message.id)).size !== 16) {
-    throw new Error('Expected sixteen distinct recorded request/result envelopes');
+  const expected = audit ? audit.contexts.length * 2 : 16;
+  if (messages.length !== expected || new Set(messages.map(message => message.id)).size !== expected) {
+    throw new Error(audit ? 'Expected one distinct request/result pair for every retained invocation' : 'Expected sixteen distinct recorded request/result envelopes');
   }
   if (messages.some((message, index) => !Number.isSafeInteger(message.sequence) || message.sequence < 1 ||
       (index > 0 && message.sequence <= messages[index - 1].sequence))) {
@@ -65,8 +78,8 @@ export function validateSnapshot(snapshot, mode, id) {
   }
   const requests = messages.filter(message => message.kind === 'request');
   const results = messages.filter(message => message.kind === 'result');
-  if (requests.length !== 8 || results.length !== 8) {
-    throw new Error('Expected eight recorded requests and eight recorded results');
+  if (requests.length !== expected / 2 || results.length !== expected / 2) {
+    throw new Error(audit ? 'Expected one request and one result per retained invocation' : 'Expected eight recorded requests and eight recorded results');
   }
   for (const request of requests) {
     const replies = results.filter(result => result.correlation === request.id);
@@ -295,6 +308,7 @@ export async function main() {
               await sampleCanvas();
               validateCanvasProgress(canvasProgress);
               await json('evidence.json', snapshot.run.input.incident.evidence);
+              if (snapshot.run.revision) await json('assessment-audit.json', snapshot.run.revision);
               assessmentCaptured = true;
             }
             // The recorder only observes. The in-cluster controller owns admission,
@@ -369,6 +383,7 @@ export async function main() {
       'The video records the real Vue canvas while the runner-local k3s cluster exists.',
       'The cluster is removed when the workflow finishes; this artifact is a recording, not a running dashboard.',
       'JSON and NDJSON contain observed server snapshots. Envelope sequences and timestamps are retained unchanged.',
+      'assessment-audit.json retains exact candidates, criterion findings, supporting evidence and supplied feedback. Fixture drafts deliberately include an unsupported citation; their correction is a control demonstration, not empirical model improvement.',
       'Successful demonstration capture requires application payloads in every envelope. These are embedded in the offline inspector.',
       'The practical incident uses real logs, resource specifications, Warning Events and metrics-server samples.',
       'A dedicated in-cluster remediation controller admits only the managed checkout Deployment readiness path /readyz to /healthz.',

@@ -1,7 +1,7 @@
 # Live Kubernetes incident room
 
-A Vue 3/TypeScript canvas displays real MAS request/result envelopes while four
-LLM inferences investigate a Kubernetes workload warning using collected logs,
+A Vue 3/TypeScript canvas displays real MAS request/result envelopes while a bounded
+draft, assessment and optional revision investigate a Kubernetes workload warning using collected logs,
 resource specifications, status, events and CPU/memory samples. The default mode calls
 OpenAI; it never substitutes fixture responses when credentials or models fail.
 A separate, clearly labelled fixture mode exercises the real host and protocol
@@ -22,11 +22,68 @@ service.** See [GitHub Actions](#github-actions) for the single required secret.
 4. The coordinator joins both branches and asks a final LLM for an evidence-cited
    diagnosis, a structured remedy and verification criteria. The original platform
    findings travel with the critique to the final agent.
-5. The canvas animates envelopes first observed after connection. The message
-   log, correlation inspector and final output remain available after completion.
+5. The host binds the exact draft to a versioned rubric and deterministic evaluator.
+   Failed criteria can supply feedback to one revision. The final selected output,
+   all earlier candidates, criterion findings and supplied invocation inputs remain inspectable.
 6. A dedicated remediation controller can apply one allowed readiness-probe
-   correction after the assessment completes. It records the exact patch and checks
+   correction after the selected candidate passes its internal checks. It records the exact patch and checks
    rollout, replacement Pod identity, application health and fresh metrics.
+
+## Auditable assessment and bounded revision
+
+`project/revision.json` freezes the evaluator, three binary criteria, permitted
+inputs, permitted delegates, a maximum of one revision and sixteen total
+invocations. Nested workflow calls count towards that limit. The original
+300-second host deadline and provider-effect budget continue across the loop
+and restart. Evaluation uses a native Python worker through the same host request
+machinery; no cluster command or remediation effect is available to it.
+
+The criteria check that evidence citations name collected items, that a proposed
+action retains the allowed target/identity/paths and verification fields, and that
+abstention is consistent with human review and follow-up checks. These are
+**deterministic constraints on the recommendation**. They do not measure whether
+the diagnosis is true or whether abstention was appropriate for the actual incident.
+The selected output is the first candidate passing all frozen checks, otherwise
+the last candidate at the fixed limit. An exhausted, cancelled, blocked or expired
+loop is a failed investigation for controller admission; its retained evidence
+remains visible. The separate controller still applies every original remediation
+precondition and verification check to a completed loop's exact selected output.
+
+The fixture profile deliberately adds `fixture-missing-evidence` to its draft's
+citations. The evaluator detects that unsupported reference; the fixture revision
+removes it. This demonstrates failure retention and correction with two distinct
+candidate identities. It is not an estimate of model performance or evidence that
+feedback improves independently measured outcomes. Live mode inserts no defect.
+The [held-out incident experiment](../../experiments/incident-revision/README.md)
+compares one pass, feedback revision and resampling with separately retained
+outcome labels, repeated trials and frozen budgets.
+
+The assessment panel identifies each candidate by its full-record reference and
+output SHA-256, every evaluator by identity/version/kind, and each finding by
+criterion, verdict and exact supporting evidence reference. It keeps inconclusive
+findings and evaluator errors distinct from failures and passes. Model-based
+evaluators, when configured in a host plan, are labelled **model judgement**;
+deterministic criteria are labelled **deterministic check**. No internal score is
+presented as independent improvement.
+
+Host assembly retains the evidence, feedback and policy actually supplied to each
+invocation. This demo explicitly marks its bounded incident input public using
+`readers: ["*"]`. Independent evaluator invocations receive the incident and exact
+candidate, with no earlier assessments. Revision receives only the feedback
+permitted by the frozen plan. Host disclosure restrictions propagate to derived
+outputs; a public observation cannot reveal a restricted record even when payloads
+are enabled. The guarantee covers host-mediated channels under the trusted-worker
+boundary. It does not confine arbitrary native-worker filesystem or network access.
+
+`SHOW_PAYLOADS=true` includes permitted candidate bodies, findings and invocation
+contexts in the inspection view and download. With the setting false, assessment
+records retain identities and hashes while their bodies and invocation inputs are
+omitted. The final public output remains displayed and is bound to the selected
+candidate's output digest. This setting never overrides a source disclosure policy.
+The archive checks reference relationships, append-only history and SHA-256 content
+before playback. Its JavaScript viewer rejects integers outside the exactly
+representable range; the Rust protocol remains authoritative for its wider integer
+domain. An offline file performs no agent execution or remediation.
 
 ## The practical incident and outcome
 
@@ -73,6 +130,11 @@ It polls completed `MASDemoRun` objects, binds the backend run ID, Event and
 evidence to the admitted custom resource, and checks evidence age before
 considering a change. It reuses the same admission and recovery functions as
 the original workflow tool, through direct Kubernetes HTTPS requests.
+Its `/api/runs/:id/remediation` response carries the unchanged incident, exact
+selected output and digest reference, completion state and retained remediation
+records. Invocation history stays in the dashboard snapshot so a growing audit
+does not exhaust the controller's unchanged 1 MiB response limit. All original
+evidence and live-resource admission checks still apply.
 
 Before applying a patch it creates a `MASRemediation` journal and reserves the
 attempt through a resource-version-conditional status update. The journal
@@ -177,8 +239,10 @@ This is a hybrid of supervisor fan-out, hierarchical specialist workflows and a
 lateral peer exchange. Workflows choose the bounded choreography; LLMs produce
 diagnoses, critique and recommendations. These are **LLM-backed workflow agents**:
 the demonstration does not claim that the models invented the topology or chose
-which peer to contact. The four provider calls normally produce eight MAS
-invocations and sixteen request/result envelopes. Failure can stop that sequence.
+which peer to contact. The original draft uses four provider calls. The assessment
+wrapper and evaluator produce ten invocations in a passing first draft. One revision
+adds one provider call and three invocations, for twenty-six request/result envelopes
+in the deliberately defective fixture. Failure can stop that sequence.
 
 The canvas shows logical agents, not pods. One pod contains a dashboard/backend
 and a separate evidence collector container; the remediator has its own pod.
@@ -189,8 +253,8 @@ SSE carries read-only observation snapshots to Vue. No MAS wire change is needed
 
 ## Run with real LLMs on Linux
 
-Use Node **22.13 or later**, Rust **1.99.0** and the pinned host. The repository's
-standard setup also requires Go, Python and C++ for its other examples. From the
+Use Node **22.13 or later**, Python 3, Rust **1.99.0** and the pinned host. The repository's
+standard setup also requires Go and C++ for its other examples. From the
 repository root:
 
 ```sh
@@ -405,13 +469,17 @@ for assumptions, complete-search evidence and the implementation boundary.
 One backend owns one execution at a time. It retains at most fifty run records;
 the controller admits at most four pending resources and one event per poll.
 Each run has a 300-second host deadline, sixteen call reservations and bounded
-message/byte limits. The normal choreography uses four provider calls. These
+message/byte limits. The draft uses four provider calls; an admitted revision uses
+one more. The plan separately bounds total invocations at sixteen. These
 limits are not a monetary billing cap. Observation polls at 250 ms and the UI
 receives snapshots at 300 ms; insertion sequence is durable order, not a fabricated
 send timestamp. Separate host/protocol database snapshots can briefly disagree.
 
-After a backend restart, incomplete runs become failed and remain available for
-inspection; this demo does not automatically repeat uncertain provider effects.
+After a backend restart, an interrupted assessment run reopens the same retained
+host journal, input and frozen plan. Completed invocations and assessments are
+reused; an unknown provider effect, changed configuration or elapsed original
+deadline prevents new execution. Earlier one-pass records retain their previous
+safe behaviour: interrupted runs become failed for inspection.
 When a host run fails, the backend reads its retained inference evidence once
 using the read-only observation command. The run record, workflow summary and
 `failure-diagnostics.json` artefact report the failed agent, effect ID, execution

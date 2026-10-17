@@ -1,0 +1,9 @@
+# The original fixture draft deliberately cites a missing item to demonstrate a detectable defect.
+# Its revision removes that citation; no model runs and no empirical improvement claim follows.
+version = "mas-connections/1"
+[connections.reasoning]
+kind = "command"
+command = ["node","fixture-provider.mjs","review"]
+[connections.synthesis]
+kind = "command"
+command = ["node","fixture-provider.mjs","decision","--draft-defect"]
