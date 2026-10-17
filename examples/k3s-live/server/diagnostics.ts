@@ -3,7 +3,7 @@
 // those objects, provider messages or CLI stderr may cross this boundary.
 export type FailureClassification = 'authentication' | 'permission' | 'model-unavailable' | 'quota' |
   'rate-limit' | 'invalid-schema' | 'invalid-request' | 'missing-credential' |
-  'uncertain-provider-outcome' | 'invalid-output' | 'provider-rejected' | 'host-failure';
+  'uncertain-provider-outcome' | 'invalid-output' | 'provider-rejected' | 'host-failure' | 'investigation-no-tools';
 export interface FailedInference {
   actor: string; effectId: string; state: string; classification: FailureClassification;
   certainty?: string; outputStatus?: string; httpStatus?: number; provider?: string; model?: string;
@@ -104,6 +104,7 @@ export function failureMessage(diagnostics: FailureDiagnostics): string {
     'invalid-output': 'The provider completed without usable schema-valid output. Inspect retained host state before starting another run.',
     'provider-rejected': 'The provider rejected the request. Check the retained HTTP status and diagnostic identifiers.',
     'host-failure': 'Host did not complete. Inspect retained state before retrying an uncertain provider outcome.',
+    'investigation-no-tools': 'The investigator completed without calling an MCP tool. No evidence was frozen and no assessment was started.',
   };
   const detail = diagnostics.effects.slice(0, 3).map(effect => [effect.actor,
     effect.httpStatus ? `HTTP ${effect.httpStatus}` : effect.state, effect.errorCode].filter(Boolean).join(': ')).join('; ');

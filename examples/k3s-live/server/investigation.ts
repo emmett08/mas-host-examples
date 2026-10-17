@@ -2,6 +2,20 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { EVIDENCE_VERSION, parseEvidence, type EvidenceBundle, type EvidenceItem } from '../shared/evidence.js';
+import { failureMessage, type FailureDiagnostics } from './diagnostics.js';
+
+// A completed host task can still fail the application's evidence requirement.
+// Keep this fixed diagnostic separate from arbitrary exception text or model prose.
+export class InvestigationEvidenceFailure extends Error {
+  readonly diagnostics: FailureDiagnostics;
+  constructor() {
+    const diagnostics: FailureDiagnostics = { version: 'mas-demo-failure/1', classification: 'investigation-no-tools',
+      automaticRetry: false, effects: [] };
+    super(failureMessage(diagnostics));
+    this.name = 'InvestigationEvidenceFailure';
+    this.diagnostics = diagnostics;
+  }
+}
 
 export const investigationTools = ['pod_overview', 'pod_logs', 'pod_metrics', 'workload_spec'] as const;
 export interface InvestigationAudit {
@@ -28,7 +42,8 @@ export function freezeInvestigation(id: string, raw: unknown, seed: EvidenceBund
     || !Array.isArray(observation.steps) || observation.steps.some((step: any) => step.kind === 'effect' && step.state !== 'completed'))
     throw new Error('Investigation has unresolved effects or invalid identity');
   const effects = observation.steps.filter((step: any) => step.kind === 'effect' && step.key === 'command');
-  if (!effects.length || effects.length > 4) throw new Error('Investigation requires one to four recorded MCP tool calls');
+  if (!effects.length) throw new InvestigationEvidenceFailure();
+  if (effects.length > 4) throw new Error('Investigation requires one to four recorded MCP tool calls');
   const items = new Map<string, EvidenceItem>();
   const calls: InvestigationAudit['calls'] = [];
   for (const step of effects) {
