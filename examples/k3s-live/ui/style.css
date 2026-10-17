@@ -1414,9 +1414,11 @@ h2 {
 .tool-calls strong { color: #dbe8f7; font: 12px var(--mono); overflow-wrap: anywhere; }
 .tool-evidence { color: #9eb0c8; font-size: 11px; line-height: 1.8; margin-bottom: 0; }
 .tool-evidence a { display: inline-block; color: #82d9dc; margin-right: 8px; overflow-wrap: anywhere; }
-.phase-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 20px 0 12px; }
+.run-findings { margin-top: 24px; }
+.run-findings:empty { display: none; }
+.phase-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 14px 22px; border-bottom: 1px solid #202b3b; }
 .phase-controls > span { color: #a0b2ca; font-size: 11px; margin-right: 5px; }
-.phase-controls button { color: #aebfd5; border: 1px solid #334155; background: #111c2a; border-radius: 5px; padding: 8px 12px; cursor: pointer; }
+.phase-controls button { font-size: 11px; color: #aebfd5; border: 1px solid #334155; background: #111c2a; border-radius: 5px; padding: 8px 12px; cursor: pointer; }
 .phase-controls button[aria-pressed="true"] { color: #a5eff0; border-color: #48767c; background: #163039; }
 .phase-controls small { color: #8096b1; font-size: 10px; margin-left: 4px; }
 .comparison-source { color: #a6bbd3; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }

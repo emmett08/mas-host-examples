@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { HostRunFailure, type Host } from './host.js';
-import { contentHash, freezeInvestigation, InvestigationEvidenceFailure, retainFile, type InvestigationAudit } from './investigation.js';
+import { contentHash, freezeInvestigation, InvestigationEvidenceFailure, requireInvestigationTools, retainFile, type InvestigationAudit } from './investigation.js';
 import { runtimeIdentity } from '../project/mcp-client.mjs';
 import { investigationTopology } from './topology.js';
 import type { FailureDiagnostics } from './diagnostics.js';
@@ -238,7 +238,7 @@ export class Runs {
       } else outcome = { status: 'completed', output: await this.host.run(run.id, input, state, run.mode) };
       this.ensureRunning(run);
     } catch (error) {
-      if (run.approach === 'mcp' && run.investigation?.status !== 'completed') run.investigation = { ...run.investigation!, status: 'failed',
+      if (run.approach === 'mcp' && (run.investigation?.status !== 'completed' || error instanceof InvestigationEvidenceFailure)) run.investigation = { ...run.investigation!, status: 'failed',
         error: error instanceof InvestigationEvidenceFailure ? error.message : 'Investigation did not complete; retained tool state requires inspection.' };
       outcome = error instanceof HostRunFailure || error instanceof InvestigationEvidenceFailure
         ? { status: 'failed', error: error.message, diagnostics: error.diagnostics }
@@ -274,6 +274,7 @@ export class Runs {
   private async acquire(run: Run) {
     this.ensureRunning(run);
     if (run.investigation?.status === 'completed') {
+      requireInvestigationTools(Array.isArray(run.investigation.calls) ? run.investigation.calls.map(call => call.tool) : []);
       const retained = parseEvidence(run.investigation.evidence);
       const actual = parseEvidence((run.input.incident as { evidence?: unknown }).evidence);
       if (!retained || stableJson(retained) !== stableJson(actual)) throw new Error('Frozen investigation evidence changed');

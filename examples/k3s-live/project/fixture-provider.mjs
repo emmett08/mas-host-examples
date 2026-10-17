@@ -5,7 +5,8 @@ export function fixtureOutput(request, mode = 'review', paced = false, draftDefe
     const tools = ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics'];
     const turn = input.history?.length ?? 0;
     return turn < tools.length
-      ? { decision: { kind: 'request', target: tools[turn], input_json: '{}' } }
+      ? { decision: { kind: 'request', target: tools[turn], input_json: tools[turn] === 'pod_logs'
+          ? JSON.stringify({ container: 'checkout', previous: false, tail_lines: 40 }) : '{}' } }
       : { decision: { kind: 'complete', output: { summary: 'Fixture investigator requested four real MCP operations; no LLM was called.',
           limitations: ['Tool results identify whether observations came from Kubernetes or retained evidence. Tool selection is scripted; no LLM judgement is claimed.'] } } };
   }

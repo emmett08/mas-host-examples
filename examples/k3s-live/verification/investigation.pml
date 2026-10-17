@@ -1,5 +1,6 @@
 /* MCP acquisition/assessment composition, one immutable admitted Run identity.
- * Four host delegate invocation identities, at most two server restarts. Each
+ * Four host delegate invocation identities and four required actor identities,
+ * at most two server restarts. Each
  * slot abstracts an admitted inference/tool request; the model checks the tool
  * side effect lifecycle, not model text or MCP transport internals.
  *
@@ -14,17 +15,22 @@
  * storage loss, unbounded crashes and overlapping orchestrators are excluded.
  */
 #define TOOLS 4
+#define ALL_REQUIRED 15
 mtype = { Acquiring, Acquired, Frozen, Assessing, Completed, Blocked, Cancelled,
           Unused, Reserved, Invoked, Recorded, Uncertain };
 mtype phase = Acquiring;
 mtype tool[TOOLS];
 byte calls[TOOLS];
+byte actor[TOOLS];
+byte covered = 0;
+byte order_code = 0;
 byte slot = 0;
 byte results = 0;
 byte restarts = 0;
 byte frozen_version = 0;
 byte assessment_starts = 0;
 bool all_trusted = true;
+bool unavailable_observation = false;
 bool has_unknown = false;
 bool recorded_restart = false;
 bool frozen_restart = false;
@@ -73,6 +79,10 @@ active proctype Investigation() {
        }
     :: atomic {
          !done && !cancelled && phase == Acquiring && tool[slot] == Unused ->
+         /* The freezer also handles incomplete or repeated-target histories
+          * retained by an older host. Actor identity differs from call identity. */
+         if :: actor[slot] = 0 :: actor[slot] = 1
+            :: actor[slot] = 2 :: actor[slot] = 3 fi;
          tool[slot] = Reserved
        }
     :: atomic {
@@ -87,6 +97,11 @@ active proctype Investigation() {
          !done && !cancelled && phase == Acquiring && tool[slot] == Invoked ->
          if
          :: tool[slot] = Recorded; results++;
+            covered = covered | (1 << actor[slot]);
+            order_code = order_code * TOOLS + actor[slot];
+            /* A valid unavailable observation records an attempted tool. It
+             * supplies coverage, not useful proof for a remediation action. */
+            if :: skip :: unavailable_observation = true fi;
             /* Exact subject UID, known actor/tool, result/schema and evidence
              * consistency are conjunctive predicates checked in trusted code. */
             if :: skip :: all_trusted = false fi
@@ -112,10 +127,19 @@ active proctype Investigation() {
          !done && !cancelled && phase == Acquired ->
          assert(!has_unknown);
 #ifdef BUG_MCP_SUBJECT
-         if :: !has_unknown && results > 0 ->
+         if :: !has_unknown && covered == ALL_REQUIRED ->
 #else
+#ifdef BUG_MCP_PARTIAL_COVERAGE
          if :: all_trusted && !has_unknown && results > 0 ->
+#else
+#ifdef BUG_MCP_DUPLICATE_COVERAGE
+         if :: all_trusted && !has_unknown && results == TOOLS ->
+#else
+         if :: all_trusted && !has_unknown && covered == ALL_REQUIRED ->
 #endif
+#endif
+#endif
+            assert(covered == ALL_REQUIRED);
             assert(all_trusted);
             assert(!has_unknown);
             frozen_version++;
@@ -139,6 +163,7 @@ active proctype Investigation() {
          /* Persisted frozen input precedes synchronous dispatch admission. */
          assert(!cancelled);
          assert(frozen_version == 1 && all_trusted && !has_unknown);
+         assert(covered == ALL_REQUIRED);
          assessment_starts++;
          assert(assessment_starts == 1);
          phase = Assessing
@@ -156,6 +181,18 @@ active proctype Investigation() {
     assert(frozen_version <= 1);
 #ifdef WITNESS_MCP_SUCCESS
     assert(!(phase == Completed && results == TOOLS));
+#endif
+#ifdef WITNESS_MCP_REVERSE_ORDER
+    assert(!(phase == Completed && order_code == 228));
+#endif
+#ifdef WITNESS_MCP_UNAVAILABLE
+    assert(!(phase == Completed && unavailable_observation));
+#endif
+#ifdef WITNESS_MCP_PARTIAL_BLOCKED
+    assert(!(phase == Blocked && all_trusted && !has_unknown && results == 1));
+#endif
+#ifdef WITNESS_MCP_DUPLICATE_BLOCKED
+    assert(!(phase == Blocked && all_trusted && !has_unknown && results == TOOLS && covered != ALL_REQUIRED));
 #endif
 #ifdef WITNESS_MCP_RESTART
     assert(!(phase == Completed && recorded_restart && frozen_restart));

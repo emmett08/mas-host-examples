@@ -27,6 +27,78 @@ async function checkCanvasSize(page) {
     'Canvas bitmap dimensions must match its CSS box without stretching');
 }
 
+/** Check real layout across every change that can grow a result panel. */
+async function checkPlaybackPlacement(page, recording) {
+  const time = snapshot => snapshot.observedAtMs ?? snapshot.observation.observed_at_ms;
+  const firstTime = time(recording.snapshots[0]);
+  const timeline = page.getByRole('slider', { name: 'Recorded observation timeline' });
+  const geometry = () => page.evaluate(() => {
+    const controls = document.querySelector('.playback-bar');
+    const graph = document.querySelector('.topology-panel');
+    const board = document.querySelector('.graph-board');
+    const controlsBox = controls.getBoundingClientRect();
+    const graphBox = graph.getBoundingClientRect();
+    return {
+      adjacent: controls.nextElementSibling?.classList.contains('workspace'),
+      gap: graphBox.top - controlsBox.bottom,
+      expectedGap: Number.parseFloat(getComputedStyle(controls).marginBottom),
+      graphTop: graphBox.top + scrollY,
+      boardTop: board.getBoundingClientRect().top + scrollY,
+      scrollY,
+      resultsFollowGraph: [...document.querySelectorAll('.investigation-panel, .evidence-panel, .assessment-panel, .output-panel, .resolution-panel')]
+        .every(panel => panel.getBoundingClientRect().top >= graphBox.bottom),
+    };
+  });
+  await page.getByRole('button', { name: 'Restart', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Playback speed' }).selectOption('8');
+  await checkCanvasSize(page);
+  // Keep the controls and upper graph visible, as a viewer watching playback would.
+  await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    const controls = document.querySelector('.playback-bar');
+    window.scrollTo(0, controls.getBoundingClientRect().top + scrollY - Number.parseFloat(getComputedStyle(controls).top));
+  });
+  const initial = await geometry();
+  assert.equal(initial.adjacent, true, 'The communication graph must directly follow the playback controls');
+  assert.ok(Math.abs(initial.gap - initial.expectedGap) < 1, 'No findings or notices may separate playback controls from the graph');
+  const assertStable = async () => {
+    const current = await geometry();
+    assert.equal(current.adjacent, true);
+    assert.equal(current.resultsFollowGraph, true, 'Growing results must be below the graph');
+    for (const key of ['graphTop', 'boardTop', 'scrollY']) {
+      assert.ok(Math.abs(current[key] - initial[key]) < 1, `${key} moved during playback (${initial[key]} → ${current[key]})`);
+    }
+  };
+  await assertStable();
+  let previous;
+  for (const snapshot of recording.snapshots) {
+    const run = snapshot.run;
+    const shape = JSON.stringify([run.status, run.error, run.investigation?.status, run.investigation?.calls?.length,
+      (run.investigation?.evidence ?? run.input?.incident?.evidence)?.items?.length,
+      run.revision?.status, run.revision?.candidates?.length, run.revision?.assessments?.length,
+      run.output !== undefined, run.resolution?.status, run.reconciliations?.length]);
+    if (shape === previous) continue;
+    previous = shape;
+    const offset = time(snapshot) - firstTime;
+    if (offset <= 0) continue;
+    // Start immediately before this recorded transition, then let the actual Play
+    // handler and playback timer reveal the new evidence/assessment content.
+    await timeline.evaluate((input, position) => {
+      input.value = String(position);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }, offset - 1);
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await page.waitForFunction(position => Number(document.querySelector('.playback-timeline input').value) >= position, offset);
+    const pause = page.getByRole('button', { name: 'Pause', exact: true });
+    if (await pause.count()) await pause.click();
+    await assertStable();
+  }
+  await page.getByRole('button', { name: 'View final', exact: true }).click();
+  await assertStable();
+  await page.getByRole('button', { name: 'Restart', exact: true }).click();
+  await assertStable();
+}
+
 export async function checkArchive(directory, launchOptions = {}) {
   const html = join(resolve(directory), 'dashboard', 'index.html');
   try { await access(html); }
@@ -259,6 +331,16 @@ export async function checkArchive(directory, launchOptions = {}) {
       comparisonChecks.push('canvas-size-desktop-mobile');
       await tab(primaryApproach).click();
     }
+    for (const viewport of [{ width: 1440, height: 1100 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport);
+      for (const recording of [archive, ...(archive.comparisons ?? [])]) {
+        await tab(recording.snapshots[0].run.approach ?? 'collected').click();
+        await checkPlaybackPlacement(page, recording);
+      }
+    }
+    comparisonChecks.push('stable-playback-graph-desktop-mobile');
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await tab(primaryApproach).click();
     assert.deepEqual(errors, [], 'The standalone dashboard reported a browser error');
     assert.deepEqual(requests, [], 'The standalone dashboard attempted network access');
     await page.evaluate(() => window.scrollTo(0, 0));

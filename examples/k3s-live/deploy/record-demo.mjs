@@ -151,8 +151,10 @@ function validateMcpInvestigation(snapshot, source, mode, id) {
   if (investigation.source !== 'kubernetes-api') {
     throw new Error('The k3s comparison requires actual Kubernetes API tool observations in either provider mode');
   }
-  if (!Array.isArray(investigation.calls) || investigation.calls.length === 0) {
-    throw new Error('The MCP comparison recorded no actual MCP tool call');
+  const requiredTools = ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics'];
+  if (!Array.isArray(investigation.calls) || investigation.calls.length !== requiredTools.length ||
+      requiredTools.some(tool => investigation.calls.filter(call => call.tool === tool).length !== 1)) {
+    throw new Error('The MCP comparison requires all four distinct MCP tool calls');
   }
   const observation = snapshot.investigationObservation;
   if (observation?.payloads_included !== true || !Array.isArray(observation.messages) ||
@@ -179,6 +181,27 @@ function validateMcpInvestigation(snapshot, source, mode, id) {
         !requests.some(request => request.recipient === call.tool) || !Array.isArray(call.evidenceIds) ||
         call.evidenceIds.some(id => !evidenceIds.has(id)))) {
     throw new Error('The MCP call record differs from its observed requests or frozen evidence');
+  }
+  if (!isDeepStrictEqual(snapshot.run.input.incident.evidence, investigation.evidence)) {
+    throw new Error('The MCP assessment input differs from its frozen evidence');
+  }
+  const bundle = validatePracticalEvidence(snapshot);
+  const deployment = bundle.items.find(item => item.id === 'workload-deployment').data;
+  const container = deployment.spec?.template?.spec?.containers?.find(item => item.name === 'checkout');
+  if (deployment.kind !== 'Deployment' || deployment.metadata?.namespace !== 'mas-demo' ||
+      deployment.metadata?.name !== 'mas-demo-checkout' || typeof deployment.metadata?.uid !== 'string' || !deployment.metadata.uid ||
+      typeof deployment.metadata?.resourceVersion !== 'string' || !deployment.metadata.resourceVersion ||
+      container?.readinessProbe?.httpGet?.path !== '/readyz' || container?.livenessProbe?.httpGet?.path !== '/healthz') {
+    throw new Error('The MCP comparison requires the identified Deployment version and both live probe paths');
+  }
+  const logs = bundle.items.find(item => item.id === 'logs-checkout-current').data;
+  const records = typeof logs?.text === 'string' ? logs.text.split('\n').map(line => {
+    try { return JSON.parse(line.slice(line.indexOf('{'))); } catch { return {}; }
+  }) : [];
+  if (logs?.container !== 'checkout' || logs?.previous !== false ||
+      !records.some(record => record.method === 'GET' && record.path === '/readyz' && record.status === 404) ||
+      !records.some(record => record.method === 'GET' && record.path === '/healthz' && record.status === 200)) {
+    throw new Error('The MCP comparison requires current checkout logs proving GET /readyz 404 and GET /healthz 200');
   }
 }
 

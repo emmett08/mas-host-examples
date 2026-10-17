@@ -332,7 +332,7 @@ and disabled. Injected selection mismatch and exhausted-run authority faults mus
 produce their targeted counterexamples. A separate false assertion witnesses a
 passing revision followed by independently admitted remediation. With the original
 35 checks, this assessment extension brought the suite to 42 cases. The MCP
-acquisition extension below adds 14 cases, bringing the current total to 56.
+acquisition extension below now adds 20 cases, bringing the current total to 62.
 
 `server/host.integration.ts` executes the real Rust host with a deliberately
 unsupported fixture citation, checks exact candidate/feedback references, verifies
@@ -389,8 +389,12 @@ It leaves the published `evidence/` files intact.
 ## MCP-directed evidence acquisition
 
 `investigation.pml` checks the new acquisition phase composed with the existing
-assessed workflow. An investigating LLM chooses up to four registered tool
-invocations. Each invocation passes through the host's existing delegation and
+assessed workflow. An investigating LLM chooses the order of four required tool
+actors. The configured host policy admits only outstanding required actors until
+coverage is complete. This model independently checks the application freezer:
+it also permits partial or repeated-actor histories, as might be retained from
+an earlier host, and requires them to fail before assessment. Each invocation
+passes through the host's existing delegation and
 operation records before its command adapter makes one MCP `tools/call`. The
 custom Kubernetes tools remain application code; this model introduces no
 Nehemiah message or delivery rule.
@@ -405,13 +409,17 @@ earlier phase write. The admitted approach, incident subject and
 trusted MCP context remain fixed. Trusted application code extracts completed
 command results and freezes the evidence supplied to assessment. Model-generated
 summaries cannot supply additional evidence items. The model represents subject
-identity, approved tool identity, valid result shape and consistent evidence by
-one conjunctive `all_trusted` predicate; implementation tests must exercise the
-individual checks.
+identity, approved tool identity, valid result shape, consistent evidence and
+at least one collected observation by one conjunctive `all_trusted` predicate;
+implementation tests must exercise the individual checks. A separate bitset records distinct tool actors, so four
+invocations of one actor cannot satisfy four required actors. A valid unavailable
+observation counts as a completed acquisition attempt. It grants no useful
+evidence or remediation permission; those predicates are checked separately.
 
 | Property | Abstract transition and implementation obligation |
 | --- | --- |
-| Frozen evidence before assessment | `Frozen → Assessing` requires `frozen_version == 1`, trusted evidence and no unknown operation. The frozen incident must be persisted before launching the assessed host. |
+| Frozen evidence before assessment | `Frozen → Assessing` requires `frozen_version == 1`, trusted evidence, complete required-actor coverage and no unknown operation. The frozen incident must be persisted before launching the assessed host. |
+| Complete distinct coverage | `Acquired → Frozen` requires `covered == ALL_REQUIRED`. Partial histories and four calls containing a repeated actor are blocked independently of host schema enforcement. |
 | Recorded calls never replay | Each of four invocation identities has `calls[slot] <= 1`. The host's retained per-operation record supplies the result after restart. A later newly admitted call is a different identity. |
 | Unknown acquisition cannot complete | A reserved or invoked operation without a retained response becomes `Uncertain` on restart and moves to `Blocked`; `Acquired` asserts that no unknown operation exists. |
 | Exact incident and tool binding | `all_trusted == false` prevents freezing. A mismatched Pod UID, unexpected command/tool identity, invalid result or conflicting evidence must fail the corresponding trusted-code checks. |
@@ -433,8 +441,9 @@ not claim instantaneous propagation of a shutdown signal to another process.
 Already-admitted operations may settle after cancellation.
 
 The model has one orchestrator owner, one immutable Run, four sequential delegate
-invocation identities, at most two restarts, one cancellation, one frozen bundle
-and one assessed-phase start. Host inference, individual MCP exchanges, queue
+invocation identities, four required actor identities, at most two restarts, one
+cancellation, one frozen bundle and one assessed-phase start. Each invocation
+can name any actor, allowing all tool orders and repeated targets to be checked. Host inference, individual MCP exchanges, queue
 behaviour and the subsequent candidate/revision loop are outside this model;
 `revision.pml` covers the latter. Retention of the original host admission,
 configuration, deadline and operation identities is an implementation assumption.
@@ -443,16 +452,18 @@ implementation-refinement claim follows from these checks. Tool calls are
 read-only Kubernetes observations, so counting invocations does not count
 workload mutations.
 
-Safety and settlement run with and without partial-order reduction. Six isolated
-mutations admit assessment before freezing, repeat a recorded call, complete an
-uncertain acquisition, accept untrusted evidence, launch after cancellation, or
-replace a frozen bundle. Each must produce its intended replayable assertion
+Safety and settlement run with and without partial-order reduction. Eight
+isolated mutations admit assessment before freezing, repeat a recorded call,
+complete an uncertain acquisition, accept untrusted evidence, accept partial
+coverage, count repeated actors as complete coverage, launch after cancellation,
+or replace a frozen bundle. Each must produce its intended replayable assertion
 counterexample. A separate stalled-provider mutation must produce a liveness
-counterexample. Three deliberately false assertions witness completed acquisition
-using all four tool identities, successful recovery after both a recorded result
-and a frozen bundle, and an invoked operation whose outcome remains uncertain.
-The two useful restart boundaries are distinct; the recovery witness cannot be
-satisfied merely by restarting before any work begins.
+counterexample. Seven deliberately false assertions witness complete coverage,
+reverse tool order, a valid unavailable observation, blocked partial coverage,
+blocked duplicate-actor coverage, successful recovery after both a recorded
+result and a frozen bundle, and an invoked operation whose outcome remains
+uncertain. The two useful restart boundaries are distinct; the recovery witness
+cannot be satisfied merely by restarting before any work begins.
 
 `server/investigation.test.ts` exercises evidence source/subject checks,
 conflicting observations, retained input and shutdown/restart gates.
@@ -461,9 +472,8 @@ a deterministic provider fixture. `mcp/client.test.ts` and `mcp/tools.test.ts`
 cover MCP transport and incident-scoped Kubernetes collection. Fixture execution
 does not establish live LLM behaviour or a live-cluster result.
 
-The model and harness were independently reviewed. The full suite contains 20
-positive searches and 36 expected counterexamples, including the new reachability
-witnesses. SPIN 6.5.1 was available from
+The full suite contains 20 positive searches and 42 expected counterexamples,
+including the coverage controls and reachability witnesses. SPIN 6.5.1 was available from
 a retained local installation for this change; `evidence/summary.json` records
 the exact checker/compiler and reviewed-source hashes for each retained run.
 The maintained verifier and atomic-transition documentation was checked on
