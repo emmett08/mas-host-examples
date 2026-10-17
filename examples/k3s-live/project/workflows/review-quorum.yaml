@@ -1,0 +1,16 @@
+# Optional independent review of an exact retained candidate, never effect authority.
+type: parallel
+join:
+  version: mas-candidate-quorum/1
+  minimum: 2
+  candidate: {$input: /candidate}
+  context: {$input: /review_context}
+steps:
+  - type: request
+    key: constraints
+    target: constraint_vote
+    input: {$input: ''}
+  - type: request
+    key: independent-model-review
+    target: model_vote
+    input: {$input: ''}

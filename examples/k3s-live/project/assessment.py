@@ -4,9 +4,16 @@ import hashlib
 import json
 
 
+def canonical(record) -> str:
+    return json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def digest(record) -> str:
+    return hashlib.sha256(canonical(record).encode()).hexdigest()
+
+
 def reference(record: dict) -> dict:
-    encoded = json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return {"id": record["id"], "sha256": hashlib.sha256(encoded.encode()).hexdigest()}
+    return {"id": record["id"], "sha256": digest(record)}
 
 
 def assess(_ctx, invocation: dict) -> dict:
@@ -51,3 +58,42 @@ def assess(_ctx, invocation: dict) -> dict:
         findings.append({"criterion_id": criterion, "verdict": "pass" if passed else "fail",
                          "score": 1 if passed else 0, "evidence": evidence, "explanation": explanation})
     return {"status": "completed", "findings": findings}
+
+
+def quorum_vote(ctx, invocation: dict) -> dict:
+    """Bind a constraint vote to the same retained candidate and review context."""
+    candidate = invocation["candidate"]
+    context = invocation["review_context"]
+    record = invocation["candidate_record"]
+    evidence = invocation["evidence"]
+    rubric = invocation["rubric"]
+    expected = {
+        "criterion_id": "incident-constraints/1:all",
+        "rubric": reference(rubric),
+        "evidence": [reference(item) for item in evidence],
+    }
+    expected_rubric = {
+        "schema_version": 1, "id": "incident-constraints/1",
+        "criteria": [
+            {"id": key, "measurement": "deterministic", "minimum": 0, "maximum": 1}
+            for key in ("evidence-references", "bounded-proposal", "uncertainty")
+        ],
+    }
+    valid = (
+        candidate == reference(record)
+        and record["output_sha256"] == digest(record["output"])
+        and context == expected
+        # Python's == merges Boolean and integer values. Canonical JSON keeps
+        # those protocol types distinct, including inside evidence and rubrics.
+        and canonical(rubric) == canonical(expected_rubric)
+        and all(item["content_sha256"] == digest(item["content"]) for item in evidence)
+        and any(item["id"] == "incident" and canonical(item["content"]) == canonical(invocation["incident"])
+                for item in evidence)
+    )
+    if valid:
+        findings = assess(ctx, {"candidate": record, "sources": {"incident": invocation["incident"]},
+                                "evidence": evidence})["findings"]
+        valid = all(item["verdict"] == "pass" for item in findings)
+    return {"candidate": candidate, "context": context, "accepted": valid,
+            "explanation": "Exact candidate, rubric and evidence constraints pass." if valid
+            else "Candidate identity, frozen context or supplied evidence constraints failed."}

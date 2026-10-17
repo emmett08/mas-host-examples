@@ -5,6 +5,11 @@ import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, resolve, join } from 'node:path';
 import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { createHash } from 'node:crypto';
+import { canonicalJson, parseRevisionAudit, verifyRevisionDigests, type RevisionAudit } from '../shared/revision.mjs';
+import { quorumInput } from '../deploy/quorum-input.mjs';
 import { Host, HostRunFailure } from './host.js';
 import { Runs } from './runs.js';
 
@@ -68,7 +73,7 @@ async function fixtureProject(folder: string) {
   await cp(resolve('project'), project, { recursive: true, filter: source => basename(source) !== '.mas' });
   // Container node is on the host's fixed PATH. Local runtimes may install it
   // elsewhere; adapt only temporary integration-test projects.
-  for (const name of ['connections.fixture.toml', 'connections.recording.toml', 'connections.assessment-fixture.toml', 'connections.assessment-recording.toml']) {
+  for (const name of ['connections.fixture.toml', 'connections.recording.toml', 'connections.assessment-fixture.toml', 'connections.assessment-recording.toml', 'connections.quorum-fixture.toml']) {
     const profile = join(project, name), source = await readFile(profile, 'utf8');
     await writeFile(profile, source.replaceAll('command = ["node",', `command = [${JSON.stringify(process.execPath)},`));
   }
@@ -98,6 +103,9 @@ test('real host retains a defective draft, exact findings and bounded revision; 
   assert.equal(first!.findings.find(row => row.criterion_id === 'evidence-references')!.verdict, 'fail');
   assert.ok(second!.findings.every(row => row.verdict === 'pass'));
   assert.deepEqual(result.output, revised!.output);
+  const reviewInput = await quorumInput(result);
+  assert.deepEqual(reviewInput.candidate, result.revision.selected);
+  assert.deepEqual(reviewInput.candidate_record, revised);
   for (const context of result.revision.contexts.filter(row => row.actor === 'incident_checks')) {
     assert.deepEqual(context.input!.feedback, [], 'The independent deterministic evaluator receives no earlier assessment');
   }
@@ -123,6 +131,150 @@ test('real host retains a defective draft, exact findings and bounded revision; 
     output_sha256: revised!.output_sha256 });
   assert.equal('revision' in remediation.run, false);
   assert.equal((await host.observe('assessed-incident', state)).messages.length, snapshot.messages.length);
+});
+
+const execute = promisify(execFile);
+const digest = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
+const reference = (record: { id: string }) => ({ id: record.id, sha256: digest(record) });
+function nativeHostArgs(project: string, input: string, state: string, run: string, agent: string) {
+  return ['run', '--project', project, '--sdk-root', resolve(process.env.MAS_SDK_ROOT ?? '../../.tools/mas-host'),
+    '--input', input, '--state', state, '--run', run, '--agent', agent];
+}
+async function nativeCommand(args: string[]) {
+  return execute(resolve(process.env.MAS_HOST_BIN ?? '../../.tools/mas-host/target/debug/mas-host'), args,
+    { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
+}
+async function nativeRun(args: string[]) {
+  return JSON.parse((await nativeCommand(args)).stdout) as { output: Record<string, any>; revision: RevisionAudit };
+}
+
+test('mixed native and model-adapter reviews count only the exact candidate and frozen review context', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'mas-candidate-quorum-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const project = await fixtureProject(folder);
+  const rubric = JSON.parse(await readFile(join(project, 'revision.json'), 'utf8')).rubric;
+  const incident = { reason: 'BackOff', source: 'fixture', evidence: { items: [] } };
+  const evidence = [{ schema_version: 1, id: 'incident', content: incident, content_sha256: digest(incident) }];
+  const output = { summary: 'Insufficient evidence; collect logs.', confidence: 'low', next_checks: ['Collect logs'],
+    requires_human: true, evidence_ids: [], remediation: { action: 'none', evidence_ids: [] } };
+  const candidate = { schema_version: 1, id: 'candidate-conformance', output, output_sha256: digest(output), parent: null, feedback: [] };
+  const input = join(folder, 'input.json');
+  await writeFile(input, JSON.stringify({ candidate: reference(candidate), candidate_record: candidate, incident, evidence, rubric,
+    review_context: { criterion_id: 'incident-constraints/1:all', rubric: reference(rubric), evidence: evidence.map(reference) } }));
+  const profile = join(project, 'connections.quorum-fixture.toml');
+  const source = await readFile(profile, 'utf8');
+  const state = join(folder, 'state');
+  const args = (run: string) => [...nativeHostArgs(project, input, state, run, 'review_quorum'), '--connections', profile];
+  const passed = await nativeRun(args('same-candidate'));
+  assert.equal(passed.output.join.accepted, true);
+  assert.deepEqual(passed.output.join.candidate, reference(candidate));
+  assert.deepEqual(passed.output.join.selected.map((row: { actor: string }) => row.actor), ['constraint_vote', 'model_vote']);
+  assert.deepEqual(await nativeRun(args('same-candidate')), passed, 'Replay cannot collect a second vote');
+  for (const wrong of ['candidate', 'context']) {
+    await writeFile(profile, source.replace('"vote"]', `"vote","--wrong-${wrong}"]`));
+    const rejected = await nativeRun(args(`wrong-${wrong}`));
+    assert.equal(rejected.output.results[1].accepted, true, 'The adversarial vote must otherwise claim acceptance');
+    assert.equal(rejected.output.join.accepted, false);
+    assert.deepEqual(rejected.output.join.selected, []);
+    assert.equal(rejected.output.join.observations[1].status, 'mismatched');
+  }
+  await writeFile(profile, source);
+  const changed = JSON.parse(await readFile(input, 'utf8'));
+  changed.candidate_record.output.summary = 'Changed after candidate identity was frozen';
+  await writeFile(input, JSON.stringify(changed));
+  const corrupt = await nativeRun(args('changed-content'));
+  assert.equal(corrupt.output.results[0].accepted, false);
+  assert.equal(corrupt.output.join.accepted, false);
+});
+
+test('host rejects forged evaluator bindings and foreign evidence, retains exhausted history, and replays no work', async t => {
+  for (const defect of ['candidate', 'rubric', 'evaluator', 'evidence']) {
+    await t.test(defect, async t => {
+      const folder = await mkdtemp(join(tmpdir(), `mas-assessment-${defect}-`));
+      t.after(() => rm(folder, { recursive: true, force: true }));
+      const project = await fixtureProject(folder);
+      const evaluator = join(project, 'assessment.py');
+      const source = await readFile(evaluator, 'utf8');
+      const malicious = defect === 'evidence'
+        ? 'for finding in findings:\n        finding["evidence"] = [{"id": "foreign-evidence", "sha256": "0" * 64}]\n    return {"status": "completed", "findings": findings}'
+        : `return {"status": "completed", "findings": findings, "${defect}": {"id": "forged", "sha256": "0" * 64}}`;
+      await writeFile(evaluator, source.replace('return {"status": "completed", "findings": findings}', malicious));
+      const plan = join(project, 'revision.json');
+      const frozen = JSON.parse(await readFile(plan, 'utf8'));
+      frozen.max_revisions = 0;
+      await writeFile(plan, JSON.stringify(frozen));
+      const input = join(folder, 'input.json'), state = join(folder, 'state');
+      await writeFile(input, JSON.stringify({ sources: [{ id: 'incident', kind: 'evidence', content: { reason: 'BackOff' }, readers: ['*'] }] }));
+      const args = [...nativeHostArgs(project, input, state, `forged-${defect}`, 'assessed_draft'),
+        '--revision-plan', plan, '--connections', join(project, 'connections.assessment-fixture.toml')];
+      const result = await nativeRun(args);
+      const audit = parseRevisionAudit(result.revision);
+      await verifyRevisionDigests(audit);
+      assert.equal(audit.status, 'exhausted');
+      assert.equal(audit.candidates.length, 1);
+      assert.equal(audit.assessments.length, 1);
+      const assessment = audit.assessments[0]!;
+      assert.equal(assessment.status, 'error');
+      assert.deepEqual(assessment.findings, []);
+      assert.deepEqual(assessment.evaluator, frozen.evaluators[0].identity);
+      assert.deepEqual(assessment.candidate, reference(audit.candidates[0]!));
+      assert.deepEqual(assessment.rubric, reference(frozen.rubric));
+      assert.ok(assessment.error);
+      assert.deepEqual(await nativeRun(args), result, 'Exhausted replay must preserve assessments and invocation count');
+      const changed = { ...frozen, max_revisions: 1 };
+      await writeFile(plan, JSON.stringify(changed));
+      await assert.rejects(nativeCommand(args), error => {
+        assert.match(String((error as { stderr: string }).stderr), /differs from retained/);
+        return true;
+      });
+    });
+  }
+});
+
+test('reserved source identities fail preflight before dispatching a scripted provider or deterministic worker', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'mas-reserved-evidence-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const project = await fixtureProject(folder);
+  for (const id of ['candidate-0-output', 'attempt-assessment-0-0', 'budget-revision']) {
+    const input = join(folder, `${id}.json`), state = join(folder, 'state');
+    await writeFile(input, JSON.stringify({ sources: [
+      { id: 'incident', kind: 'evidence', content: { reason: 'BackOff' }, readers: ['*'] },
+      { id, kind: 'evidence', content: { note: 'Untrusted caller attempts a host identity collision' }, readers: ['*'] },
+    ] }));
+    const args = [...nativeHostArgs(project, input, state, id, 'assessed_draft'),
+      '--revision-plan', join(project, 'revision.json'), '--connections', join(project, 'connections.assessment-fixture.toml')];
+    await assert.rejects(nativeCommand(args), error => {
+      assert.match(String((error as { stderr: string }).stderr), /host-reserved evidence prefix/);
+      return true;
+    });
+    const snapshot = JSON.parse((await nativeCommand(['observe', '--state', state, '--run', id, '--include-payloads', 'true'])).stdout);
+    assert.deepEqual(snapshot.messages, []);
+    assert.deepEqual(snapshot.calls, []);
+    assert.deepEqual(snapshot.steps, []);
+  }
+});
+
+test('a supplied bundle with an impossible root reply route starts no worker or provider call', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'mas-reply-preflight-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const project = await fixtureProject(folder);
+  const built = JSON.parse((await nativeCommand(['build', '--project', project,
+    '--sdk-root', resolve(process.env.MAS_SDK_ROOT ?? '../../.tools/mas-host'),
+    '--connections', join(project, 'connections.quorum-fixture.toml')])).stdout);
+  const bundle = JSON.parse(await readFile(built.bundle, 'utf8'));
+  bundle.topology.edges = bundle.topology.edges.filter(([from, to]: string[]) => !(from === 'review_quorum' && to === 'client'));
+  const supplied = join(folder, 'one-way-bundle.json'), input = join(folder, 'input.json'), state = join(folder, 'state');
+  await writeFile(supplied, JSON.stringify(bundle));
+  await writeFile(input, '{}');
+  await assert.rejects(nativeCommand(['run', '--bundle', supplied, '--agent', 'review_quorum', '--input', input,
+    '--state', state, '--run', 'no-reply']), error => {
+    assert.match(String((error as { stderr: string }).stderr), /task reply route forbidden/);
+    return true;
+  });
+  const snapshot = JSON.parse((await nativeCommand(['observe', '--state', state, '--run', 'no-reply', '--include-payloads', 'true'])).stdout);
+  assert.deepEqual(snapshot.messages, []);
+  assert.deepEqual(snapshot.calls, []);
+  assert.deepEqual(snapshot.steps, []);
 });
 
 test('real host forwards evidence through both reviews and returns a schema-valid identity-bound readiness proposal', async t => {
@@ -182,8 +334,8 @@ test('a real host HTTP rejection retains safe diagnostics without repeating mode
   await cp(resolve('project'), project, { recursive: true, filter: source => basename(source) !== '.mas' });
   const agents = join(project, 'agents.toml');
   const source = await readFile(agents, 'utf8');
-  assert.equal(source.match(/kind = "openai"/g)?.length, 2);
-  // Both connections point only to our rejecting loopback server. No provider
+  assert.equal(source.match(/kind = "openai"/g)?.length, 3);
+  // Every connection points only to our rejecting loopback server. No provider
   // credentials or external inference are used by this integration test.
   await writeFile(agents, source.replaceAll('kind = "openai"', `kind = "openai"\nendpoint = "${endpoint}"`)
     .replaceAll('api_key_env = "OPENAI_API_KEY"', `api_key_env = "${keyName}"`));

@@ -85,6 +85,49 @@ before playback. Its JavaScript viewer rejects integers outside the exactly
 representable range; the Rust protocol remains authoritative for its wider integer
 domain. An offline file performs no agent execution or remediation.
 
+## Candidate-bound mixed-agent review
+
+The optional `review_quorum` agent demonstrates a native deterministic reviewer
+and a model reviewer assessing the same retained candidate. Its versioned parallel
+join requires two distinct actors, an exact candidate `{id, sha256}`, and the same
+frozen context containing criterion, rubric and evidence references. An
+`accepted: true` vote for a different candidate or context is retained as
+`mismatched` and cannot count towards the quorum. The native reviewer also checks
+candidate content, output digest, rubric and supplied evidence before applying
+the three incident constraints. The model review remains model judgement. Neither
+a quorum nor a passing assessment grants remediation authority.
+
+From this directory, a completed public host result can be prepared for another
+review without reconstructing identities or exposing private evidence:
+
+```bash
+node deploy/quorum-input.mjs assessed-result.json > quorum-input.json
+"$MAS_HOST_BIN" run --project project --sdk-root "$MAS_SDK_ROOT" \
+  --agent review_quorum --input quorum-input.json --state .state \
+  --run candidate-review --connections project/connections.quorum-fixture.toml
+```
+
+The named connection profile uses a **scripted command-provider fixture**, so the
+command performs no model inference. It accepts only the conservative abstention
+fixture; a proposed action may receive a negative vote. Omit `--connections` only
+for an explicitly intended live model review with the configured provider key.
+This separate command leaves the incident controller's frozen selection and
+independent remediation checks unchanged.
+
+The native-host integration suite runs the same mixed review and checks passing
+agreement, candidate mismatch, context mismatch and changed candidate content.
+It also checks reply-route preflight, rejection of host-reserved evidence source
+identities, forged evaluator bindings, foreign evidence, frozen-plan conflicts,
+exhaustion and replay. Run it from this directory after building the pinned host:
+
+```bash
+MAS_HOST_BIN=../../.tools/mas-host/target/debug/mas-host \
+MAS_SDK_ROOT=../../.tools/mas-host npm run test:host
+```
+
+These are protocol and host conformance checks using scripted model adapters;
+they establish neither live-model quality nor improvement on unseen incidents.
+
 ## The practical incident and outcome
 
 The sample checkout application serves `/healthz` and `/`, but its readiness

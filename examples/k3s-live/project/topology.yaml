@@ -1,5 +1,11 @@
 version: mas-topology/1
 edges:
+  - [client, review_quorum]
+  - [review_quorum, client]
+  - [review_quorum, constraint_vote]
+  - [constraint_vote, review_quorum]
+  - [review_quorum, model_vote]
+  - [model_vote, review_quorum]
   - [client, assessed_draft]
   - [assessed_draft, client]
   - [assessed_draft, coordinator]

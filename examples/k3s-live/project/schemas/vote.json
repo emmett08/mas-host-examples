@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "candidate": {
+      "type": "object",
+      "properties": {"id": {"type": "string"}, "sha256": {"type": "string"}},
+      "required": ["id", "sha256"], "additionalProperties": false
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "criterion_id": {"type": "string"},
+        "rubric": {
+          "type": "object",
+          "properties": {"id": {"type": "string"}, "sha256": {"type": "string"}},
+          "required": ["id", "sha256"], "additionalProperties": false
+        },
+        "evidence": {
+          "type": "array", "items": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}, "sha256": {"type": "string"}},
+            "required": ["id", "sha256"], "additionalProperties": false
+          }
+        }
+      },
+      "required": ["criterion_id", "rubric", "evidence"], "additionalProperties": false
+    },
+    "accepted": {"type": "boolean"},
+    "explanation": {"type": "string", "maxLength": 2000}
+  },
+  "required": ["candidate", "context", "accepted", "explanation"], "additionalProperties": false
+}

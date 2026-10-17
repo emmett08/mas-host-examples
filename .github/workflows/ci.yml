@@ -33,6 +33,19 @@ jobs:
         run: make verify
       - name: Run documented commands
         run: make go rust cpp python python-client command star tree mesh composed
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: examples/k3s-live/package-lock.json
+      - name: Verify mixed-agent protocol and assessment conformance through the pinned host
+        working-directory: examples/k3s-live
+        env:
+          MAS_HOST_BIN: ${{ github.workspace }}/.tools/mas-host/target/debug/mas-host
+          MAS_SDK_ROOT: ${{ github.workspace }}/.tools/mas-host
+        run: |
+          npm ci --ignore-scripts
+          npm run test:host
       - name: Check frozen incident experiment and run the credential-free rehearsal
         run: |
           python3 -m unittest discover -s experiments/incident-revision -p 'test_*.py'

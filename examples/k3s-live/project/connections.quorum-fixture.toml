@@ -1,0 +1,5 @@
+# Scripted command provider; this profile performs no model inference.
+version = "mas-connections/1"
+[connections.candidate_review]
+kind = "command"
+command = ["node","fixture-provider.mjs","vote"]
