@@ -64,6 +64,23 @@ test('safe projection bounds effects, validates identity, and only recognises th
   assert.equal(projectFailure(wrongActor, 'failed-run').effects.length, 0);
 });
 
+test('the investigation provider failure retains its known-invalid outcome without exposing raw data or retrying', () => {
+  // The live comparison failed on its first model response, before any MCP
+  // command. Its HTTP success must not obscure the invalid structured output.
+  const observation = observedFailure({ http_status: 200, output_status: 'invalid',
+    usage: { input_tokens: 1425, output_tokens: 273, total_tokens: 1698 },
+    response: 'private-response', headers: { authorization: 'private-api-key' } },
+  { certainty: 'completed', output_status: 'invalid', output: 'private-response' });
+  observation.steps[0]!.actor = 'investigator';
+  const diagnostics = projectFailure(observation, 'failed-run');
+  assert.equal(diagnostics.classification, 'invalid-output');
+  assert.equal(diagnostics.automaticRetry, false);
+  assert.deepEqual(diagnostics.effects, [{ actor: 'investigator', effectId, state: 'completed',
+    certainty: 'completed', outputStatus: 'invalid', provider: 'openai',
+    model: 'gpt-5.4-mini-2026-03-17', httpStatus: 200, classification: 'invalid-output' }]);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /private-response|private-api-key|headers|usage/);
+});
+
 test('failed CLI runs use one read-only observation and never retain raw subprocess errors or retry execution', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'mas-safe-failure-'));
   t.after(() => rm(directory, { recursive: true, force: true }));

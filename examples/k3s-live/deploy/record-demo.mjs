@@ -183,6 +183,9 @@ function validateMcpInvestigation(snapshot, source, mode, id) {
 }
 
 export function failureReport(snapshot, error) {
+  // A comparison failure belongs to the MCP run even after the original
+  // investigation has independently completed recovery.
+  if (error instanceof McpComparisonError) return error.report;
   const notProposed = error instanceof RemediationNotProposedError;
   const decision = snapshot?.run?.output;
   return {
@@ -196,6 +199,14 @@ export function failureReport(snapshot, error) {
       reason: decision?.remediation?.reason,
     } } : {}),
   };
+}
+
+class McpComparisonError extends Error {
+  constructor(report, cause) {
+    super(`MCP comparison failed: ${report.error}`, { cause });
+    this.name = 'McpComparisonError';
+    this.report = report;
+  }
 }
 
 export function observeCanvasProgress(previous, frame, runId) {
@@ -290,9 +301,10 @@ export async function captureMcpComparison({ source, mode, destination, page, de
     }
     throw new Error('No completed MCP comparison was captured within the shared recording deadline');
   } catch (error) {
-    await json('failure-diagnostics.json', failureReport(snapshot, error));
+    const report = failureReport(snapshot, error);
+    await json('failure-diagnostics.json', report);
     await page.screenshot({ path: join(destination, 'failure.png'), fullPage: true }).catch(() => {});
-    throw error;
+    throw new McpComparisonError(report, error);
   }
 }
 
@@ -535,7 +547,7 @@ export async function main() {
     }
     if (snapshot?.run?.status !== 'completed') throw new Error('No completed event investigation was captured within 1200 seconds');
     if (!recoveryCaptured) throw new Error('The dedicated remediation controller did not publish verified recovery within 1200 seconds');
-    if (comparisonError) throw new Error(`MCP comparison failed: ${comparisonError.message}`);
+    if (comparisonError) throw comparisonError;
     if (browserErrors.length) throw new Error('The dashboard reported a browser error');
     console.log(`Recorded ${mode} investigations ${runId} and ${comparison.run.id}, with ${comparison.run.investigation.calls.length} actual MCP tool calls`);
   } catch (error) {

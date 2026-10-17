@@ -13,7 +13,7 @@ export interface FailureDiagnostics {
   version: 'mas-demo-failure/1'; classification: FailureClassification;
   automaticRetry: false; effects: FailedInference[];
 }
-const actors = ['diagnose', 'platform_diagnosis', 'security_review', 'decision'];
+const actors = ['investigator', 'diagnose', 'platform_diagnosis', 'security_review', 'decision'];
 const models = ['gpt-5.4-mini-2026-03-17', 'gpt-5.4-2026-03-05'];
 const states = ['prepared', 'executing', 'unknown', 'completed', 'resolved', 'failed', 'blocked', 'rejected'];
 const certainties = ['completed', 'not_sent', 'rejected'];
