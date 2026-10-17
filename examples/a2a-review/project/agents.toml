@@ -1,0 +1,48 @@
+version = "mas-agents/3"
+
+[[agents]]
+name = "review"
+operation = "review_release/1"
+input_schema = "schemas/proposal.json"
+output_schema = "schemas/decision.json"
+[agents.implementation]
+kind = "native"
+language = "python"
+source = "review.py"
+handler = "review"
+
+[[agents]]
+name = "policy"
+operation = "check_release/1"
+input_schema = "schemas/proposal.json"
+output_schema = "schemas/policy.json"
+[agents.implementation]
+kind = "native"
+language = "python"
+source = "review.py"
+handler = "policy"
+
+[[agents]]
+name = "reviewer"
+operation = "advise_release/1"
+output_schema = "schemas/review.json"
+[agents.implementation]
+kind = "llm"
+connection = "reviewer_provider"
+model = "fixture-review/1"
+instructions = "prompts/reviewer.md"
+max_output_tokens = 512
+max_turns = 1
+
+[connections.reviewer_provider]
+kind = "mock"
+[connections.reviewer_provider.output]
+approved = true
+reason = "Deterministic provider fixture approves; the policy check remains authoritative."
+
+[limits]
+wall_seconds = 60
+max_calls = 1
+max_messages = 16
+max_bytes = 131072
+mailbox_capacity = 4

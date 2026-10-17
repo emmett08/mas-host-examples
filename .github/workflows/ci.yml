@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  linux:
+  applications:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -33,6 +33,39 @@ jobs:
         run: make verify
       - name: Run documented commands
         run: make go rust cpp python python-client command star tree mesh composed
+
+  conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Build pinned host from its independent repository
+        run: make setup
+      - name: Verify A2A discovery, authorisation and durable retry without provider credentials
+        timeout-minutes: 3
+        run: make a2a
+      - name: Verify interoperability with the pinned official A2A Python SDK
+        timeout-minutes: 4
+        run: |
+          python3 -m venv .tools/a2a-sdk
+          .tools/a2a-sdk/bin/python -m pip install -r examples/a2a-review/requirements-sdk.txt
+          .tools/a2a-sdk/bin/python examples/a2a-review/sdk_check.py --report .state/a2a-review/official-sdk.json
+      - name: Retain A2A fixture evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nehemiah-a2a-fixture
+          path: .state/a2a-review
+          if-no-files-found: warn
+          retention-days: 14
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
@@ -46,6 +79,22 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm run test:host
+
+  incident:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Build pinned host from its independent repository
+        run: make setup
       - name: Check frozen incident experiment and run the credential-free rehearsal
         run: |
           python3 -m unittest discover -s experiments/incident-revision -p 'test_*.py'
@@ -76,3 +125,20 @@ jobs:
           path: .state/incident-pilot
           if-no-files-found: warn
           retention-days: 14
+
+  # Preserve the existing required check and reject failed, skipped or cancelled groups.
+  linux:
+    if: ${{ always() }}
+    needs: [applications, conformance, incident]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every test group to succeed
+        env:
+          APPLICATIONS_RESULT: ${{ needs.applications.result }}
+          CONFORMANCE_RESULT: ${{ needs.conformance.result }}
+          INCIDENT_RESULT: ${{ needs.incident.result }}
+        run: |
+          test "$APPLICATIONS_RESULT" = success
+          test "$CONFORMANCE_RESULT" = success
+          test "$INCIDENT_RESULT" = success

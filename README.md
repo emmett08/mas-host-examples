@@ -1,4 +1,4 @@
-# MAS Host examples
+# Nehemiah protocol: MAS Host examples
 
 Applications written in Python, Go, Rust and C++ running on the same
 [MAS Host](https://github.com/emmett08/mas-host). Each example supplies application
@@ -6,6 +6,9 @@ functions or ordinary CLI tools, TOML agent settings and YAML topology/workflows
 All agent bindings use `mas-agents/3`. The host generates worker entry points, communication code
 and registration bundles. Applications supply no handwritten worker transport or
 custom host implementation.
+
+Nehemiah is the protocol's public name. Repository names, `mas-host` commands,
+`mas-agents/3` configuration and established wire identifiers remain stable.
 
 The native examples and the default model fixtures run without credentials.
 The composable example also supplies task-specific GPT-5.4/GPT-5.4 Mini settings,
@@ -20,6 +23,7 @@ A separately frozen incident pilot measures feedback effects under explicit limi
 | [Rust order calculation](examples/rust-order) | Checked integer totals, discount, tax and budget comparison | Generated Rust worker and precise JSON results |
 | [C++ telemetry assessment](examples/cpp-telemetry) | Bounded sample-window statistics and threshold decisions | Generated C++17 worker and input validation |
 | [Python service review](examples/python-review) | Dataclass inputs and outputs, capacity/security checks, independent acceptance and optional durable receipt | Typed Python client and workers, parallel/request/effect APIs, TOML settings and YAML input |
+| [A2A release review](examples/a2a-review) | Deterministic policy and separately admitted reviewer; fixture and explicit live OpenAI modes | Rust A2A gateway, filtered Agent Cards, frozen contract identity, durable retry and independent official SDK check |
 | [Command policy check](examples/command-policy) | Standalone CLI with arguments, JSON stdin/stdout and an optional receipt; optional GPT-5.4 delegation | Retained executable, shared operation contracts, model-to-command requests and admitted command recovery |
 | [Composable review agents](examples/composable-agents) | Star, tree and mesh reviews nested into a release workflow; interchangeable model providers | Recursive Composite workflow, provider Strategy/Adapter, MAS admission and durable inference replay |
 | [Live Kubernetes incident room](examples/k3s-live) | Vue/TypeScript canvas, exact candidate assessments, bounded revision and downloaded evidence playback; event-triggered k3s operator | Invocation disclosure controls, immutable assessment history, candidate-bound mixed-agent quorum, durable replay and separately guarded remediation |
@@ -138,8 +142,10 @@ application using a remote service needs evidence from that service. Ordinary
 file writes or network calls outside `Effect` do not acquire recovery guarantees.
 
 The host executes trusted code with the operator's filesystem permissions. The
-local profile supplies maintained provider adapters and scoped credentials; it
-has no remote service ingress or untrusted-code sandbox. The execution model
+local profile supplies maintained provider adapters and scoped credentials.
+The optional A2A example exposes approved operations through an authenticated
+loopback gateway; remote deployment requires the documented HTTPS proxy boundary.
+The host supplies no untrusted-code sandbox. The execution model
 accepts integer numbers; examples use minor units and basis points to avoid floating-point ambiguity. The C++ SDK
 supports signed and unsigned 64-bit integers.
 

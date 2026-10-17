@@ -1,0 +1,1 @@
+{"type":"object","properties":{"release":{"type":"string"},"approved":{"type":"boolean"},"policy_accepted":{"type":"boolean"},"reviewer_approved":{"type":"boolean"},"reason":{"type":"string"}},"required":["release","approved","policy_accepted","reviewer_approved","reason"],"additionalProperties":false}

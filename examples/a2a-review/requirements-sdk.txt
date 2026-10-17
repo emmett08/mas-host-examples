@@ -1,0 +1,4 @@
+# Official a2aproject Python client; this release implements A2A 1.0.
+# https://pypi.org/project/a2a-sdk/1.0.3/
+a2a-sdk==1.0.3
+httpx==0.28.1

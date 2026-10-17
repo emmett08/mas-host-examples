@@ -1,0 +1,1 @@
+{"type":"object","properties":{"accepted":{"type":"boolean"},"criterion":{"type":"string"}},"required":["accepted","criterion"],"additionalProperties":false}
