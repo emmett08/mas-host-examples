@@ -87,6 +87,24 @@ test('an unresolved Check Run write is never automatically repeated', async () =
     assert.equal(api.patches, 1);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+test('observer command identifies an acknowledged Check Run and stays unavailable after a lost response', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'observer-command-')), api = new MemoryChecks();
+  const state = join(dir, 'state.json'), sha = 'a'.repeat(40);
+  try {
+    const publisher = new CheckPublisher(api, 'owner/repo', sha, incidentId, state);
+    assert.equal(publisher.observerCommand(), undefined);
+    api.loseCreate = true;
+    await assert.rejects(publisher.tick([event(1)]), /lost/);
+    assert.equal(publisher.observerCommand(), undefined);
+    const resumed = new CheckPublisher(api, 'owner/repo', sha, incidentId, state);
+    api.losePatch = true;
+    await assert.rejects(resumed.tick([event(1)]), /lost/);
+    assert.equal(resumed.observerCommand(), undefined);
+    await resumed.tick([event(1)]);
+    assert.equal(resumed.observerCommand(), `node observe.mjs --repo owner/repo --sha ${sha} --incident ${incidentId} --check 42`);
+    assert.equal(api.posts, 1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 test('Check Run polling produces SSE updates before completion with reconnect sequence suppression', async () => {
   const api = new MemoryChecks(), hub = new EventHub();
   api.check = { id: 42, name: 'Self-remediation live observation', external_id: incidentId, head_sha: 'a'.repeat(40), status: 'in_progress', output: { text: encodeWindow(makeWindow([event(1), event(2)], incidentId)) } };

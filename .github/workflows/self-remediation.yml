@@ -155,6 +155,17 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: examples/self-remediation/package-lock.json
+      - name: Validate live settings before building infrastructure
+        working-directory: examples/self-remediation
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          SELF_REMEDIATION_GITHUB_READ_TOKEN: ${{ secrets.SELF_REMEDIATION_GITHUB_READ_TOKEN }}
+          SELF_REMEDIATION_GITHUB_MCP_SCHEMA_SHA256: ${{ vars.SELF_REMEDIATION_GITHUB_MCP_SCHEMA_SHA256 }}
+          SELF_REMEDIATION_MODEL: ${{ vars.SELF_REMEDIATION_MODEL }}
+          SELF_REMEDIATION_MAX_CALL_MICRO_USD: ${{ vars.SELF_REMEDIATION_MAX_CALL_MICRO_USD || '150000' }}
+          SELF_REMEDIATION_PROGRESS: 'true'
+        run: node scripts/preflight.mjs --mode live --output "$RUNNER_TEMP/self-remediation-live/live-preflight.json"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version: '1.24.0'
