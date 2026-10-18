@@ -67,7 +67,7 @@ test('lost command response remains unknown until the exact effect is reconciled
   const outputSchema = { type: 'object', properties: { operationId: { type: 'string' }, invocation_id: { type: 'string' }, status: { type: 'string', enum: ['COMPLETED'] } }, required: ['operationId', 'invocation_id', 'status'], additionalProperties: false };
   const configuration = { binary, sdkRoot, stateDir }, options = { runtimeBundle, inputSchema, outputSchema, operationName: 'publication_control/1', timeoutMs: 60000, outputBytes: 4096 };
   const invoke = () => runTrustedOperation(configuration, 'lost-response', { operationId: 'publish-one' }, options);
-  await assert.rejects(invoke(), (error: any) => error.uncertain === true);
+  await assert.rejects(invoke(), (error: any) => error.uncertain === true && error.message.includes('publication_control/1'));
   await assert.rejects(invoke(), (error: any) => error.uncertain === true);
   assert.equal((await readFile(join(stateDir, 'dispatch-count'), 'utf8')).trim(), 'one');
   const receipt = JSON.parse(await readFile(evidencePath, 'utf8'));
