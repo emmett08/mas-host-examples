@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fixtureConnectionProfile, Host, HostRunFailure } from './host.js';
-import { projectFailure } from './diagnostics.js';
+import { failureMessage, projectFailure } from './diagnostics.js';
 
 test('paced recording providers require fixture mode and explicit opt-in; live always uses its configured providers', () => {
   assert.equal(fixtureConnectionProfile('fixture'), 'connections.fixture.toml');
@@ -79,6 +79,50 @@ test('the investigation provider failure retains its known-invalid outcome witho
     certainty: 'completed', outputStatus: 'invalid', provider: 'openai',
     model: 'gpt-5.4-mini-2026-03-17', httpStatus: 200, classification: 'invalid-output' }]);
   assert.doesNotMatch(JSON.stringify(diagnostics), /private-response|private-api-key|headers|usage/);
+  assert.match(failureMessage(diagnostics), /investigator: HTTP 200/);
+  assert.doesNotMatch(failureMessage(diagnostics), /output-selection|undefined/);
+});
+
+test('output diagnostics distinguish selection, parsing and schema failures using bounded public fields', () => {
+  for (const [stage, code] of [
+    ['response-envelope', 'invalid-json'], ['response-envelope', 'incomplete'], ['response-envelope', 'nonterminal'],
+    ['output-selection', 'refusal'], ['output-selection', 'missing-output'], ['output-selection', 'ambiguous-output'],
+    ['output-selection', 'invalid-output-text'], ['output-json', 'integer-json'],
+    ['output-schema', 'schema-mismatch'], ['output-schema', 'expected-object'], ['output-schema', 'integer-json'],
+  ]) {
+    const observation = observedFailure({ http_status: 200, output_diagnostics: {
+      stage, code, eligible_messages: 2, eligible_text_blocks: 2, excluded_messages: 1, other_output_items: 0,
+      output_bytes: 104, output_sha256: 'a'.repeat(64), response_bytes: 420, response_sha256: 'b'.repeat(64),
+      output: 'private-response', message: 'private-api-key', phase: 'private-phase', status: 'private-status',
+    } }, { certainty: 'completed', output_status: 'invalid' });
+    const diagnostics = projectFailure(observation, 'failed-run');
+    assert.equal(diagnostics.classification, 'invalid-output');
+    assert.deepEqual(diagnostics.effects[0]?.outputDiagnostics, { stage, code,
+      eligibleMessages: 2, eligibleTextBlocks: 2, excludedMessages: 1, otherOutputItems: 0,
+      outputBytes: 104, outputSha256: 'a'.repeat(64), responseBytes: 420, responseSha256: 'b'.repeat(64) });
+    assert.ok(failureMessage(diagnostics).includes(`${stage}/${code} (eligible messages 2, text blocks 2, excluded messages 1)`));
+    assert.doesNotMatch(JSON.stringify(diagnostics) + failureMessage(diagnostics), /private-/);
+  }
+});
+
+test('output diagnostic projection rejects arbitrary labels, values, hashes and oversized counts', () => {
+  const project = (output_diagnostics: unknown) => projectFailure(observedFailure({ http_status: 200, output_diagnostics },
+    { certainty: 'completed', output_status: 'invalid' }), 'failed-run');
+  for (const value of [null, [], 'private-response', { stage: 'private-stage', code: 'integer-json' },
+    { stage: 'output-json', code: 'private-code' }, { stage: 'output-json', code: 'schema-mismatch' }]) {
+    const diagnostics = project(value);
+    assert.equal(diagnostics.effects[0]?.outputDiagnostics, undefined);
+    assert.doesNotMatch(JSON.stringify(diagnostics) + failureMessage(diagnostics), /private-/);
+  }
+  for (const invalid of [-1, 0.5, 1_048_577, Number.MAX_SAFE_INTEGER + 1, '2', null, true, {}]) {
+    const diagnostics = project({ stage: 'output-selection', code: 'missing-output',
+      eligible_messages: invalid, eligible_text_blocks: invalid, excluded_messages: invalid, other_output_items: invalid,
+      output_bytes: invalid, response_bytes: invalid, output_sha256: 'private-response', response_sha256: 'A'.repeat(64) });
+    assert.deepEqual(diagnostics.effects[0]?.outputDiagnostics, { stage: 'output-selection', code: 'missing-output' });
+  }
+  assert.deepEqual(project({ stage: 'output-selection', code: 'missing-output', eligible_messages: 0,
+    response_bytes: 1_048_576 }).effects[0]?.outputDiagnostics,
+  { stage: 'output-selection', code: 'missing-output', eligibleMessages: 0, responseBytes: 1_048_576 });
 });
 
 test('failed CLI runs use one read-only observation and never retain raw subprocess errors or retry execution', async t => {
