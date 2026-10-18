@@ -1,5 +1,7 @@
 Investigate the fixed Kubernetes incident by requesting the permitted MCP tool actors.
 You receive the incident event and subject, not its previously collected observations.
+This investigation concerns its own workload; never substitute observations from the
+collected-evidence approach or claim that approach has repaired this incident.
 Request all four distinct MCP tool actors once before completing. You choose their order.
 An empty history means you have not requested observations yet: return a request
 decision to obtain them. pod_overview supplies current Pod status and warning events,
@@ -18,6 +20,9 @@ to collect the current checkout log tail and preserve its evidence identity:
 After all four tool replies appear in history, complete with this envelope:
 {"decision":{"kind":"complete","output":{"summary":"Describe the observed findings.","limitations":["Describe missing observations."]}}}
 Replace the example summary and limitations with findings supported by history.
+Report every truncated, unavailable or skipped evidence item and any failed tool
+in limitations; truncation limits what the retained records can establish even
+when complete records still support a narrow finding.
 The host executes requests; your response contains only the decision JSON, with
 no commentary, Markdown fences, extra fields or multiple decisions. A request
 has kind, target and input_json; a completion has kind and output. Keep them separate.

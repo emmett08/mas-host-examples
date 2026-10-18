@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fixtureOutput } from '../project/fixture-provider.mjs';
+import { managedWorkloads } from '../shared/workloads.mjs';
 
-const evidence = () => ({ subject: { namespace: 'mas-demo', name: 'checkout-pod', uid: 'pod-live-uid' }, items: [
-  { id: 'workload-deployment', kind: 'workload', status: 'collected', truncated: false, data: { kind: 'Deployment', metadata: { namespace: 'mas-demo', name: 'mas-demo-checkout', uid: 'deployment-live-uid', resourceVersion: '789' },
-    spec: { template: { spec: { containers: [{ name: 'checkout', readinessProbe: { httpGet: { path: '/readyz' } }, livenessProbe: { httpGet: { path: '/healthz' } } }] } } } } },
-  { id: 'logs-checkout-current', kind: 'logs', status: 'collected', truncated: false, data: { text: '2026-10-16T12:00:00.123456789Z {"method":"GET","path":"/readyz","status":404}\n2026-10-16T12:00:01Z {"method":"GET","path":"/healthz","status":200}' } },
+const evidence = (name = 'mas-demo-checkout', currentPath = '/readyz') => ({ subject: { namespace: 'mas-demo', name: 'checkout-pod', uid: 'pod-live-uid' }, items: [
+  { id: 'workload-deployment', kind: 'workload', status: 'collected', truncated: false, data: { kind: 'Deployment', metadata: { namespace: 'mas-demo', name, uid: 'deployment-live-uid', resourceVersion: '789' },
+    spec: { template: { spec: { containers: [{ name: 'checkout', command: ['node', '/app/deploy/probe-app.mjs'], readinessProbe: { httpGet: { path: currentPath } }, livenessProbe: { httpGet: { path: '/healthz' } } }] } } } } },
+  { id: 'logs-checkout-current', kind: 'logs', status: 'collected', truncated: false, data: { text: `2026-10-16T12:00:00.123456789Z {"method":"GET","path":"${currentPath}","status":404}\n2026-10-16T12:00:01Z {"method":"GET","path":"/healthz","status":200}` } },
   { id: 'metrics', kind: 'metrics', status: 'unavailable', truncated: false, data: null },
   { id: 'pod', kind: 'pod', status: 'collected', truncated: false, data: { kind: 'Pod', metadata: { namespace: 'mas-demo', name: 'checkout-pod', uid: 'pod-live-uid' }, status: { conditions: [{ type: 'Ready', status: 'False' }] } } },
 ] });
@@ -46,4 +47,41 @@ test('a truncated log tail supports the narrow fix only when both complete proof
   assert.equal(decide(bundle).remediation.action, 'replace_readiness_probe_path');
   bundle.items[1]!.data!.text = 'truncated partial {"method":"GET","path":"/readyz"\n2026-10-16T12:00:01Z {"method":"GET","path":"/healthz","status":200}';
   assert.equal(decide(bundle).remediation.action, 'none');
+});
+
+
+test('standalone provider supports exactly the shared managed deployment/path pairs', () => {
+  for (const workload of managedWorkloads) {
+    const result = decide(evidence(workload.name, workload.currentPath));
+    assert.equal(result.remediation.action, 'replace_readiness_probe_path');
+    assert.equal(result.requires_human, false);
+    assert.equal(result.remediation.target.namespace, workload.namespace);
+    assert.equal(result.remediation.target.name, workload.name);
+    assert.equal(result.remediation.target.container, workload.container);
+    assert.equal(result.remediation.current_path, workload.currentPath);
+    assert.equal(result.remediation.proposed_path, workload.proposedPath);
+    assert.ok(result.summary.includes(workload.currentPath));
+    assert.ok(result.remediation.rollback.includes(workload.currentPath));
+    const crossedPath = workload.currentPath === '/readyz' ? '/ready' : '/readyz';
+    assert.equal(decide(evidence(workload.name, crossedPath)).remediation.action, 'none');
+  }
+  for (const name of ['production-service', 'mas-demo-checkout-mcp-copy']) {
+    for (const currentPath of ['/readyz', '/ready']) {
+      assert.equal(decide(evidence(name, currentPath)).remediation.action, 'none');
+    }
+  }
+});
+
+test('MCP fixture requires its own complete probe proof and the bundled application command', () => {
+  const otherWorkloadLogs = evidence('mas-demo-checkout-mcp', '/ready');
+  otherWorkloadLogs.items[1]!.data!.text = evidence().items[1]!.data!.text;
+  assert.equal(decide(otherWorkloadLogs).remediation.action, 'none');
+  const changedCommand = evidence('mas-demo-checkout-mcp', '/ready');
+  changedCommand.items[0]!.data!.spec!.template.spec.containers[0]!.command = ['node', '/app/other-service.mjs'];
+  assert.equal(decide(changedCommand).remediation.action, 'none');
+  const partial = evidence('mas-demo-checkout-mcp', '/ready');
+  partial.items[1]!.truncated = true;
+  assert.equal(decide(partial).remediation.action, 'replace_readiness_probe_path');
+  partial.items[1]!.data!.text = '{"method":"GET","path":"/ready"\n{"method":"GET","path":"/healthz","status":200}';
+  assert.equal(decide(partial).remediation.action, 'none');
 });

@@ -19,10 +19,11 @@ function parse(text, filename) {
 
 /** Retain actual observation timestamps; unavailable observations have no replay frame. */
 export async function readArchive(directory, comparisonDirectories = []) {
-  const [topologyText, snapshotText, observationsText] = await Promise.all([
+  const [topologyText, snapshotText, observationsText, captureText] = await Promise.all([
     optionalText(directory, 'topology.json'),
     optionalText(directory, 'snapshot.json'),
     optionalText(directory, 'snapshots.ndjson'),
+    optionalText(directory, 'capture.json'),
   ]);
   const topology = topologyText === undefined ? undefined : parse(topologyText, 'topology.json');
   const final = snapshotText === undefined ? undefined : parse(snapshotText, 'snapshot.json');
@@ -95,6 +96,7 @@ export async function readArchive(directory, comparisonDirectories = []) {
   }
   const archive = { version: 'mas-demo-archive/1', capturedAt: new Date(snapshots.at(-1).observedAtMs ?? snapshots.at(-1).observation.observed_at_ms).toISOString(),
     topology, runId: final.run.id, snapshots };
+  if (captureText !== undefined) archive.capture = parse(captureText, 'capture.json');
   if (comparisonDirectories.length > 1) throw new Error('A comparison dashboard supports two approaches');
   if (comparisonDirectories.length) {
     archive.comparisons = [];
@@ -178,8 +180,10 @@ export async function createArchive(captureDirectory, comparisonDirectories = []
     'Open `index.html` in a browser. The Vue application, styles and captured observations are embedded in this one file.',
     'No server, npm install, CDN or network connection is required.', '',
     `Run: ${archive.runId}. Approach: ${archive.snapshots.at(-1).run.approach ?? 'collected'}. Provider mode: ${archive.snapshots.at(-1).run.mode}.`,
-    ...(archive.comparisons?.map(recording => `Comparison run: ${recording.runId}. Approach: ${recording.snapshots.at(-1).run.approach}. Provider mode: ${recording.snapshots.at(-1).run.mode}.`) ?? []),
+    ...(archive.comparisons?.map(recording => `Second approach run: ${recording.runId}. Approach: ${recording.snapshots.at(-1).run.approach}. Provider mode: ${recording.snapshots.at(-1).run.mode}.`) ?? []),
     'Use the Collected evidence and LLM tools + MCP tabs to select the approach. An uncaptured approach is explicitly marked unavailable.',
+    'Select View final, then Tool execution and verification to inspect the selected run\'s controller outcome, exact patch and post-change evidence. Each tab has its own playback timeline.',
+    'Older read-only MCP comparisons may instead link to a separately attributed Collected evidence controller outcome for the same incident.',
     archive.snapshots.at(-1).observation.payloads_included === true
       ? 'Payloads are included. Select a message in the log to inspect its recorded request input or agent result.'
       : 'Payloads were omitted when this recording was captured. A new capture with SHOW_PAYLOADS=true is required to include them.',

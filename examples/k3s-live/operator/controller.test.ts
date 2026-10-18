@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { APIError, DemoController, TRIGGER_LABEL, type DemoAPI, type DemoRun,
+import { APIError, DemoController, TRIGGER_LABEL, APPROACH_LABEL, type DemoAPI, type DemoRun,
   type KubernetesAPI, type KubernetesEvent, type RunState } from './controller.js';
 import { evidenceFromStorage } from './evidence.js';
 
@@ -14,13 +14,16 @@ const run = (name: string, phase?: 'Pending' | 'Running' | 'Succeeded' | 'Failed
 class Kube implements KubernetesAPI {
   runs: DemoRun[] = [];
   events: KubernetesEvent[] = [];
-  pod = { metadata: { name: 'crash', uid: 'pod-uid', labels: { [TRIGGER_LABEL]: 'true' } } };
+  pod = { metadata: { name: 'crash', namespace: 'mas-demo', uid: 'pod-uid',
+    labels: { [TRIGGER_LABEL]: 'true' } as Record<string, string> },
+    spec: { containers: [{ name: 'checkout', readinessProbe: { httpGet: { path: '/ready', port: 8081 } } }] } };
+  reads: string[] = [];
   creates = 0;
   failStatus = false;
   async list<T>(path: string): Promise<T[]> {
     return (path.includes('/events?') ? this.events : this.runs) as T[];
   }
-  async get<T>(): Promise<T> { return this.pod as T; }
+  async get<T>(path: string): Promise<T> { this.reads.push(path); return this.pod as T; }
   async create<T>(_path: string, resource: unknown): Promise<T> {
     const next = resource as DemoRun;
     if (this.runs.some(existing => existing.metadata.name === next.metadata.name)) throw new APIError(409, 'Already exists');
@@ -80,6 +83,7 @@ test('labelled pod Warning creates one CR, starts one run and survives controlle
   assert.equal(demo.starts, 1);
   assert.deepEqual(demo.inputs[0]?.evidence, evidenceFromStorage(retainedEvidence));
   assert.equal(demo.inputs[0]?.scenario, 'pod-incident');
+  assert.equal(demo.inputs[0]?.approach, 'collected');
   demo.states.set('k8s-cr-0', { id: 'k8s-cr-0', status: 'completed' });
   await create().tick();
   await create().tick();
@@ -163,4 +167,73 @@ test('pending queue bounds event admission and explicit Event labels work withou
   await create().tick();
   assert.equal(kube.creates, 1);
   assert.equal(kube.runs[0].spec.event?.involvedObject.kind, 'Deployment');
+});
+
+
+test('managed MCP workload retains only its UID-matched Pod and trigger, then starts the MCP approach', async () => {
+  const { kube, demo, create } = fixture();
+  kube.pod.metadata.labels['app.kubernetes.io/name'] = 'mas-demo-checkout-mcp';
+  kube.pod.metadata.labels[APPROACH_LABEL] = 'mcp';
+  kube.events = [warning()];
+  await create().tick();
+  assert.equal(kube.runs[0]?.spec.approach, 'mcp');
+  assert.deepEqual(kube.reads, ['/api/v1/namespaces/mas-demo/pods/crash']);
+  const seed = kube.runs[0]!.spec.evidence!;
+  assert.deepEqual(seed.items.map(item => item.id), ['pod', 'events']);
+  assert.equal(seed.subject.uid, 'pod-uid');
+  assert.deepEqual(seed.items[1]?.data, [kube.runs[0]?.spec.event]);
+  assert.equal((seed.items[0]?.data as { metadata: { labels: Record<string, string> } }).metadata.labels[APPROACH_LABEL], 'mcp');
+  await create().tick();
+  assert.equal(demo.inputs[0]?.approach, 'mcp');
+  assert.deepEqual(demo.inputs[0]?.evidence, evidenceFromStorage(seed));
+  assert.equal(demo.starts, 1);
+});
+
+test('workload policy routes both approaches without requiring the optional approach label', async () => {
+  for (const [workload, approach] of [['mas-demo-checkout', 'collected'], ['mas-demo-checkout-mcp', 'mcp']]) {
+    const { kube, create } = fixture();
+    kube.pod.metadata.labels['app.kubernetes.io/name'] = workload!;
+    kube.events = [warning()];
+    await create().tick();
+    assert.equal(kube.runs[0]?.spec.approach, approach);
+  }
+});
+
+test('managed workload and explicit approach mismatches cannot admit or redirect an incident', async () => {
+  for (const [workload, approach] of [['mas-demo-checkout', 'mcp'], ['mas-demo-checkout-mcp', 'collected'],
+    ['mas-demo-checkout-mcp', 'unknown'], ['unmanaged-workload', 'mcp']]) {
+    const { kube, create } = fixture();
+    kube.pod.metadata.labels['app.kubernetes.io/name'] = workload!;
+    kube.pod.metadata.labels[APPROACH_LABEL] = approach!;
+    kube.events = [warning()];
+    await create().tick();
+    assert.equal(kube.creates, 0);
+  }
+});
+
+test('Event labels opt in but cannot select another workload or approach, or bypass a reused Pod UID', async () => {
+  const { kube, create } = fixture();
+  kube.pod.metadata.labels[TRIGGER_LABEL] = 'false';
+  kube.pod.metadata.labels['app.kubernetes.io/name'] = 'mas-demo-checkout';
+  kube.events = [warning({ metadata: { name: 'labelled', uid: 'labelled', creationTimestamp: new Date(now).toISOString(),
+    labels: { [TRIGGER_LABEL]: 'true', [APPROACH_LABEL]: 'mcp', 'app.kubernetes.io/name': 'mas-demo-checkout-mcp' } } })];
+  await create().tick();
+  assert.equal(kube.runs[0]?.spec.approach, 'collected');
+  kube.runs = [];
+  kube.pod.metadata.uid = 'replacement-pod';
+  await create().tick();
+  assert.equal(kube.creates, 1, 'the labelled old Event cannot trigger the replacement Pod');
+});
+
+test('missing Pod and cross-namespace Pod Events cannot enter the MCP path', async () => {
+  const { kube, create } = fixture();
+  kube.pod.metadata.labels['app.kubernetes.io/name'] = 'mas-demo-checkout-mcp';
+  kube.events = [warning({ involvedObject: { kind: 'Pod', name: 'crash', namespace: 'other', uid: 'pod-uid' } })];
+  await create().tick();
+  assert.equal(kube.creates, 0);
+  assert.deepEqual(kube.reads, []);
+  kube.events = [warning()];
+  kube.get = async () => { throw new APIError(404, 'Pod not found'); };
+  await create().tick();
+  assert.equal(kube.creates, 0);
 });

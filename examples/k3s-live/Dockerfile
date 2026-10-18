@@ -29,6 +29,7 @@ COPY --chown=10001:10001 examples/k3s-live/project ./project
 COPY --chown=10001:10001 examples/k3s-live/deploy/probe-app.mjs ./deploy/probe-app.mjs
 COPY --chown=10001:10001 examples/k3s-live/deploy/remediation.mjs ./deploy/remediation.mjs
 COPY --chown=10001:10001 examples/k3s-live/deploy/guarded-operation.mjs ./deploy/guarded-operation.mjs
+COPY --chown=10001:10001 examples/k3s-live/shared/workloads.mjs ./shared/workloads.mjs
 RUN mkdir /data && chown demo:demo /data /app/project
 ENV MAS_HOST_BIN=/opt/mas-host/mas-host MAS_SDK_ROOT=/opt/mas-host \
     DEMO_DATA_DIR=/data LISTEN_HOST=0.0.0.0 PORT=8080

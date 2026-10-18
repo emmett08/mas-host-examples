@@ -292,7 +292,7 @@ test('real host forwards evidence through both reviews and returns a schema-vali
       } },
       { id: 'workload-deployment', kind: 'workload', source: 'fixture', observedAt, status: 'collected', truncated: false, data: {
         kind: 'Deployment', metadata: { namespace: 'mas-demo', name: 'mas-demo-checkout', uid: 'deployment-test-uid', resourceVersion: '12345' },
-        spec: { template: { spec: { containers: [{ name: 'checkout', readinessProbe: { httpGet: { path: '/readyz' } }, livenessProbe: { httpGet: { path: '/healthz' } } }] } } },
+        spec: { template: { spec: { containers: [{ name: 'checkout', command: ['node', '/app/deploy/probe-app.mjs'], readinessProbe: { httpGet: { path: '/readyz' } }, livenessProbe: { httpGet: { path: '/healthz' } } }] } } },
       } },
       { id: 'logs-checkout-current', kind: 'logs', source: 'fixture', observedAt, status: 'collected', truncated: false, data: {
         container: 'checkout', previous: false, text: `${observedAt} {"method":"GET","path":"/readyz","status":404}\n${observedAt} {"method":"GET","path":"/healthz","status":200}`,

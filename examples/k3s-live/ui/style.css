@@ -1019,7 +1019,7 @@ h2 {
 .proposal-summary { padding: 14px 0; color: #c3d1e5; font-size: 13px; line-height: 1.7; }
 .proposal-summary p { margin: 8px 0; }
 .assessment-details summary { cursor: pointer; color: #a8c8e9; font-size: 12px; padding: 10px 0; }
-.resolution-panel { margin-top: 22px; }
+.resolution-panel, .comparison-resolution-panel { margin-top: 22px; }
 .resolution-state { font-size: 12px; color: #d3b77e; }
 .resolution-state.verified { color: #85d5b3; }
 .resolution-state.failed { color: #f0a8a8; }
@@ -1027,7 +1027,7 @@ h2 {
 .verification-checks li { display: grid; gap: 5px; padding: 10px 0; border-top: 1px solid #263348; color: #b5c5d8; font-size: 12px; line-height: 1.6; }
 .verification-checks strong { font-weight: 500; color: #85d5b3; }
 .verification-checks .failed strong { color: #f0a8a8; }
-@media (max-width: 600px) { .evidence-body { padding: 16px; } .evidence-panel .panel-heading, .resolution-panel .panel-heading { flex-wrap: wrap; gap: 10px; } }
+@media (max-width: 600px) { .evidence-body { padding: 16px; } .evidence-panel .panel-heading, .resolution-panel .panel-heading, .comparison-resolution-panel .panel-heading { flex-wrap: wrap; gap: 10px; } }
 .output-label {
   font: 10px var(--mono);
   color: #b9afea;

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { freezeInvestigation, InvestigationEvidenceFailure, retainFile } from './investigation.js';
+import { freezeInvestigation, investigationSummary, InvestigationEvidenceFailure, retainFile } from './investigation.js';
 import { Runs } from './runs.js';
 import type { Host } from './host.js';
 import { EVIDENCE_VERSION, type EvidenceBundle } from '../shared/evidence.js';
@@ -28,7 +28,7 @@ test('only recorded tool results form frozen evidence; model prose and admission
   const audit = freezeInvestigation('run-a', observed(), seed, 'kubernetes-api', hash);
   assert.deepEqual(audit.evidence!.items.map(item => item.id), ['pod', 'workload-spec', 'pod-logs', 'pod-metrics']);
   assert.deepEqual(audit.calls.map(call => call.tool), ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics']);
-  assert.deepEqual(audit.calls[0], { id: 'tool-effect-a', tool: 'pod_overview', status: 'collected', evidenceIds: ['pod'] });
+  assert.deepEqual(audit.calls[0], { id: 'tool-effect-a', tool: 'pod_overview', status: 'collected', evidenceIds: ['pod'], contextSha256: hash });
   assert.equal(audit.contextSha256, hash);
 });
 
@@ -66,6 +66,51 @@ test('unavailable observations remain explicitly unavailable after every require
   assert.equal(audit.evidence!.items.find(item => item.id === 'metrics')!.status, 'unavailable');
 });
 
+test('empty model limitations cannot hide truncated logs or unavailable observations in the audit summary', () => {
+  const observation = observed();
+  observation.steps[2]!.output.output.evidence_items[0]!.truncated = true;
+  Object.assign(observation.steps[3]!.output.output, { status: 'unavailable', evidence_items: [{
+    id: 'metrics', kind: 'metrics', source: 'kubernetes-api', status: 'unavailable',
+    observedAt: at, truncated: false, data: null, reason: 'Metrics API unavailable',
+  }] });
+  const retainedObservation = structuredClone(observation);
+  const audit = freezeInvestigation('run-a', observation, seed, 'kubernetes-api', hash);
+  const rawSummary = { summary: 'Collected available observations.', limitations: [] };
+  const summary = investigationSummary(audit, rawSummary);
+  assert.deepEqual(summary.summary.limitations, [
+    'Evidence pod-logs is truncated; omitted content is unavailable for assessment.',
+    'Evidence metrics is unavailable; no observation was collected.',
+    'MCP tool pod_metrics returned unavailable; its requested observations were not fully collected.',
+  ]);
+  assert.deepEqual(summary.collectionLimitations, summary.summary.limitations);
+  assert.deepEqual(summary.modelSummary, { summary: 'Collected available observations.', limitations: [] });
+  assert.deepEqual(rawSummary.limitations, []);
+  assert.deepEqual(observation, retainedObservation, 'the frozen host observation must remain unchanged');
+});
+
+test('audit summary preserves model limitations and discloses skipped evidence and tool errors', () => {
+  const audit = freezeInvestigation('run-a', observed(), seed, 'kubernetes-api', hash);
+  Object.assign(audit.evidence!.items[2]!, { status: 'skipped', data: null });
+  audit.calls[2]!.status = 'error';
+  const rawSummary = { summary: 'Insufficient history.', limitations: ['No long-term history is available.'] };
+  const summary = investigationSummary(audit, rawSummary);
+  assert.deepEqual(summary.summary.limitations, [
+    'No long-term history is available.',
+    'Evidence pod-logs is skipped; no observation was collected.',
+    'MCP tool pod_logs returned error; its requested observations were not fully collected.',
+  ]);
+  assert.deepEqual(summary.modelSummary, rawSummary);
+  assert.equal(summary.collectionLimitations.length, 2);
+});
+
+test('complete observations do not acquire invented collection limitations', () => {
+  const audit = freezeInvestigation('run-a', observed(), seed, 'kubernetes-api', hash);
+  const rawSummary = { summary: 'All requested observations were collected.', limitations: [] };
+  const summary = investigationSummary(audit, rawSummary);
+  assert.deepEqual(summary.summary, rawSummary);
+  assert.deepEqual(summary.collectionLimitations, []);
+});
+
 test('a tool cannot supply conflicting duplicate evidence identities', () => {
   const o = observed(), later = structuredClone(o.steps[0]!.output.output.evidence_items[0]!);
   later.observedAt = '2026-10-17T18:00:01Z';
@@ -80,6 +125,55 @@ test('retained inputs can be reopened exactly but cannot be rewritten', async t 
   const digest = await retainFile(file, { uid: 'pod-a' });
   assert.equal(await retainFile(file, { uid: 'pod-a' }), digest);
   await assert.rejects(retainFile(file, { uid: 'pod-b' }), /changed/);
+});
+
+test('merged limitations and original model summary are durable before assessment starts', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'mas-mcp-limitations-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  for (const path of ['project', 'dist/mcp', 'dist/operator', 'dist/shared'])
+    await mkdir(join(directory, path), { recursive: true });
+  await writeFile(join(directory, 'package-lock.json'), '{}');
+  const id = 'retained-limitations', runDirectory = join(directory, 'runs');
+  const observation = observed(); observation.run_id = id;
+  observation.steps[2]!.output.output.evidence_items[0]!.truncated = true;
+  const modelSummary = { summary: 'The available log records describe the endpoints.', limitations: [] };
+  let assessed = false;
+  const host = { options: { project: join(directory, 'project') },
+    runInvestigation: async (...args: Parameters<Host['runInvestigation']>) => {
+      for (const step of observation.steps) Object.assign(step.output.output, {
+        source: 'recorded-evidence', context_sha256: args[5],
+      });
+      return modelSummary;
+    },
+    observe: async () => observation,
+    run: async () => {
+      const retained = JSON.parse(await readFile(join(runDirectory, id, 'run.json'), 'utf8'));
+      assert.deepEqual(retained.admissionEvidence, seed, 'The immutable operator seed survives fresh acquisition');
+      assert.notDeepEqual(retained.input.incident.evidence, seed, 'Assessment reads the fresh MCP results');
+      assert.deepEqual(retained.investigation.modelSummary, modelSummary);
+      assert.deepEqual(retained.investigation.summary.limitations, [
+        'Evidence pod-logs is truncated; omitted content is unavailable for assessment.',
+      ]);
+      assert.deepEqual(retained.investigation.collectionLimitations, retained.investigation.summary.limitations);
+      assessed = true;
+      return {};
+    },
+  } as unknown as Host;
+  const runs = new Runs(runDirectory, 'fixture', host); await runs.initialise();
+  await runs.create({ id, scenario: 'pod-incident', approach: 'mcp', evidence: seed,
+    event: { involvedObject: { kind: 'Pod', ...subject } } });
+  await waitFor(() => !['queued', 'running'].includes(runs.get(id).status));
+  assert.equal(runs.get(id).status, 'completed', runs.get(id).error);
+  assert.ok(assessed);
+  const compact = (await runs.remediationSnapshot(id)).run;
+  assert.equal(compact.approach, 'mcp');
+  assert.deepEqual(compact.admissionEvidence, seed);
+  assert.deepEqual(compact.investigation?.evidence, (runs.get(id).input.incident as { evidence: EvidenceBundle }).evidence);
+  assert.ok(compact.investigation?.calls.every(call => call.contextSha256 === compact.investigation?.contextSha256));
+  assert.equal('modelSummary' in compact.investigation!, false, 'Controller admission omits irrelevant model prose');
+  const restarted = new Runs(runDirectory, 'fixture', host); await restarted.initialise();
+  assert.deepEqual(restarted.get(id).investigation, runs.get(id).investigation);
+  assert.deepEqual((await restarted.remediationSnapshot(id)).run.admissionEvidence, seed);
 });
 
 test('completed investigators with empty, partial or duplicate tool coverage cannot start assessment or replay', async t => {

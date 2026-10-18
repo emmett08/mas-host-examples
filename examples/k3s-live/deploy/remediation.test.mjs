@@ -1,28 +1,31 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { admitReadinessPatch, APPLICATION_BODY, canonicalTemplateHash, recovered, resolveIncident as executeIncident, validatePracticalEvidence } from './remediation.mjs';
+import { validatePostChangeEvidence } from '../shared/post-change-evidence.mjs';
 const resolveIncident = (snapshot, options) => executeIncident(snapshot, { operationId: 'test-operation', attemptId: 'test-attempt', beforePatch: async () => {}, ...options });
 
-function candidate() {
-  const deployment = { apiVersion: 'apps/v1', kind: 'Deployment', metadata: { name: 'mas-demo-checkout', namespace: 'mas-demo',
+function candidate(approach = 'collected') {
+  const name = approach === 'mcp' ? 'mas-demo-checkout-mcp' : 'mas-demo-checkout';
+  const currentPath = approach === 'mcp' ? '/ready' : '/readyz';
+  const deployment = { apiVersion: 'apps/v1', kind: 'Deployment', metadata: { name, namespace: 'mas-demo',
     uid: 'deployment-uid', resourceVersion: 'new-status-version', generation: 2, labels: { 'demo.mas.dev/managed': 'true' } },
   spec: { replicas: 1, template: { metadata: { labels: { app: 'checkout' } }, spec: { containers: [{ name: 'checkout', image: 'demo:fixed',
-    readinessProbe: { httpGet: { path: '/readyz', port: 8081 } }, livenessProbe: { httpGet: { path: '/healthz', port: 8081 } } }] } } }, status: {} };
+    readinessProbe: { httpGet: { path: currentPath, port: 8081 } }, livenessProbe: { httpGet: { path: '/healthz', port: 8081 } } }] } } }, status: {} };
   const collected = (id, data) => ({ id, kind: id, status: 'collected', observedAt: new Date().toISOString(), data });
   const bundle = { version: 'mas-k8s-evidence/1', capturedAt: new Date().toISOString(), subject: { namespace: 'mas-demo', name: 'original-pod', uid: 'original-pod-uid' },
     items: [collected('pod', { metadata: { name: 'original-pod', uid: 'original-pod-uid', ownerReferences: [{ kind: 'ReplicaSet', controller: true, uid: 'original-rs' }] },
       spec: structuredClone(deployment.spec.template.spec), status: { conditions: [{ type: 'Ready', status: 'False' }] } }),
       collected('workload-replicaset', { metadata: { uid: 'original-rs', ownerReferences: [{ kind: 'Deployment', controller: true, uid: 'deployment-uid' }] } }),
       collected('events', [{ type: 'Warning', reason: 'Unhealthy', involvedObject: { uid: 'original-pod-uid' } }]),
-      collected('logs-checkout-current', { text: '{"method":"GET","path":"/readyz","status":404}\n{"method":"GET","path":"/healthz","status":200}' }),
+      collected('logs-checkout-current', { text: `{"method":"GET","path":"${currentPath}","status":404}\n{"method":"GET","path":"/healthz","status":200}` }),
       collected('metrics', { metadata: { name: 'original-pod', namespace: 'mas-demo' }, timestamp: new Date().toISOString(), window: '15s', containers: [{ name: 'checkout', usage: { cpu: '10n', memory: '10Ki' } }] }),
       collected('workload-deployment', { ...structuredClone(deployment), metadata: { ...deployment.metadata, resourceVersion: 'recorded-version' },
         templateHash: canonicalTemplateHash(deployment.spec.template) })] };
   const output = { requires_human: false, remediation: { action: 'replace_readiness_probe_path',
-    target: { kind: 'Deployment', name: 'mas-demo-checkout', namespace: 'mas-demo', uid: 'deployment-uid',
-      resource_version: 'recorded-version', container: 'checkout' }, current_path: '/readyz', proposed_path: '/healthz',
+    target: { kind: 'Deployment', name, namespace: 'mas-demo', uid: 'deployment-uid',
+      resource_version: 'recorded-version', container: 'checkout' }, current_path: currentPath, proposed_path: '/healthz',
     evidence_ids: ['pod', 'workload-deployment', 'logs-checkout-current'] } };
-  return { deployment, snapshot: { run: { input: { incident: { evidence: bundle } }, output } } };
+  return { deployment, snapshot: { run: { approach, input: { incident: { evidence: bundle } }, output } } };
 }
 
 test('practical recording requires actual logs, owner specs and timestamped CPU/memory evidence', () => {
@@ -57,6 +60,19 @@ test('admission rejects human review, arbitrary targets, unsupported evidence an
   }
 });
 
+test('each investigation approach can repair only its fixed workload and failed path', () => {
+  for (const approach of ['collected', 'mcp']) {
+    const expected = approach === 'mcp' ? '/ready' : '/readyz';
+    const value = candidate(approach);
+    assert.equal(admitReadinessPatch(value.snapshot, value.deployment)[3].value, expected);
+    value.snapshot.run.approach = approach === 'mcp' ? 'collected' : 'mcp';
+    assert.throws(() => admitReadinessPatch(value.snapshot, value.deployment), /approach cannot remediate/);
+    value.snapshot.run.approach = approach;
+    value.snapshot.run.output.remediation.current_path = approach === 'mcp' ? '/readyz' : '/ready';
+    assert.throws(() => admitReadinessPatch(value.snapshot, value.deployment), /fixed workload readiness correction/);
+  }
+});
+
 test('coherence rejects inverse logs, unrelated owners, healthy original Pods and absent or wrong-identity measurements', () => {
   const changes = [
     item => { item('logs-checkout-current').data.text = '{"method":"GET","path":"/readyz","status":200}\n{"method":"GET","path":"/healthz","status":404}'; },
@@ -81,8 +97,10 @@ test('disabled or engineer-review decisions never invoke kubectl mutations', asy
   assert.equal((await resolveIncident(snapshot, { kubectl, enabled: true })).status, 'not-attempted');
 });
 
-test('resolution retains exact admitted patch and independently verifies fresh Pod metrics and functional HTTP', async () => {
-  const { snapshot, deployment } = candidate();
+for (const approach of ['collected', 'mcp']) test(`${approach} resolution retains the admitted patch, fresh Pod metrics, HTTP, logs and Events`, async () => {
+  const { snapshot, deployment } = candidate(approach);
+  let clock = Date.now();
+  const readyTransition = new Date(clock - 5000).toISOString();
   let patched = false;
   let reservation;
   const seen = [];
@@ -104,15 +122,18 @@ test('resolution retains exact admitted patch and independently verifies fresh P
       spec: { template: deployment.spec.template } }] });
     const pod = { metadata: { name: 'new-pod', uid: 'new-pod-uid',
       creationTimestamp: new Date(Date.now() - 60_000).toISOString(), ownerReferences: [{ kind: 'ReplicaSet', controller: true, uid: 'new-rs' }] },
-    status: { conditions: [{ type: 'Ready', status: 'True' }], containerStatuses: [{ name: 'checkout', restartCount: 0 }] } };
+    status: { conditions: [{ type: 'Ready', status: 'True', lastTransitionTime: readyTransition }], containerStatuses: [{ name: 'checkout', restartCount: 0 }] } };
     if (args[1] === 'pods') return JSON.stringify({ items: [pod] });
     if (args[1] === 'pod') return JSON.stringify(pod);
     if (args[1] === '--raw' && args[2].includes('/metrics.k8s.io/')) return JSON.stringify({ metadata: { name: 'new-pod', namespace: 'mas-demo' }, timestamp: new Date().toISOString(), window: '15s',
       containers: [{ name: 'checkout', usage: { cpu: '8n', memory: '30Mi' } }] });
     if (args[1] === '--raw' && args[2].endsWith('/proxy/')) return APPLICATION_BODY;
+    if (args[0] === 'logs') return `${new Date(clock - 1000).toISOString()} {"method":"GET","path":"/healthz","status":200,"token":"private-secret"}\n`;
+    if (args[1] === 'events') return JSON.stringify({ items: [] });
     throw new Error(`Unexpected kubectl ${args.join(' ')}`);
   };
   const report = await resolveIncident(snapshot, { kubectl, namespaceUID: 'namespace-uid', enabled: true,
+    now: () => clock, delay: async milliseconds => { clock += milliseconds; },
     beforePatch: async prepared => {
       assert.equal(patched, false);
       assert.equal(prepared.checks[0].name, 'Admission');
@@ -128,10 +149,106 @@ test('resolution retains exact admitted patch and independently verifies fresh P
   assert.equal(report.verificationOutcome, 'passed');
   assert.equal(report.after.pod.uid, 'new-pod-uid');
   assert.equal(report.after.application.status, 200);
+  assert.equal(report.after.pod.readyTransitionTime, readyTransition);
+  assert.equal(report.verificationEvidence.subject.uid, 'new-pod-uid');
+  assert.equal(report.verificationEvidence.logs.records[0].status, 200);
+  assert.equal(report.verificationEvidence.logs.truncated, false);
+  assert.deepEqual(report.verificationEvidence.events.items, []);
+  assert.doesNotMatch(JSON.stringify(report), /private-secret|token/);
+  assert.doesNotThrow(() => validatePostChangeEvidence(report, { required: true }));
   assert.equal(report.patch.at(-1).value, '/healthz');
+  assert.equal(report.patch[3].value, approach === 'mcp' ? '/ready' : '/readyz');
+  assert.equal(report.target.name, deployment.metadata.name);
+  assert.ok(seen.filter(args => args[1] === 'deployment').every(args => args[2] === deployment.metadata.name));
+  assert.ok(seen.filter(args => args[1] === 'pods' || args[1] === 'replicasets')
+    .every(args => args[3] === `app.kubernetes.io/name=${deployment.metadata.name}`));
   assert.ok(report.checks.every(check => check.passed));
   assert.equal(seen.filter(args => args[0] === 'patch').length, 1);
   assert.ok(JSON.stringify(report).length < 16 * 1024);
+});
+
+test('post-change verification retains scoped logs/events and fails closed without another mutation', async () => {
+  const cases = ['historical-warning', 'new-warning', 'aggregated-warning', 'series-warning', 'undated-warning', 'unknown-probe-warning',
+    'logs-unavailable', 'events-unavailable', 'missing-healthz', 'failed-healthz', 'stale-log', 'malformed-log',
+    'oversized-log', 'truncated-events', 'wrong-event-uid', 'pod-replaced', 'readiness-flipped'];
+  for (const scenario of cases) {
+    const { snapshot, deployment } = candidate();
+    let clock = Date.now(), patchCalls = 0, podReads = 0;
+    const initialTime = clock;
+    const pod = { metadata: { name: 'new-pod', uid: 'new-pod-uid', creationTimestamp: new Date(clock - 60_000).toISOString(),
+      ownerReferences: [{ kind: 'ReplicaSet', controller: true, uid: 'new-rs' }] },
+    status: { conditions: [{ type: 'Ready', status: 'True', lastTransitionTime: new Date(clock - 1000).toISOString() }],
+      containerStatuses: [{ name: 'checkout', restartCount: 0 }] } };
+    const kubectl = async args => {
+      if (args[1] === 'namespace') return JSON.stringify({ metadata: { uid: 'namespace-uid' } });
+      if (args[0] === 'patch') {
+        patchCalls++;
+        deployment.spec.template.spec.containers[0].readinessProbe.httpGet.path = '/healthz';
+        deployment.metadata.generation = 3; deployment.metadata.resourceVersion = 'acknowledged-patch';
+        deployment.status = { observedGeneration: 3, updatedReplicas: 1, replicas: 1, readyReplicas: 1, availableReplicas: 1 };
+        return JSON.stringify(deployment);
+      }
+      if (args[1] === 'deployment') return JSON.stringify(deployment);
+      if (args[1] === 'replicasets') return JSON.stringify({ items: [{ metadata: { uid: 'new-rs',
+        ownerReferences: [{ kind: 'Deployment', controller: true, uid: 'deployment-uid' }] }, spec: { template: deployment.spec.template } }] });
+      if (args[1] === 'pods') return JSON.stringify({ items: [pod] });
+      if (args[1] === 'pod') {
+        podReads++;
+        const current = structuredClone(pod);
+        if (podReads > 1 && scenario === 'pod-replaced') current.metadata.uid = 'different-pod-uid';
+        if (podReads > 1 && scenario === 'readiness-flipped') current.status.conditions[0].lastTransitionTime = new Date(clock - 1000).toISOString();
+        return JSON.stringify(current);
+      }
+      if (args[1] === '--raw' && args[2].includes('/metrics.k8s.io/')) return JSON.stringify({ metadata: { name: 'new-pod', namespace: 'mas-demo' },
+        timestamp: new Date(clock).toISOString(), window: '15s', containers: [{ name: 'checkout', usage: { cpu: '8n', memory: '30Mi' } }] });
+      if (args[1] === '--raw' && args[2].endsWith('/proxy/')) return APPLICATION_BODY;
+      if (args[0] === 'logs') {
+        assert.deepEqual(args.slice(2, 5), ['-c', 'checkout', '--timestamps=true']);
+        assert.equal(args[5], `--since-time=${new Date(initialTime).toISOString()}`);
+        assert.equal(args[6], '--previous=false');
+        if (scenario === 'logs-unavailable') throw new Error('token=private-api-error');
+        if (scenario === 'missing-healthz') return '';
+        if (scenario === 'malformed-log') return 'incomplete application record';
+        if (scenario === 'oversized-log') return 'x'.repeat(4096);
+        const observed = new Date(scenario === 'stale-log' ? initialTime - 1000 : clock - 1000).toISOString();
+        return `${observed} ${JSON.stringify({ method: 'GET', path: '/healthz', status: scenario === 'failed-healthz' ? 503 : 200, token: 'private-log-field' })}\n`;
+      }
+      if (args[1] === 'events') {
+        assert.equal(args[3], 'involvedObject.uid=new-pod-uid');
+        if (scenario === 'events-unavailable') throw new Error('token=private-api-error');
+        const event = { metadata: { name: 'checkout.readiness', uid: 'event-uid' },
+          involvedObject: { namespace: 'mas-demo', name: 'new-pod', uid: scenario === 'wrong-event-uid' ? 'original-pod-uid' : 'new-pod-uid' },
+          type: 'Warning', reason: 'Unhealthy', count: 1,
+          message: 'Readiness probe failed: HTTP probe failed with statuscode: 404',
+          firstTimestamp: new Date(initialTime - 50_000).toISOString(), lastTimestamp: new Date(initialTime - 50_000).toISOString() };
+        if (scenario === 'new-warning' || scenario === 'aggregated-warning') event.lastTimestamp = new Date(clock - 1000).toISOString();
+        if (scenario === 'aggregated-warning') event.count = 4;
+        if (scenario === 'series-warning') event.series = { lastObservedTime: new Date(clock - 1000).toISOString() };
+        if (scenario === 'undated-warning') { delete event.lastTimestamp; event.count = 4; }
+        if (scenario === 'unknown-probe-warning') event.message = 'unrecognised probe details token=private-api-error';
+        const items = ['historical-warning', 'new-warning', 'aggregated-warning', 'series-warning', 'undated-warning', 'unknown-probe-warning', 'wrong-event-uid'].includes(scenario) ? [event] : [];
+        return JSON.stringify({ metadata: { continue: scenario === 'truncated-events' ? 'more-events' : '' }, items });
+      }
+      throw new Error(`Unexpected operation ${args.join(' ')}`);
+    };
+    const report = await resolveIncident(snapshot, { kubectl, namespaceUID: 'namespace-uid', enabled: true,
+      now: () => clock, delay: async milliseconds => { clock += milliseconds; } });
+    assert.equal(patchCalls, 1, scenario);
+    assert.equal(report.effectOutcome, 'applied', scenario);
+    assert.ok(report.verificationEvidence, scenario);
+    assert.doesNotMatch(JSON.stringify(report), /private-api-error|private-log-field/, scenario);
+    assert.doesNotThrow(() => validatePostChangeEvidence(report, { required: true }), scenario);
+    if (scenario === 'historical-warning') {
+      assert.equal(report.status, 'verified');
+      assert.equal(report.verificationEvidence.events.items.length, 1);
+      assert.equal(report.verificationEvidence.events.items[0].lastTimestamp, new Date(initialTime - 50_000).toISOString());
+      assert.equal(Date.parse(report.verificationEvidence.window.endedAt) - Date.parse(report.verificationEvidence.window.startedAt), 20_000);
+    } else {
+      assert.equal(report.status, 'failed', scenario);
+      assert.equal(report.verificationOutcome, ['new-warning', 'aggregated-warning', 'series-warning', 'failed-healthz', 'pod-replaced', 'readiness-flipped'].includes(scenario) ? 'failed' : 'inconclusive', scenario);
+      assert.equal(report.after, null, scenario);
+    }
+  }
 });
 
 test('a rejected or uncertain durable reservation prevents every Kubernetes mutation', async () => {

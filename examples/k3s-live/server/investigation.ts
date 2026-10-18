@@ -27,8 +27,27 @@ export function requireInvestigationTools(tools: readonly unknown[]) {
 export interface InvestigationAudit {
   status: 'running' | 'completed' | 'failed'; runId: string;
   contextSha256?: string; evidence?: EvidenceBundle;
-  calls: { id: string; tool: string; status: 'collected' | 'unavailable' | 'error'; evidenceIds: string[] }[];
-  summary?: unknown; error?: string;
+  calls: { id: string; tool: string; status: 'collected' | 'unavailable' | 'error'; evidenceIds: string[]; contextSha256?: string }[];
+  summary?: unknown;
+  // Retain the provider's output separately from the audit summary, whose
+  // limitations also include facts enforced by the collection boundary.
+  modelSummary?: unknown; collectionLimitations?: string[]; error?: string;
+}
+export function investigationSummary(audit: InvestigationAudit, modelSummary: unknown) {
+  const output = row(modelSummary);
+  if (typeof output.summary !== 'string' || !Array.isArray(output.limitations)
+    || output.limitations.some((value: unknown) => typeof value !== 'string'))
+    throw new Error('Invalid investigator summary');
+  const collectionLimitations = [
+    ...(audit.evidence?.items.flatMap(item => [
+      ...(item.truncated ? [`Evidence ${item.id} is truncated; omitted content is unavailable for assessment.`] : []),
+      ...(item.status !== 'collected' ? [`Evidence ${item.id} is ${item.status}; no observation was collected.`] : []),
+    ]) ?? []),
+    ...audit.calls.filter(call => call.status !== 'collected')
+      .map(call => `MCP tool ${call.tool} returned ${call.status}; its requested observations were not fully collected.`),
+  ];
+  return { modelSummary, collectionLimitations,
+    summary: { ...output, limitations: [...new Set([...output.limitations, ...collectionLimitations])] } };
 }
 export const contentHash = (value: string) => createHash('sha256').update(value).digest('hex');
 export async function retainFile(path: string, value: unknown) {
@@ -76,7 +95,7 @@ export function freezeInvestigation(id: string, raw: unknown, seed: EvidenceBund
       // explicitly timed bundle, not a claim of an atomic cluster snapshot.
       items.set(item.id, item);
     }
-    calls.push({ id: step.id, tool: step.actor, status: result.status, evidenceIds: bundle.items.map(item => item.id) });
+    calls.push({ id: step.id, tool: step.actor, status: result.status, evidenceIds: bundle.items.map(item => item.id), contextSha256 });
   }
   const evidence = parseEvidence({ version: EVIDENCE_VERSION, capturedAt: new Date(observation.observed_at_ms).toISOString(),
     subject: seed.subject, items: [...items.values()] });

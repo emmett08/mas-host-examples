@@ -361,6 +361,35 @@ test('HTTP admits bounded evidence over 8 KiB and retains independently verified
   assert.equal((await post(path, { ...report, checks: [{ name: 'forged', passed: true, detail: 'not verified' }] })).status, 400);
   assert.equal((await post(path, { ...report, patch: [] })).status, 400);
   assert.equal((await post(path, { ...report, before: { ...report.before, templateHash: 'changed-template' } })).status, 400);
+  // New reports bind the retained log/event proof to the replacement Pod. Older
+  // seven-check reports above remain readable without inventing missing evidence.
+  assert.equal((await post('/api/runs', evidenceRequest('resolved-new'))).status, 202);
+  await waitFor(() => runs.get('resolved-new').status === 'completed');
+  const currentReport = { ...structuredClone(report), version: 'mas-k8s-resolution/2', operationId: 'readiness-new', attemptId: 'owner-new',
+    effectOutcome: 'applied', verificationOutcome: 'passed',
+    before: { ...report.before, namespaceUID: 'namespace-a', expectedTemplateHash: report.after.templateHash },
+    after: { ...report.after, pod: { ...report.after.pod, readyTransitionTime: '2026-10-16T12:00:30Z' } },
+    checks: [...report.checks, ...['Post-change logs', 'Post-change events'].map(name => ({ name, passed: true, detail: 'Retained replacement-Pod observations.' }))],
+    verificationEvidence: { version: 'mas-k8s-post-change-evidence/1',
+      subject: { namespace: 'mas-demo', name: 'mas-demo-checkout-b', uid: 'pod-b', container: 'checkout' },
+      window: { startedAt: '2026-10-16T12:00:40Z', endedAt: '2026-10-16T12:00:55Z' },
+      logs: { status: 'collected', source: 'Kubernetes API checkout current logs', observedAt: '2026-10-16T12:00:54Z', truncated: false,
+        records: [{ timestamp: '2026-10-16T12:00:50Z', method: 'GET', path: '/healthz', status: 200 }], omittedLines: 0, unparsedLines: 0 },
+      events: { status: 'collected', source: 'Kubernetes API Pod UID events', observedAt: '2026-10-16T12:00:55Z', truncated: false, items: [] } } };
+  const newPath = '/api/runs/resolved-new/resolution';
+  for (const change of [
+    (value: typeof currentReport) => { value.verificationEvidence.subject.uid = 'wrong-pod'; },
+    (value: typeof currentReport) => { value.verificationEvidence.logs.status = 'unavailable'; value.verificationEvidence.logs.records = []; },
+    (value: typeof currentReport) => { value.verificationEvidence.logs.records[0]!.status = 404; },
+    (value: typeof currentReport) => { value.verificationEvidence.logs.records[0]!.timestamp = '2026-10-16T12:00:00Z'; },
+    (value: typeof currentReport) => { value.verificationEvidence.events.truncated = true; },
+    (value: typeof currentReport) => { value.checks = report.checks; },
+  ]) {
+    const invalid = structuredClone(currentReport); change(invalid);
+    assert.equal((await post(newPath, invalid)).status, 400);
+  }
+  assert.equal((await post(newPath, currentReport)).status, 202);
+  assert.deepEqual((await runs.snapshot('resolved-new')).run.resolution, currentReport);
   assert.equal((await post(path, report)).status, 202);
   assert.equal(runs.observations.has('resolved'), false, 'A retained tool outcome invalidates the old host observation timestamp');
   assert.equal((await post(path, report)).status, 202);

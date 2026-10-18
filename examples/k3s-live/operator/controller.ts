@@ -1,11 +1,14 @@
 import type { EvidenceBundle } from '../shared/evidence.js';
 import { redactEvidenceText } from '../shared/evidence.js';
-import { collectEvidence, evidenceForStorage, evidenceFromStorage } from './evidence.js';
+import { collectEvidence, collectInvestigationSeed, evidenceForStorage, evidenceFromStorage } from './evidence.js';
+import { managedWorkload } from '../shared/workloads.mjs';
 
 export const GROUP = 'demo.mas.dev';
 export const VERSION = 'v1alpha1';
 export const PLURAL = 'masdemoruns';
 export const TRIGGER_LABEL = `${GROUP}/trigger`;
+export const APPROACH_LABEL = `${GROUP}/approach`;
+export type RunApproach = 'collected' | 'mcp';
 
 export interface Metadata {
   name: string;
@@ -39,7 +42,7 @@ export interface DemoRun {
   apiVersion: string;
   kind: string;
   metadata: Metadata;
-  spec: { scenario: 'pod-incident' | 'pod-crash'; event?: EventEvidence; evidence?: EvidenceBundle };
+  spec: { scenario: 'pod-incident' | 'pod-crash'; approach?: RunApproach; event?: EventEvidence; evidence?: EvidenceBundle };
   status?: {
     phase: 'Pending' | 'Running' | 'Succeeded' | 'Failed';
     runId?: string;
@@ -64,7 +67,7 @@ export interface RunState {
 
 export interface DemoAPI {
   get(id: string): Promise<RunState | undefined>;
-  start(input: { id: string; scenario: 'pod-incident' | 'pod-crash'; event?: EventEvidence; evidence?: EvidenceBundle }): Promise<RunState>;
+  start(input: { id: string; scenario: 'pod-incident' | 'pod-crash'; approach?: RunApproach; event?: EventEvidence; evidence?: EvidenceBundle }): Promise<RunState>;
 }
 
 export class APIError extends Error {
@@ -134,17 +137,23 @@ export class DemoController {
     events.sort((a, b) => (a.metadata.creationTimestamp ?? '').localeCompare(b.metadata.creationTimestamp ?? ''));
     for (const event of events) {
       if (!event.metadata.uid || knownEvents.has(event.metadata.uid) || !this.isRecentWarning(event)) continue;
-      if (!await this.isOptedIn(event)) continue;
+      const admission = await this.admissionFor(event);
+      if (!admission) continue;
       const evidence = this.evidence(event);
       // Capture before admitting the immutable CR. Reconciliation always uses
       // this retained snapshot, including after a lost backend response.
-      const collected = await collectEvidence(this.kube, evidence, { now: this.now });
+      // The MCP approach starts from the observed Pod and trigger only. Its
+      // delegated tools must independently acquire workload, logs and metrics.
+      const collected = admission.approach === 'mcp'
+        ? collectInvestigationSeed(evidence, admission.pod, { now: this.now })
+        : await collectEvidence(this.kube, evidence, { now: this.now });
       const name = `event-${event.metadata.uid}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63).replace(/-+$/, '');
       try {
         await this.kube.create(this.runPath, {
           apiVersion: `${GROUP}/${VERSION}`, kind: 'MASDemoRun',
           metadata: { name, namespace: this.options.namespace, labels: { [`${GROUP}/source`]: 'warning-event' } },
-          spec: { scenario: 'pod-incident', event: evidence, ...(collected ? { evidence: evidenceForStorage(collected) } : {}) },
+          spec: { scenario: 'pod-incident', approach: admission.approach, event: evidence,
+            ...(collected ? { evidence: evidenceForStorage(collected) } : {}) },
         });
         this.log(`Created MASDemoRun ${name} from opted-in Warning Event ${event.metadata.name}`);
       } catch (error) {
@@ -160,7 +169,7 @@ export class DemoController {
     const id = `k8s-${run.metadata.uid}`;
     let current = await this.demo.get(id);
     if (!current && !mayStart) return undefined;
-    if (!current) current = await this.demo.start({ id, scenario: run.spec.scenario,
+    if (!current) current = await this.demo.start({ id, scenario: run.spec.scenario, approach: run.spec.approach ?? 'collected',
       ...(run.spec.event ? { event: run.spec.event } : {}),
       ...(run.spec.evidence ? { evidence: evidenceFromStorage(run.spec.evidence) } : {}) });
     const phase = current.status === 'completed' ? 'Succeeded'
@@ -181,15 +190,24 @@ export class DemoController {
     return Number.isFinite(created) && created <= this.now() + 60_000 && this.now() - created <= this.maxAge;
   }
 
-  private async isOptedIn(event: KubernetesEvent): Promise<boolean> {
-    if (event.metadata.labels?.[TRIGGER_LABEL] === 'true') return true;
+  private async admissionFor(event: KubernetesEvent): Promise<{ approach: RunApproach; pod?: unknown } | undefined> {
+    const eventOptIn = event.metadata.labels?.[TRIGGER_LABEL] === 'true';
     const object = event.involvedObject;
-    if (object?.kind !== 'Pod' || !object.name || object.namespace !== this.options.namespace) return false;
+    // Explicitly labelled non-Pod Events retain the generic collected path.
+    // Event labels never select a workload or an investigation approach.
+    if (object?.kind !== 'Pod') return eventOptIn ? { approach: 'collected' } : undefined;
+    if (!object.name || !object.uid || object.namespace !== this.options.namespace) return undefined;
     try {
       const pod = await this.kube.get<{ metadata: Metadata }>(`${this.corePath}/pods/${encodeURIComponent(object.name)}`);
-      return pod.metadata.uid === object.uid && pod.metadata.labels?.[TRIGGER_LABEL] === 'true';
+      if (pod.metadata.uid !== object.uid || (!eventOptIn && pod.metadata.labels?.[TRIGGER_LABEL] !== 'true')) return undefined;
+      const policy = managedWorkload(this.options.namespace, pod.metadata.labels?.['app.kubernetes.io/name']);
+      const explicit = pod.metadata.labels?.[APPROACH_LABEL];
+      if (explicit !== undefined && explicit !== 'collected' && explicit !== 'mcp') return undefined;
+      if (policy && explicit !== undefined && explicit !== policy.approach) return undefined;
+      if (!policy && explicit === 'mcp') return undefined;
+      return { approach: policy?.approach ?? 'collected', pod };
     } catch (error) {
-      if (error instanceof APIError && error.statusCode === 404) return false;
+      if (error instanceof APIError && error.statusCode === 404) return undefined;
       throw error;
     }
   }

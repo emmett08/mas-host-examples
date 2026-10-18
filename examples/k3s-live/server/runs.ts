@@ -3,12 +3,14 @@ import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { HostRunFailure, type Host } from './host.js';
-import { contentHash, freezeInvestigation, InvestigationEvidenceFailure, requireInvestigationTools, retainFile, type InvestigationAudit } from './investigation.js';
+import { contentHash, freezeInvestigation, investigationSummary, InvestigationEvidenceFailure, requireInvestigationTools, retainFile, type InvestigationAudit } from './investigation.js';
 import { runtimeIdentity } from '../project/mcp-client.mjs';
 import { investigationTopology } from './topology.js';
 import type { FailureDiagnostics } from './diagnostics.js';
 import { parseEvidence, type EvidenceBundle } from '../shared/evidence.js';
 import { parseRevisionAudit, verifySelectedOutput, type RevisionAudit } from '../shared/revision.mjs';
+import { validatePostChangeEvidence } from '../shared/post-change-evidence.mjs';
+import { managedWorkload } from '../shared/workloads.mjs';
 
 import { validOutcomeCombination, type ResolutionReport, type ReconciliationObservation } from '../shared/resolution.js';
 export type { ResolutionReport, ReconciliationObservation };
@@ -19,6 +21,8 @@ export interface Run {
   diagnostics?: FailureDiagnostics;
   revisionEnabled?: boolean; revision?: RevisionAudit;
   approach?: 'collected' | 'mcp'; investigation?: InvestigationAudit & { source?: 'kubernetes-api' | 'recorded-evidence' };
+  // The immutable operator seed remains distinct from freshly acquired MCP evidence.
+  admissionEvidence?: EvidenceBundle;
   stopRequested?: boolean; deadlineAt?: number;
   resolution?: ResolutionReport;
   reconciliations?: ReconciliationObservation[];
@@ -133,7 +137,8 @@ export class Runs {
     if (this.mode === 'live' && !process.env.OPENAI_API_KEY) throw new RequestError(503, 'OPENAI_API_KEY is required for live agents');
     const run: Run = { id, mode: this.mode, status: 'queued', startedAt: new Date().toISOString(), input, fingerprint,
       ...(this.host.options?.revisionPlan ? { revisionEnabled: true } : {}),
-      ...(approach === 'mcp' ? { approach, deadlineAt: Date.now() + 600_000, investigation: { status: 'running', runId: id, calls: [], source: source as 'kubernetes-api' | 'recorded-evidence' } } : {}) };
+      ...(approach === 'mcp' ? { approach, admissionEvidence: structuredClone(evidence!), deadlineAt: Date.now() + 600_000,
+        investigation: { status: 'running', runId: id, calls: [], source: source as 'kubernetes-api' | 'recorded-evidence' } } : {}) };
     this.active = run;
     this.records.set(id, run);
     try { await this.persist(run); }
@@ -307,7 +312,7 @@ export class Runs {
     await this.investigationReads.get(run.id)?.catch(() => {});
     await this.observeInvestigation(run);
     run.input = { incident: { ...incident, evidence: audit.evidence, context: evidenceContext(audit.evidence) } };
-    run.investigation = { ...audit, source, summary };
+    run.investigation = { ...audit, source, ...investigationSummary(audit, summary) };
     this.ensureRunning(run);
     await this.persist(run); // Freeze before admitting any assessment invocation.
   }
@@ -341,7 +346,12 @@ export class Runs {
     // The controller needs the original incident and exact selected output, not
     // observer history or repeated invocation contexts. Preserve its byte bound
     // and every existing admission/recovery field without granting new authority.
-    return { run: { id: run.id, status: run.status, startedAt: run.startedAt, input: run.input,
+    const investigation = run.approach === 'mcp' && run.investigation ? {
+      status: run.investigation.status, runId: run.investigation.runId, source: run.investigation.source,
+      contextSha256: run.investigation.contextSha256, calls: run.investigation.calls, evidence: run.investigation.evidence,
+    } : undefined;
+    return { run: { id: run.id, status: run.status, startedAt: run.startedAt, input: run.input, approach: run.approach ?? 'collected',
+      ...(investigation ? { admissionEvidence: run.admissionEvidence, investigation } : {}),
       output: run.output, resolution: run.resolution, reconciliations: run.reconciliations,
       ...(revisionSelection ? { revisionSelection } : {}) } };
   }
@@ -376,10 +386,11 @@ function inputFingerprint(input: { incident: unknown }) {
   return createHash('sha256').update(stableJson(identity)).digest('hex');
 }
 function validateResolution(value: unknown, run: Run): ResolutionReport {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Buffer.byteLength(JSON.stringify(value)) > 16 * 1024) throw new RequestError(400, 'Resolution report must be an object of at most 16 KiB');
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Buffer.byteLength(JSON.stringify(value)) > 32 * 1024) throw new RequestError(400, 'Resolution report must be an object of at most 32 KiB');
   const report = value as Record<string, unknown>;
   const required = ['version', 'status', 'action', 'target', 'recordedAt', 'reason', 'patch', 'before', 'after', 'checks',
-    ...(report.version === 'mas-k8s-resolution/2' ? ['operationId', 'attemptId', 'effectOutcome', 'verificationOutcome'] : [])];
+    ...(report.version === 'mas-k8s-resolution/2' ? ['operationId', 'attemptId', 'effectOutcome', 'verificationOutcome'] : []),
+    ...(Object.hasOwn(report, 'verificationEvidence') ? ['verificationEvidence'] : [])];
   if (Object.keys(report).length !== required.length || required.some(key => !(key in report)) || !['mas-k8s-resolution/1', 'mas-k8s-resolution/2'].includes(String(report.version)) || !validOutcomeCombination(report) ||
       !['verified', 'failed', 'not-attempted'].includes(String(report.status)) || report.action !== 'replace_readiness_probe_path' ||
       typeof report.recordedAt !== 'string' || !Number.isFinite(Date.parse(report.recordedAt)) || typeof report.reason !== 'string' || report.reason.length > 2000 ||
@@ -394,14 +405,19 @@ function validateResolution(value: unknown, run: Run): ResolutionReport {
   const resource = deployment?.data as { kind?: string; metadata?: Record<string, unknown>; templateHash?: string } | undefined;
   if (!target || Array.isArray(target) || Object.keys(target).length !== 3 || resource?.kind !== 'Deployment' ||
       ['namespace', 'name', 'uid'].some(key => typeof target[key] !== 'string' || target[key] !== resource.metadata?.[key])) throw new RequestError(400, 'Resolution target must match the collected Deployment namespace, name and UID');
+  const policy = managedWorkload(target.namespace, target.name);
+  if (!policy || policy.approach !== (run.approach ?? 'collected')) throw new RequestError(400, 'Resolution target does not match the admitted investigation approach');
   if (report.version === 'mas-k8s-resolution/2' && report.effectOutcome === 'applied' &&
       !report.checks.some(check => check.name === 'Patch applied' && check.passed === true)) {
     throw new RequestError(400, 'An applied effect requires an acknowledged patch check');
   }
   if (report.status === 'verified' && (!report.checks.length || report.checks.some(check => check.passed !== true))) throw new RequestError(400, 'A verified resolution requires successful verification checks');
+  try { validatePostChangeEvidence(report); }
+  catch (error) { throw new RequestError(400, error instanceof Error ? error.message : 'Invalid post-change evidence'); }
   if (report.status === 'verified') {
     const verificationChecks = report.checks as ResolutionReport['checks'];
-    const checks = ['Admission', 'Patch applied', 'Rollout', 'Template scope', 'New Pod ready', 'Functional HTTP', 'Fresh metrics'];
+    const checks = ['Admission', 'Patch applied', 'Rollout', 'Template scope', 'New Pod ready', 'Functional HTTP', 'Fresh metrics',
+      ...(report.verificationEvidence ? ['Post-change logs', 'Post-change events'] : [])];
     const before = report.before as Record<string, unknown> | null, after = report.after as Record<string, unknown> | null;
     const pod = after?.pod as Record<string, unknown> | undefined, metrics = after?.metrics as Record<string, unknown> | undefined;
     const application = after?.application as Record<string, unknown> | undefined;
@@ -412,12 +428,12 @@ function validateResolution(value: unknown, run: Run): ResolutionReport {
       { op: 'test', path: '/metadata/uid', value: target.uid },
       { op: 'test', path: '/metadata/resourceVersion', value: before?.resourceVersion },
       { op: 'test', path: `/spec/template/spec/containers/${index}/name`, value: 'checkout' },
-      { op: 'test', path, value: '/readyz' }, { op: 'replace', path, value: '/healthz' },
+      { op: 'test', path, value: policy.currentPath }, { op: 'replace', path, value: policy.proposedPath },
     ];
     if (verificationChecks.length !== checks.length || checks.some(name => !verificationChecks.some(check => check.name === name && check.passed === true)) || index < 0 ||
         !before || !after || Array.isArray(before) || Array.isArray(after) || before.uid !== target.uid || after.uid !== target.uid ||
         typeof before.resourceVersion !== 'string' || !before.resourceVersion || typeof after.resourceVersion !== 'string' || !after.resourceVersion || after.resourceVersion === before.resourceVersion ||
-        before.readinessPath !== '/readyz' || after.readinessPath !== '/healthz' || typeof before.templateHash !== 'string' || !before.templateHash || before.templateHash !== resource.templateHash || typeof after.templateHash !== 'string' || !after.templateHash ||
+        before.readinessPath !== policy.currentPath || after.readinessPath !== policy.proposedPath || typeof before.templateHash !== 'string' || !before.templateHash || before.templateHash !== resource.templateHash || typeof after.templateHash !== 'string' || !after.templateHash ||
         typeof before.observedAt !== 'string' || !Number.isFinite(Date.parse(before.observedAt)) || typeof after.observedAt !== 'string' || !Number.isFinite(Date.parse(after.observedAt)) || Date.parse(after.observedAt) < Date.parse(before.observedAt) || Date.parse(report.recordedAt) < Date.parse(after.observedAt) ||
         !Number.isSafeInteger(before.generation) || !Number.isSafeInteger(after.generation) || Number(after.generation) !== Number(before.generation) + 1 ||
         report.version === 'mas-k8s-resolution/2' && (typeof before.namespaceUID !== 'string' || !before.namespaceUID || before.expectedTemplateHash !== after.templateHash) ||

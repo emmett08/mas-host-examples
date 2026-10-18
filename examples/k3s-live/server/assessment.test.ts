@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '../shared/revision.mjs';
+import { managedWorkloads } from '../shared/workloads.mjs';
 
 const digest = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
 function pythonHandler(handler: string, input: unknown) {
@@ -14,7 +15,7 @@ function pythonHandler(handler: string, input: unknown) {
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
-function evaluate(output: Record<string, unknown>, incident = { evidence: { items: [] } }) {
+function evaluate(output: Record<string, unknown>, incident: { evidence: { items: unknown[] } } = { evidence: { items: [] } }) {
   const record = { schema_version: 1, id: 'incident', content: incident, content_sha256: digest(incident) };
   return { result: pythonHandler('assess', { candidate: { output }, sources: { incident }, evidence: [record] }),
     evidence: { id: record.id, sha256: digest(record) } };
@@ -57,4 +58,48 @@ test('native quorum constraints distinguish Boolean values from exact integer ru
   assert.equal(pythonHandler('quorum_vote', wrongRubric).accepted, false);
   const wrongIncident = { ...structuredClone(input), incident: { ...incident, flag: false } };
   assert.equal(pythonHandler('quorum_vote', wrongIncident).accepted, false);
+});
+
+
+test('native evaluator binds each managed readiness proposal to its exact observed deployment/path pair', () => {
+  for (const workload of managedWorkloads) {
+    const deployment = { kind: 'Deployment',
+      metadata: { namespace: workload.namespace, name: workload.name, uid: 'retained-uid', resourceVersion: '789' },
+      spec: { template: { spec: { containers: [{ name: workload.container, command: ['node', '/app/deploy/probe-app.mjs'],
+        readinessProbe: { httpGet: { path: workload.currentPath } }, livenessProbe: { httpGet: { path: '/healthz' } },
+      }] } } } };
+    const incident = { evidence: { items: [
+      { id: 'pod', status: 'collected' }, { id: 'logs-checkout-current', status: 'collected' },
+      { id: 'workload-deployment', status: 'collected', data: deployment },
+    ] } };
+    const candidate = { evidence_ids: ['pod', 'workload-deployment', 'logs-checkout-current'], requires_human: false,
+      next_checks: ['Verify rollout and retained post-change logs/events'], remediation: {
+        action: 'replace_readiness_probe_path', target: { kind: 'Deployment', namespace: workload.namespace,
+          name: workload.name, container: workload.container, uid: 'retained-uid', resource_version: '789' },
+        current_path: workload.currentPath, proposed_path: workload.proposedPath,
+        evidence_ids: ['pod', 'workload-deployment', 'logs-checkout-current'], verification: ['Check'], rollback: 'Restore',
+      } };
+    const verdict = (output = candidate, observations = incident) => evaluate(output, observations).result.findings
+      .find((item: { criterion_id: string }) => item.criterion_id === 'bounded-proposal').verdict;
+    assert.equal(verdict(), 'pass');
+    const crossed = structuredClone(candidate);
+    crossed.remediation.current_path = workload.currentPath === '/readyz' ? '/ready' : '/readyz';
+    assert.equal(verdict(crossed), 'fail');
+    const wrongTarget = structuredClone(candidate);
+    wrongTarget.remediation.target.name = workload.name === 'mas-demo-checkout' ? 'mas-demo-checkout-mcp' : 'mas-demo-checkout';
+    assert.equal(verdict(wrongTarget), 'fail');
+    for (const name of ['production-service', 'mas-demo-checkout-mcp-copy']) {
+      const unknownTarget = structuredClone(candidate), unknownEvidence = structuredClone(incident);
+      unknownTarget.remediation.target.name = name;
+      unknownEvidence.evidence.items[2]!.data!.metadata.name = name;
+      assert.equal(verdict(unknownTarget, unknownEvidence), 'fail');
+    }
+    const wrongSpec = structuredClone(incident);
+    wrongSpec.evidence.items[2]!.data!.spec.template.spec.containers[0]!.readinessProbe.httpGet.path =
+      workload.currentPath === '/readyz' ? '/ready' : '/readyz';
+    assert.equal(verdict(candidate, wrongSpec), 'fail');
+    const wrongCommand = structuredClone(incident);
+    wrongCommand.evidence.items[2]!.data!.spec.template.spec.containers[0]!.command = ['node', '/app/other-service.mjs'];
+    assert.equal(verdict(candidate, wrongCommand), 'fail');
+  }
 });

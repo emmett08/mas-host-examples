@@ -1,5 +1,6 @@
 import { deduplicateMessages } from "./topology";
 import { validOutcomeCombination } from "../shared/resolution";
+import { validatePostChangeEvidence } from "../shared/post-change-evidence.mjs";
 import { checkSelectedOutput, parseRevisionAudit, type RevisionAudit } from "../shared/revision.mjs";
 import { approachOf } from "./approach";
 import type { ArchiveSnapshot, Message, RunArchive } from "./types";
@@ -124,6 +125,7 @@ export function parseArchive(value: unknown, comparison = false): RunArchive {
     if (item.run.resolution !== undefined) {
       if (!object(item.run.resolution) || !validOutcomeCombination(item.run.resolution) ||
           !['mas-k8s-resolution/1', 'mas-k8s-resolution/2'].includes(String(item.run.resolution.version))) fail("resolution outcomes are invalid");
+      validatePostChangeEvidence(item.run.resolution);
       const serialised = JSON.stringify(item.run.resolution);
       if (retainedResolution && retainedResolution !== serialised) fail("the immutable attempt report changed");
       retainedResolution = serialised;

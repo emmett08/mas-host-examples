@@ -6,6 +6,45 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { readArchive } from './archive.mjs';
+import { validatePostChangeEvidence } from '../shared/post-change-evidence.mjs';
+
+/** New dual captures must prove two repairs; older comparison captures stay readable. */
+export function checkDualCapture(archive) {
+  if (archive.capture === undefined) return false;
+  const capture = archive.capture;
+  assert.equal(capture.version, 'mas-k8s-dual-capture/1');
+  assert.equal(capture.runs?.length, 2, 'A dual capture must identify both incident approaches');
+  const recordings = [archive, ...(archive.comparisons ?? [])];
+  const finals = ['collected', 'mcp'].map(approach => {
+    const entry = capture.runs.find(item => item.approach === approach);
+    assert.ok(entry, `Missing ${approach} capture identity`);
+    const matches = recordings.filter(item => (item.snapshots.at(-1)?.run.approach ?? 'collected') === approach);
+    assert.equal(matches.length, 1, `Exactly one ${approach} recording is required`);
+    const run = matches[0].snapshots.at(-1).run;
+    assert.equal(run.id, entry.runId, `${approach} run identity was not retained`);
+    assert.equal(run.status, 'completed');
+    const subject = run.investigation?.evidence?.subject ?? run.input?.incident?.evidence?.subject;
+    assert.deepEqual(subject, entry.subject, `${approach} incident Pod identity differs`);
+    assert.ok(subject?.uid, `${approach} incident Pod UID is required`);
+    assert.equal(run.resolution?.status, 'verified', `${approach} must have its own verified controller repair`);
+    assert.equal(run.resolution.version, 'mas-k8s-resolution/2');
+    assert.equal(run.resolution.effectOutcome, 'applied');
+    assert.equal(run.resolution.verificationOutcome, 'passed');
+    assert.deepEqual(run.resolution.target, entry.target);
+    assert.equal(run.resolution.target.name, entry.workload);
+    assert.equal(run.resolution.operationId, entry.operationId);
+    assert.ok(run.resolution.operationId && run.resolution.attemptId);
+    validatePostChangeEvidence(run.resolution, { required: true });
+    return { run, subject };
+  });
+  assert.notEqual(finals[0].run.id, finals[1].run.id);
+  assert.notEqual(finals[0].subject.uid, finals[1].subject.uid, 'Dual capture incidents must identify different Pods');
+  for (const key of ['uid', 'name']) assert.notEqual(finals[0].run.resolution.target[key], finals[1].run.resolution.target[key],
+    'Dual capture repairs must identify different Deployments');
+  // One controller process can own both attempts; operation identity scopes its journal.
+  assert.notEqual(finals[0].run.resolution.operationId, finals[1].run.resolution.operationId);
+  return true;
+}
 
 /** A tab switch replaces its canvas; await its actual-size paint before capture. */
 async function checkCanvasSize(page) {
@@ -45,7 +84,7 @@ async function checkPlaybackPlacement(page, recording) {
       graphTop: graphBox.top + scrollY,
       boardTop: board.getBoundingClientRect().top + scrollY,
       scrollY,
-      resultsFollowGraph: [...document.querySelectorAll('.investigation-panel, .evidence-panel, .assessment-panel, .output-panel, .resolution-panel')]
+      resultsFollowGraph: [...document.querySelectorAll('.investigation-panel, .evidence-panel, .assessment-panel, .output-panel, .resolution-panel, .comparison-resolution-panel')]
         .every(panel => panel.getBoundingClientRect().top >= graphBox.bottom),
     };
   });
@@ -111,6 +150,7 @@ export async function checkArchive(directory, launchOptions = {}) {
   const embedded = (await readFile(html, 'utf8')).match(/<script id="mas-demo-archive" type="application\/json">([\s\S]*?)<\/script>/);
   assert.ok(embedded, 'The packaged dashboard must embed its captures');
   const archive = JSON.parse(embedded[1]);
+  const dualCapture = checkDualCapture(archive);
   const trace = snapshot => snapshot.run.approach === 'mcp'
     ? snapshot.investigationObservation ?? { messages: [] } : snapshot.observation;
   const recordedTime = snapshot => snapshot.observedAtMs ?? snapshot.observation.observed_at_ms;
@@ -217,6 +257,7 @@ export async function checkArchive(directory, launchOptions = {}) {
       const panel = page.locator('.resolution-panel');
       await panel.waitFor({ state: 'visible' });
       assert.equal(await panel.getAttribute('data-resolution-status'), resolution.status);
+      assert.equal(await panel.getAttribute('data-source-run-id'), final.run.id);
       assert.equal(await panel.locator('#resolution-title').innerText(), `${resolution.target.namespace} / ${resolution.target.name}`);
       assert.equal(await panel.locator('.resolution-state').innerText(), resolution.status === 'verified'
         ? 'Verified recovery' : resolution.status === 'failed' ? 'Recovery not verified' : 'Needs engineer');
@@ -235,7 +276,8 @@ export async function checkArchive(directory, launchOptions = {}) {
       }
       await panel.locator('.assessment-details summary').first().click();
       assert.deepEqual(JSON.parse(await panel.locator('.assessment-details pre').first().innerText()),
-        { patch: resolution.patch, before: resolution.before, after: resolution.after },
+        { patch: resolution.patch, before: resolution.before, after: resolution.after,
+          ...(resolution.verificationEvidence ? { verificationEvidence: resolution.verificationEvidence } : {}) },
         'The recovery inspector must display the captured patch and before/after evidence unchanged');
     }
     const row = page.locator('.event-table tbody tr').first();
@@ -330,6 +372,61 @@ export async function checkArchive(directory, launchOptions = {}) {
       await page.setViewportSize({ width: 1440, height: 1100 });
       comparisonChecks.push('canvas-size-desktop-mobile');
       await tab(primaryApproach).click();
+    }
+    const recordings = [archive, ...(archive.comparisons ?? [])];
+    const collectedRecording = recordings.find(item => (item.snapshots[0].run.approach ?? 'collected') === 'collected');
+    const mcpRecording = recordings.find(item => item.snapshots[0].run.approach === 'mcp');
+    const collectedRun = collectedRecording?.snapshots.at(-1).run;
+    const mcpRun = mcpRecording?.snapshots.at(-1).run;
+    const comparisonSubject = mcpRun?.investigation?.evidence?.subject;
+    const collectedSubject = collectedRun?.input?.incident?.evidence?.subject;
+    if (mcpRun?.resolution) {
+      await tab('mcp').click();
+      await page.getByRole('button', { name: 'View final', exact: true }).click();
+      const panel = page.locator('.resolution-panel');
+      const report = mcpRun.resolution;
+      assert.equal(await panel.getAttribute('data-source-run-id'), mcpRun.id);
+      assert.equal(await panel.getAttribute('data-resolution-status'), report.status);
+      assert.equal(await panel.locator('#resolution-title').innerText(), `${report.target.namespace} / ${report.target.name}`);
+      assert.equal(await panel.locator('.resolution-state').innerText(), report.status === 'verified'
+        ? 'Verified recovery' : report.status === 'failed' ? 'Recovery not verified' : 'Needs engineer');
+      assert.equal(await panel.locator('.assessment-summary').innerText(), report.reason);
+      assert.equal(await page.locator('.comparison-resolution-panel').count(), 0,
+        'The MCP run must display its own controller outcome without attributing it to the other approach');
+      const checks = panel.locator('.verification-checks li');
+      assert.deepEqual(await checks.locator('strong').allTextContents(), report.checks.map(check => `${check.passed ? 'Passed' : 'Failed'} · ${check.name}`));
+      assert.deepEqual(await checks.locator('span').allTextContents(), report.checks.map(check => check.detail));
+      const details = panel.locator('.assessment-details').first();
+      if (!await details.evaluate(element => element.open)) await details.locator('summary').click();
+      assert.deepEqual(JSON.parse(await details.locator('pre').innerText()), {
+        patch: report.patch, before: report.before, after: report.after,
+        ...(report.verificationEvidence ? { verificationEvidence: report.verificationEvidence } : {}),
+      }, 'The MCP repair must retain its own exact patch, replacement Pod logs and events');
+      await page.getByRole('button', { name: 'Restart', exact: true }).click();
+      if (!mcpRecording.snapshots[0].run.resolution) {
+        assert.equal(await panel.count(), 0, 'Restarting MCP playback must hide its future repair report');
+      }
+      await page.getByRole('button', { name: 'View final', exact: true }).click();
+      assert.equal(await panel.getAttribute('data-source-run-id'), mcpRun.id);
+      if (dualCapture) comparisonChecks.push('independent-incident-repair-identities');
+      comparisonChecks.push('mcp-own-resolution', 'mcp-repair-checks-and-evidence', 'hide-future-mcp-resolution');
+    } else if (collectedRun?.resolution && comparisonSubject?.uid && ['namespace', 'name', 'uid'].every(key => comparisonSubject[key] === collectedSubject?.[key])) {
+      await tab('mcp').click();
+      await page.getByRole('button', { name: 'View final', exact: true }).click();
+      const pointer = page.locator('.comparison-resolution-panel');
+      assert.equal(await pointer.getAttribute('data-source-run-id'), collectedRun.id);
+      assert.match(await pointer.innerText(), /did not execute a second repair/);
+      assert.match(await pointer.innerText(), /separate playback timelines/);
+      assert.equal(await page.locator('.resolution-panel').count(), 0, 'The comparison must not inherit the other run\'s resolution');
+      await pointer.getByRole('button', { name: 'View controller verification', exact: true }).click();
+      assert.equal(await tab('collected').getAttribute('aria-selected'), 'true');
+      assert.equal(await page.locator('.resolution-panel').getAttribute('data-resolution-status'), collectedRun.resolution.status);
+      assert.equal(await page.locator('#run-picker').inputValue(), collectedRun.id);
+      assert.equal(await page.locator('#resolution-title').evaluate(element => element === document.activeElement), true);
+      await tab('mcp').click();
+      await page.getByRole('button', { name: 'Restart', exact: true }).click();
+      if (!mcpRecording.snapshots[0].run.output) assert.equal(await pointer.count(), 0, 'The comparison pointer follows its assessment during playback');
+      comparisonChecks.push('attributed-controller-outcome-navigation');
     }
     for (const viewport of [{ width: 1440, height: 1100 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(viewport);

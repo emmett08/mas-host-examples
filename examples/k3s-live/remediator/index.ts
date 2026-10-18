@@ -29,7 +29,7 @@ const enabled = process.env.DEMO_AUTO_REMEDIATE === 'true';
 const controller = new RemediationController(client, transport,
   (snapshot, options) => module.resolveIncident(snapshot, { ...options, enabled: true, kubectl: transport.kubectl, isDefiniteRejection: transport.isDefiniteRejection }),
   { namespace, enabled, ownerId: randomUUID(), podUID, podName });
-console.log(`MAS remediation controller: ${enabled ? 'enabled for the managed readiness correction' : 'disabled'}`);
+console.log(`MAS remediation controller: ${enabled ? 'enabled for both managed readiness corrections' : 'disabled'}`);
 const stop = new AbortController();
 process.once('SIGTERM', () => stop.abort());
 process.once('SIGINT', () => stop.abort());
