@@ -209,7 +209,9 @@ export class KubernetesTrial {
       { op: 'replace', path: '/metadata/annotations', value: annotations(spec, identity) },
       { op: 'replace', path: '/spec/template/metadata/annotations', value: annotations(spec, identity) },
       { op: 'replace', path: '/spec/template/spec/containers/0/image', value: spec.imageDigest },
-      { op: 'replace', path: '/spec/template/spec/containers/0/env', value: Object.entries(spec.configuration).map(([name, value]) => ({ name, value })) },
+      // Kubernetes omits an empty env list in its stored/returned representation.
+      // JSON Patch add sets an object member whether it is absent or already present.
+      { op: 'add', path: '/spec/template/spec/containers/0/env', value: Object.entries(spec.configuration).map(([name, value]) => ({ name, value })) },
     ];
     const value = await effect(this.journal, identity, 'kubernetes.replace-image', `${spec.namespace}:${spec.deployment}`,
       { expected: expected as unknown as Json, spec: spec as unknown as Json, patch }, async () => {
