@@ -82,7 +82,7 @@ export class Controller {
         continue;
       }
       const cumulativeEdits=[...new Set([...Object.keys(incident.source.files),...Object.keys(candidate.files)])]
-        .filter(path=>incident.source.files[path]!==candidate.files[path]).map(path=>({path,content:candidate.files[path]??null}));
+        .filter(path=>incident.source.files[path]!==candidate.files[path]).map(path=>({path,before:incident.source.files[path]??null,content:candidate.files[path]??null}));
       const patchRef=j.artefacts.put(cumulativeEdits);
       const previousRecord=j.value<{tree:string}>(`iteration:${incident.id}:${iteration}`);
       if(!previousRecord) { j.candidate(candidate.tree,{iteration,sourceRef:candidate.ref,patchRef,rationale:synthesis.rationale,changedCapabilities:synthesis.changedCapabilities,changedResources:synthesis.changedResources}); j.put(`iteration:${incident.id}:${iteration}`,{tree:candidate.tree}); }
