@@ -10,6 +10,7 @@ import { Runtime } from '../controller/runtime.js';
 import { Deployment,trialCriteria } from '../controller/deployment.js';
 import { HostPhaseError } from '../host/phase.js';
 import { ExternalReads } from '../controller/external.js';
+import { Publication } from '../controller/publication.js';
 import type { OperationalBinding } from '../deploy/operational.js';
 import { exportSnapshot,materialise,sha256 as rawSha,type Snapshot } from '../tools/projection.js';
 import { sha256,UnknownEffect } from '../deploy/effects.js';
@@ -78,7 +79,8 @@ try{
   }
   const baseCommit=configured?.baseCommit??incidentGit!.faultyCommit,requirementsHash=sha256(requirements),testsHash=rawSha(JSON.stringify(checks));
   const environmentHash=sha256({builder:process.env.MAS_SANDBOX_IMAGE,node:process.versions.node,network:'none',user:10001,memoryBytes:268435456,pids:64,protectedChecks:testsHash});
-  const external=new ExternalReads(journal,host);
+  const external=new ExternalReads(journal,host),publisher=new Publication(journal,host);
+  await publisher.recover();
   await external.recover();
   let operationalBinding:OperationalBinding|undefined=journal.value('operational-baseline');
   if(configured){
@@ -127,14 +129,15 @@ try{
       const candidate:CandidatePublication={baseCommit,candidateTreeSha256:tree,files,requirementsSha256:requirementsHash,testsSha256:report.identity.tests,environmentSha256:environmentHash,imageDigest:trialSpec.imageDigest,
         verification:{candidateTreeSha256:tree,mandatory:report.criteria.filter(c=>c.mandatory).map(c=>({id:c.id,status:c.status==='passed'?'pass':c.status==='failed'?'fail':'inconclusive'}))}};
       const policy:PublicationPolicy={repository,baseBranch:configured?.baseBranch??`demo/incidents/${runId}`,allowedPathPrefix:configured?.pathPrefix??prefix,
-        mode:configured?.publicationMode??(configured?'pull-request':'archive'),target:configured?'operational':'disposable-demo',runId,requiredChecks:configured?.requiredChecks??[],credentialKind:'none'};
+        mode:configured?.publicationMode??(configured?'pull-request':'archive'),target:configured?'operational':'disposable-demo',runId,requiredChecks:configured?.requiredChecks??[],credentialKind:configured?(configured.credentialKind??'github-app'):'none'};
       const publication:PublishRequest={journalDirectory:directory,incidentId,operationId:`${runId}.publication`,attemptId:journal.value<string>('attempt')!,policy,candidate,
         ...(incidentGit?{incidentGit}:{}),...(configured?{operationalTarget:configured.operationalTarget,operationalBinding}:{}),promotion:{imageArchive:{...imageArchive,path:'candidate-image.tar'},spec:{...trialSpec,stage:'promotion'},criteria:trialCriteria(checks)}};
       const verificationRef=journal.artefacts.put(report);
       writeFileSync(join(directory,'publication-manifest.json'),JSON.stringify(publication,null,2),{mode:0o600});
       writeFileSync(join(directory,'candidate-source.json'),JSON.stringify({baseCommit,sourceTree:build.source.tree,publicationTree:tree,files}),{mode:0o400});
       journal.append('candidate.preserved',{sourceTree:build.source.tree,publicationTree:tree,verification:verificationRef,imageDigest:trialSpec.imageDigest,imageConfigDigest:build.imageDigest});
-      return {status:'archived',requestedMode:policy.mode,reason:'Separate credential-bearing publication process consumes the frozen manifest',manifest:'publication-manifest.json',verification:verificationRef};
+      if(configured)return publisher.publish(publication.operationId,publication);
+      return {status:'archived',requestedMode:policy.mode,reason:'Separate credential-bearing workflow publication job consumes the frozen manifest',manifest:'publication-manifest.json',verification:verificationRef};
     }});
   await deployment.recover();await runtime.recoverPending();
   if(configured){
@@ -165,7 +168,7 @@ try{
       result=await new Controller(journal,runtime).run(incident);
   }
 }catch(error){
-  const outcome=error instanceof Boundary?error.outcome:error instanceof UnknownEffect||error instanceof HostPhaseError?'unknown_effect':'policy_boundary';
+  const outcome=error instanceof Boundary?error.outcome:error instanceof UnknownEffect?'unknown_effect':error instanceof HostPhaseError?(error.uncertain?'unknown_effect':'no_eligible_candidate'):'policy_boundary';
   result={outcome,reason:error instanceof Error?error.message:String(error)};journal.append('outcome',result);
   if(!['missing_requirements','no_repair_required','unavailable_external_cause','no_eligible_candidate','cancelled','exhausted_budget'].includes(outcome))process.exitCode=1;
 }finally{
