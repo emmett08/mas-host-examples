@@ -16,6 +16,11 @@ export async function trialMain(input: TrialRequest, invocationId: string): Prom
   if (!invocationId || !input.operationId || !input.attemptId) throw new Error('Host-admitted invocation and application operation identities required');
   const journal = Journal.open(input.journalDirectory, input.incidentId);
   const identity: OperationIdentity = { operationId: input.operationId, invocationId, attemptId: input.attemptId };
+  const transport = () => new KubectlTransport(process.env.KUBECONFIG ?? '', 'kubectl', diagnostic => {
+    const evidence = journal.artefacts.put(diagnostic);
+    journal.append('tool.diagnostic', { operationId: identity.operationId, invocationId, tool: 'kubectl', evidence,
+      exitCode: diagnostic.exitCode, externalOutcome: diagnostic.externalOutcome });
+  });
   try {
     let result: unknown;
     if (input.operation === 'import') result = await importK3dImage(journal, identity, input.imageConfigDigest!, input.cluster);
@@ -23,10 +28,10 @@ export async function trialMain(input: TrialRequest, invocationId: string): Prom
     else if (input.operation === 'load') result = await loadImage(journal, identity, input.imageArchive!);
     else if (input.operation === 'operational-observe') {
       if (!input.operationalTarget) throw new Error('Frozen operational target grant required');
-      result = await observeOperationalTarget(new KubectlTransport(process.env.KUBECONFIG ?? ''), input.operationalTarget, input.previousOperationalBinding);
+      result = await observeOperationalTarget(transport(), input.operationalTarget, input.previousOperationalBinding);
       journal.append('operational.binding', { ...result as object, operationId: identity.operationId, invocationId });
     } else {
-      const trial = new KubernetesTrial(new KubectlTransport(process.env.KUBECONFIG ?? ''), journal);
+      const trial = new KubernetesTrial(transport(), journal);
       if (!input.spec) throw new Error('Frozen trial specification required');
       switch (input.operation) {
         case 'current': result = await trial.current(input.spec); journal.append('trial.target', { ...result as object, operationId: identity.operationId, invocationId }); break;

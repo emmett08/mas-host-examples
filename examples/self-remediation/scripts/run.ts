@@ -5,6 +5,7 @@ import { resolve,join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { Journal,Boundary,type JournalEvent } from '../controller/journal.js';
+import { writeImmutableFile } from '../controller/immutable-file.js';
 import { Controller,type Incident } from '../controller/loop.js';
 import { Runtime } from '../controller/runtime.js';
 import { Deployment,trialCriteria } from '../controller/deployment.js';
@@ -133,8 +134,8 @@ try{
       const publication:PublishRequest={journalDirectory:directory,incidentId,operationId:`${runId}.publication`,attemptId:journal.value<string>('attempt')!,policy,candidate,
         ...(incidentGit?{incidentGit}:{}),...(configured?{operationalTarget:configured.operationalTarget,operationalBinding}:{}),promotion:{imageArchive:{...imageArchive,path:'candidate-image.tar'},spec:{...trialSpec,stage:'promotion'},criteria:trialCriteria(checks)}};
       const verificationRef=journal.artefacts.put(report);
-      writeFileSync(join(directory,'publication-manifest.json'),JSON.stringify(publication,null,2),{mode:0o600});
-      writeFileSync(join(directory,'candidate-source.json'),JSON.stringify({baseCommit,sourceTree:build.source.tree,publicationTree:tree,files}),{mode:0o400});
+      writeImmutableFile(join(directory,'publication-manifest.json'),JSON.stringify(publication,null,2),0o600);
+      writeImmutableFile(join(directory,'candidate-source.json'),JSON.stringify({baseCommit,sourceTree:build.source.tree,publicationTree:tree,files}));
       journal.append('candidate.preserved',{sourceTree:build.source.tree,publicationTree:tree,verification:verificationRef,imageDigest:trialSpec.imageDigest,imageConfigDigest:build.imageDigest});
       if(configured)return publisher.publish(publication.operationId,publication);
       return {status:'archived',requestedMode:policy.mode,reason:'Separate credential-bearing workflow publication job consumes the frozen manifest',manifest:'publication-manifest.json',verification:verificationRef};

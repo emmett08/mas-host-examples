@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
+import { mkdtemp, writeFile, rm, chmod } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { effect, sha256, RejectedEffect, type EffectStore, type Json, type OperationIdentity, type Reconciliation } from './effects.js';
+import { redact } from '../ui/events.js';
 
 export interface KubernetesTransport {
   get(kind: string, name: string, namespace?: string): Promise<any | undefined>;
@@ -9,18 +13,23 @@ export interface KubernetesTransport {
   command(args: string[], input?: string): Promise<{ code: number; stdout: string; stderr: string }>;
   forward(namespace: string, pod: string, remotePort: number): Promise<{ url: string; close(): void }>;
 }
+export interface KubernetesCommandDiagnostic {
+  tool: 'kubectl'; operation: string; exitCode: number | null; signal: string | null;
+  timedOut: boolean; outputExceeded: boolean; message: string;
+  externalOutcome: 'not-inferred';
+}
 /** Credential-bearing tools run only here, outside every candidate container. */
 export class KubectlTransport implements KubernetesTransport {
   private env: NodeJS.ProcessEnv;
-  constructor(kubeconfig: string, private executable = 'kubectl') {
+  constructor(kubeconfig: string, private executable = 'kubectl', private onDiagnostic?: (value: KubernetesCommandDiagnostic) => void) {
     if (!kubeconfig) throw new Error('Trusted kubeconfig path required');
     this.env = { PATH: process.env.PATH, KUBECONFIG: kubeconfig, HOME: '/tmp/mas-trusted-kubectl' };
   }
   command(args: string[], input?: string): Promise<{ code: number; stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
       const child = spawn(this.executable, ['--request-timeout=20s', ...args], { env: this.env, stdio: ['pipe', 'pipe', 'pipe'] });
-      const out: Buffer[] = []; const err: Buffer[] = []; let bytes = 0; let oversized = false;
-      const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+      const out: Buffer[] = []; const err: Buffer[] = []; let bytes = 0; let oversized = false; let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, 30_000);
       for (const [stream, target] of [[child.stdout, out], [child.stderr, err]] as const) stream.on('data', (part: Buffer) => {
         bytes += part.length;
         if (bytes > 512 * 1024) { oversized = true; child.kill('SIGKILL'); } else target.push(part);
@@ -28,6 +37,16 @@ export class KubectlTransport implements KubernetesTransport {
       child.once('error', error => { clearTimeout(timer); reject(error); });
       child.once('close', (code, signal) => {
         clearTimeout(timer);
+        if (code || signal || oversized || code === null) {
+          // Never retain stdout (it can contain a complete Kubernetes object), argv,
+          // kubeconfig contents, or the patch. Keep bounded diagnostics as evidence only.
+          let message = String(redact(Buffer.concat(err).toString(), false));
+          for (const [name, value] of Object.entries(process.env)) if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|KEY/i.test(name) && value && value.length >= 4) message = message.replaceAll(value, '[redacted]');
+          message = message.replace(/((?:token|password|secret|authorization|client-key-data|client-certificate-data)\s*[=:]\s*)[^\s,;]+/gi, '$1[redacted]').slice(0, 4096);
+          try { this.onDiagnostic?.({ tool: 'kubectl', operation: args[0] ?? 'unknown', exitCode: code, signal,
+            timedOut, outputExceeded: oversized, message, externalOutcome: 'not-inferred' }); }
+          catch { reject(new Error('Kubernetes failure diagnostic could not be retained; outcome unknown')); return; }
+        }
         if (signal || oversized || code === null) reject(new Error('Kubernetes transport outcome unknown'));
         else resolve({ code, stdout: Buffer.concat(out).toString(), stderr: Buffer.concat(err).toString() });
       });
@@ -45,9 +64,19 @@ export class KubectlTransport implements KubernetesTransport {
     return JSON.parse(result.stdout);
   }
   async patch(kind: string, name: string, namespace: string, patch: Json[]): Promise<any> {
-    const result = await this.command(['patch', kind, name, '-n', namespace, '--type=json', '--patch-file=/dev/stdin', '-o', 'json'], JSON.stringify(patch));
-    if (result.code) throw new Error('Kubernetes patch acknowledgement unavailable');
-    return JSON.parse(result.stdout);
+    // Node's child stdin pipe is a socket on Linux; kubectl opens --patch-file
+    // with os.ReadFile, so /dev/stdin fails with ENXIO. A private regular file
+    // also keeps configuration out of process arguments and is always removed.
+    const bytes = JSON.stringify(patch);
+    if (Buffer.byteLength(bytes) > 128 * 1024) throw new Error('Kubernetes patch exceeds the admitted payload bound');
+    const directory = await mkdtemp(join(tmpdir(), 'mas-kubectl-patch-'));
+    try {
+      await chmod(directory, 0o700);
+      const file = join(directory, 'patch.json'); await writeFile(file, bytes, { mode: 0o600, flag: 'wx' });
+      const result = await this.command(['patch', kind, name, '-n', namespace, '--type=json', `--patch-file=${file}`, '-o', 'json']);
+      if (result.code) throw new Error('Kubernetes patch acknowledgement unavailable');
+      return JSON.parse(result.stdout);
+    } finally { await rm(directory, { recursive: true, force: true }); }
   }
   async forward(namespace: string, pod: string, remotePort: number): Promise<{ url: string; close(): void }> {
     const server = createServer();
