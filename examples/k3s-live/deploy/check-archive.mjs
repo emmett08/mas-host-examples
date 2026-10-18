@@ -41,7 +41,8 @@ export function checkDualCapture(archive) {
   assert.notEqual(finals[0].subject.uid, finals[1].subject.uid, 'Dual capture incidents must identify different Pods');
   for (const key of ['uid', 'name']) assert.notEqual(finals[0].run.resolution.target[key], finals[1].run.resolution.target[key],
     'Dual capture repairs must identify different Deployments');
-  for (const key of ['operationId', 'attemptId']) assert.notEqual(finals[0].run.resolution[key], finals[1].run.resolution[key]);
+  // One controller process can own both attempts; operation identity scopes its journal.
+  assert.notEqual(finals[0].run.resolution.operationId, finals[1].run.resolution.operationId);
   return true;
 }
 

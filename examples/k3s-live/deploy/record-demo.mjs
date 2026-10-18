@@ -422,6 +422,8 @@ export async function captureIncident({ workload, mode, destination, page, deadl
   }
 }
 
+// attemptId identifies a controller owner within an operation; one controller
+// can own multiple operations. The distinct mutation identity is operationId.
 export function validateDistinctRecoveries(collected, mcp) {
   const first = collected?.run, second = mcp?.run;
   if (!first?.id || !second?.id || first.id === second.id ||
@@ -429,7 +431,6 @@ export function validateDistinctRecoveries(collected, mcp) {
       !first.resolution?.operationId || !second.resolution?.operationId ||
       first.resolution.operationId === second.resolution.operationId ||
       !first.resolution?.attemptId || !second.resolution?.attemptId ||
-      first.resolution.attemptId === second.resolution.attemptId ||
       !first.input?.incident?.evidence?.subject?.uid || !second.input?.incident?.evidence?.subject?.uid ||
       !first.resolution?.target?.uid || !second.resolution?.target?.uid ||
       first.input?.incident?.evidence?.subject?.uid === second.input?.incident?.evidence?.subject?.uid ||

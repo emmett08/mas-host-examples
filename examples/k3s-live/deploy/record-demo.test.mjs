@@ -59,7 +59,7 @@ function incidentSnapshot(workload = managedWorkloads[1]) {
 }
 
 function addRecovery(snapshot, workload) {
-  snapshot.run.resolution = { version: 'mas-k8s-resolution/2', operationId: `${workload.approach}-operation`, attemptId: `${workload.approach}-attempt`,
+  snapshot.run.resolution = { version: 'mas-k8s-resolution/2', operationId: `${workload.approach}-operation`, attemptId: 'shared-controller-owner',
     effectOutcome: 'applied', verificationOutcome: 'passed', status: 'verified',
     target: { namespace: workload.namespace, name: workload.name, uid: `${workload.approach}-deployment-uid` },
     recordedAt: '2026-10-18T07:00:20Z', before: { observedAt: '2026-10-18T07:00:00Z' },
@@ -172,13 +172,15 @@ test('both capture paths retain their own admission, growing canvas and durable 
       assert.deepEqual(JSON.parse(await readFile(join(destination, 'investigation-observation.json'), 'utf8')), final.investigationObservation);
     }
   }
+  assert.equal(captures[0].run.resolution.attemptId, captures[1].run.resolution.attemptId,
+    'one controller process owns both independent operations');
   assert.doesNotThrow(() => validateDistinctRecoveries(...captures));
   for (const change of [
     run => { run.id = captures[0].run.id; },
     run => { run.input.incident.evidence.subject.uid = captures[0].run.input.incident.evidence.subject.uid; },
     run => { run.resolution.target.uid = captures[0].run.resolution.target.uid; },
     run => { run.resolution.operationId = captures[0].run.resolution.operationId; },
-    run => { run.resolution.attemptId = captures[0].run.resolution.attemptId; },
+    run => { delete run.resolution.attemptId; },
     run => { delete run.resolution; },
   ]) {
     const altered = structuredClone(captures[1]); change(altered.run);

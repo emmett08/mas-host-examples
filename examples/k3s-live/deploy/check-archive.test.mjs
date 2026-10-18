@@ -58,3 +58,14 @@ test('older same-incident comparison archives do not claim a dual-repair capture
   delete data.comparisons[0].snapshots[0].run.resolution;
   assert.equal(checkDualCapture(data), false);
 });
+
+test('one controller attempt identity can independently repair two different operations', () => {
+  const data = fixture();
+  const collected = data.snapshots[0].run.resolution;
+  const mcp = data.comparisons[0].snapshots[0].run.resolution;
+  mcp.attemptId = collected.attemptId;
+  assert.notEqual(mcp.operationId, collected.operationId);
+  assert.equal(checkDualCapture(data), true);
+  mcp.attemptId = '';
+  assert.throws(() => checkDualCapture(data), undefined, 'Both reports must retain their controller attempt identity');
+});
