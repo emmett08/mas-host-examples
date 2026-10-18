@@ -1,0 +1,15 @@
+name: Self-remediation integration and recovery checkpoint uploads
+description: Run trusted integration with the Node action runtime artifact credentials scoped to its checkpoint sidecar
+inputs:
+  mode:
+    description: fixture or explicitly authorised live mode
+    required: true
+  case:
+    description: One selected bounded case
+    required: true
+  output:
+    description: Absolute directory for this incident
+    required: true
+runs:
+  using: node24
+  main: index.cjs

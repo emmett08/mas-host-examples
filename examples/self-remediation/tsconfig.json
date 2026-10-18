@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2023", "module": "NodeNext", "moduleResolution": "NodeNext", "strict": true,
+    "noUncheckedIndexedAccess": true, "skipLibCheck": true, "rootDir": ".", "outDir": "dist",
+    "types": ["node"], "ignoreDeprecations": "6.0"
+  },
+  "include": ["controller/**/*.ts", "contracts/**/*.ts", "host/**/*.ts", "tools/**/*.ts", "sandbox/**/*.ts", "evaluation/**/*.ts", "server/**/*.ts", "deploy/**/*.ts", "scripts/**/*.ts", "ui/events.ts"],
+  "exclude": ["**/*.test.ts", "**/*.integration.ts", "target-app"]
+}

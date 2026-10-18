@@ -1,0 +1,150 @@
+{
+  "type": "object",
+  "properties": {
+    "hypotheses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "mechanism": {
+            "type": "string",
+            "maxLength": 1500
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "maxItems": 12
+          },
+          "contradictions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "maxItems": 12
+          },
+          "predictions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "maxItems": 12
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          }
+        },
+        "required": [
+          "id",
+          "mechanism",
+          "evidence",
+          "contradictions",
+          "predictions",
+          "rank"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 8
+    },
+    "experiment": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "diagnostic",
+            "http"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "predictions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "maxItems": 12
+        },
+        "program": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "requests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "expectedStatus": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 100,
+                    "maximum": 599
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "path",
+              "expectedStatus"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 8
+        }
+      },
+      "required": [
+        "kind",
+        "rationale",
+        "predictions",
+        "program",
+        "requests"
+      ],
+      "additionalProperties": false
+    },
+    "unresolvedIntent": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      },
+      "maxItems": 12
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "investigate",
+        "missing_requirements",
+        "external_unavailable",
+        "no_repair_required"
+      ]
+    }
+  },
+  "required": [
+    "hypotheses",
+    "experiment",
+    "unresolvedIntent",
+    "disposition"
+  ],
+  "additionalProperties": false
+}

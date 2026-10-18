@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "COMPLETED"
+      ]
+    },
+    "measurement": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "failed",
+        "inconclusive"
+      ]
+    },
+    "operationId": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "invocation_id": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "native_invocation_id": {
+      "type": "string",
+      "maxLength": 200
+    }
+  },
+  "required": [
+    "status",
+    "measurement",
+    "operationId",
+    "invocation_id",
+    "native_invocation_id"
+  ],
+  "additionalProperties": false
+}

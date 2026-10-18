@@ -1,0 +1,13 @@
+{
+  "version": "parcel-quote/1",
+  "authority": "example service owner",
+  "scope": "Stateless GBP delivery quotation, disposable trial inputs only",
+  "requirements": [
+    {"id":"liveness","text":"GET /livez returns HTTP 200 and JSON {status: alive} while the process can answer requests."},
+    {"id":"catalogue","text":"GET /catalogue returns HTTP 200, currency GBP and version 1."},
+    {"id":"pricing","text":"POST /quote accepts integer quantity from 1 to 100, integer unitPricePence from 1 to 100000 and delivery standard or express. Subtotal is quantity times unit price. Standard delivery costs 395 pence below a subtotal of 5000 pence and zero at or above 5000. Express delivery costs 795 pence at every subtotal. Return subtotalPence, shippingPence and their sum totalPence."},
+    {"id":"validation","text":"Invalid quotation inputs return HTTP 400. Other routes and unsupported methods return HTTP 404. Request bodies exceeding 4096 bytes return HTTP 413."},
+    {"id":"runtime","text":"Listen on 0.0.0.0 port 8080. No persistent data, external service or credentials are needed for these requirements."}
+  ],
+  "boundaries": {"editablePaths":["src/","config.json"],"sharedPersistentWrites":false,"schemaMigrations":false,"dependencies":"Node standard library only"}
+}
