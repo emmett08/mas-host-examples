@@ -310,7 +310,8 @@ export async function prepareIncident(destination, kube = kubectl, workload = ma
 
 /** Observe one Warning-admitted run through its own controller-owned repair. */
 export async function captureIncident({ workload, mode, destination, page, deadline,
-  kube = kubectl, fetchSnapshot = api, prepare = prepareIncident, checkHealth = () => {}, sleep = delay }) {
+  kube = kubectl, fetchSnapshot = api, prepare = prepareIncident, checkHealth = () => {}, sleep = delay,
+  onSnapshot = async () => {} }) {
   await mkdir(destination, { recursive: true });
   const json = (filename, value) => writeFile(join(destination, filename), `${JSON.stringify(value, null, 2)}\n`);
   const snapshotsPath = join(destination, 'snapshots.ndjson');
@@ -360,6 +361,8 @@ export async function captureIncident({ workload, mode, destination, page, deadl
           if (encoded !== previous) { await appendFile(snapshotsPath, `${encoded}\n`); previous = encoded; }
           await json('snapshot.json', snapshot);
           await json('run.json', snapshot.run);
+          // Retain identity before any completion or recovery checks can fail.
+          await onSnapshot(snapshot);
           if (snapshot.run.investigation) {
             await json('investigation.json', snapshot.run.investigation);
             await json('tool-calls.json', snapshot.run.investigation.calls ?? []);
@@ -500,12 +503,15 @@ export async function main() {
     await page.screenshot({ path: join(destination, 'before-trigger.png'), fullPage: true });
     for (const workload of managedWorkloads) {
       const captureDirectory = workload.approach === 'mcp' ? join(destination, 'mcp') : destination;
-      const snapshot = await captureIncident({ workload, mode, destination: captureDirectory, page, deadline, checkHealth });
+      const snapshot = await captureIncident({ workload, mode, destination: captureDirectory, page, deadline, checkHealth,
+        onSnapshot: async snapshot => {
+          Object.assign(capture.runs.find(run => run.approach === workload.approach), { runId: snapshot.run.id,
+            subject: snapshot.run.input.incident.evidence.subject, status: snapshot.run.status,
+            ...(snapshot.run.resolution ? { target: snapshot.run.resolution.target,
+              operationId: snapshot.run.resolution.operationId } : {}) });
+          await json('capture.json', capture);
+        } });
       captures.push(snapshot);
-      Object.assign(capture.runs.find(run => run.approach === workload.approach), { runId: snapshot.run.id,
-        subject: snapshot.run.input.incident.evidence.subject, target: snapshot.run.resolution.target,
-        operationId: snapshot.run.resolution.operationId });
-      await json('capture.json', capture);
     }
     validateDistinctRecoveries(captures[0], captures[1]);
     checkHealth();

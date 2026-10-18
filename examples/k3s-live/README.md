@@ -750,6 +750,15 @@ The OpenAI Responses adapter selects one eligible final message and one text blo
 phases are excluded. It never falls back to commentary if the final output is invalid.
 Its prompt includes the exact request and completion envelopes; `input_json`
 must contain a JSON-encoded string. An invalid response remains a failed run.
+All four tools accept `input_json: "{}"`. For `pod_logs`, the bridge binds the
+collection to `container: "checkout"`, `previous: false` and `tail_lines: 40`.
+Explicit matching values remain valid. The host schema and bridge reject
+attempted overrides. The model chooses the order of tool calls, while this
+fixed collection policy preserves the current checkout evidence identity.
+A valid decision with arguments rejected by the host is classified as
+`invalid-tool-arguments`, with the selected tool and a fixed validation code.
+The capture manifest retains each observed run ID before completion checks,
+so a failed investigation remains identifiable in the archive diagnostics.
 A completed host investigation with no tool effects is classified separately as
 `investigation-no-tools`; it cannot freeze evidence or start assessment. This
 application check also protects retained runs created before the required-delegation policy.

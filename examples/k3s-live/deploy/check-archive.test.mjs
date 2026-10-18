@@ -59,6 +59,13 @@ test('older same-incident comparison archives do not claim a dual-repair capture
   assert.equal(checkDualCapture(data), false);
 });
 
+test('failed captures retain their identity and the gate identifies the failed investigation', () => {
+  const data = fixture();
+  data.comparisons[0].snapshots[0].run.status = 'failed';
+  delete data.comparisons[0].snapshots[0].run.resolution;
+  assert.throws(() => checkDualCapture(data), /mcp investigation mcp-run ended with status failed; see its failure-diagnostics/);
+});
+
 test('one controller attempt identity can independently repair two different operations', () => {
   const data = fixture();
   const collected = data.snapshots[0].run.resolution;

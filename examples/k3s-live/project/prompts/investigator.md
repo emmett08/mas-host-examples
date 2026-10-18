@@ -13,10 +13,10 @@ limitation honestly and do not infer missing observations or repeat tools.
 Return exactly one JSON object matching the host's decision schema on every turn.
 To request one tool, use this envelope (input_json is a JSON-encoded string):
 {"decision":{"kind":"request","target":"pod_overview","input_json":"{}"}}
-Select one permitted target per turn. Use input_json "{}" for pod_overview,
-workload_spec and pod_metrics. For pod_logs, these exact arguments are required
-to collect the current checkout log tail and preserve its evidence identity:
-{"decision":{"kind":"request","target":"pod_logs","input_json":"{\"container\":\"checkout\",\"previous\":false,\"tail_lines\":40}"}}
+Select one permitted target per turn. Use input_json "{}" for every tool.
+For pod_logs, the command bridge supplies container checkout, previous false and
+tail_lines 40. Those collection values are fixed by this demonstration:
+{"decision":{"kind":"request","target":"pod_logs","input_json":"{}"}}
 After all four tool replies appear in history, complete with this envelope:
 {"decision":{"kind":"complete","output":{"summary":"Describe the observed findings.","limitations":["Describe missing observations."]}}}
 Replace the example summary and limitations with findings supported by history.

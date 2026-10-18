@@ -89,12 +89,19 @@ function effects(observation: { steps: Record<string, any>[] }) {
 }
 
 test('OpenAI HTTP investigation selects final output, enforces tool coverage and retains rejected decisions without retries', { timeout: 600_000 }, async t => {
-  for (const scenario of ['valid', 'alternate-order', 'invalid-json', 'invalid-decision', 'commentary-only', 'multiple-output',
-    'early-completion', 'partial-completion', 'duplicate-request']) await t.test(scenario, async t => {
+  for (const scenario of ['valid', 'explicit-log-arguments', 'alternate-order', 'invalid-json', 'invalid-decision', 'commentary-only', 'multiple-output',
+    'early-completion', 'partial-completion', 'duplicate-request', 'legacy-required-log-arguments', 'log-scope-override']) await t.test(scenario, async t => {
     const order = scenario === 'alternate-order' ? ['pod_metrics', 'pod_logs', 'workload_spec', 'pod_overview'] : tools;
-    const valid = ['valid', 'alternate-order'].includes(scenario);
+    const valid = ['valid', 'explicit-log-arguments', 'alternate-order'].includes(scenario);
     const acceptedCalls = ['partial-completion', 'duplicate-request'].includes(scenario) ? 1 : 0;
     const app = await application(t), requests: Record<string, any>[] = [], errors: unknown[] = [];
+    if (scenario === 'legacy-required-log-arguments') {
+      // Reproduce run 39131756577 with its old schema and the exact {} request.
+      const file = join(app.project, 'schemas/mcp-logs-input.json');
+      const schema = JSON.parse(await readFile(file, 'utf8'));
+      schema.required = ['container', 'previous', 'tail_lines'];
+      await writeFile(file, JSON.stringify(schema));
+    }
     const server = createServer(async (request, response) => {
       try {
         assert.equal(request.method, 'POST');
@@ -118,7 +125,7 @@ test('OpenAI HTTP investigation selects final output, enforces tool coverage and
           .map((line: string) => JSON.parse(line));
         const ask = examples.find((example: any) => example.decision?.target === 'pod_overview');
         const logs = examples.find((example: any) => example.decision?.target === 'pod_logs');
-        assert.deepEqual(JSON.parse(logs.decision.input_json), { container: 'checkout', previous: false, tail_lines: 40 });
+        assert.equal(logs.decision.input_json, '{}');
         const finish = examples.find((example: any) => example.decision?.kind === 'complete');
         assert.equal(ask.decision.input_json, '{}');
         assert.equal(typeof finish.decision.output.summary, 'string');
@@ -134,6 +141,12 @@ test('OpenAI HTTP investigation selects final output, enforces tool coverage and
         if (turn) assert.equal(input.history[turn - 1].result.tool, order[turn - 1]);
         let output = turn < tools.length
           ? { decision: { ...(order[turn] === 'pod_logs' ? logs.decision : ask.decision), target: order[turn] } } : finish;
+        if (scenario === 'explicit-log-arguments' && order[turn] === 'pod_logs') {
+          output.decision.input_json = JSON.stringify({ container: 'checkout', previous: false, tail_lines: 40 });
+        }
+        if (scenario === 'log-scope-override' && order[turn] === 'pod_logs') {
+          output.decision.input_json = JSON.stringify({ container: 'sidecar' });
+        }
         if (scenario === 'partial-completion' && turn === 1) output = finish;
         if (scenario === 'duplicate-request' && turn === 1) output = ask;
         const text = scenario === 'invalid-json' ? 'This is not JSON.' : scenario === 'invalid-decision'
@@ -205,6 +218,23 @@ test('OpenAI HTTP investigation selects final output, enforces tool coverage and
       }
       assert.deepEqual(await invoke(), output);
       assert.equal(requests.length, 5, 'replay must not call the provider again');
+    } else if (['legacy-required-log-arguments', 'log-scope-override'].includes(scenario)) {
+      const rejected = (error: unknown) => {
+        assert.ok(error instanceof HostRunFailure);
+        assert.equal(error.diagnostics.classification, 'invalid-tool-arguments');
+        assert.deepEqual(error.diagnostics.effects, []);
+        assert.deepEqual(error.diagnostics.rejectedRequest, { actor: 'investigator', target: 'pod_logs',
+          code: scenario === 'legacy-required-log-arguments' ? 'required-property-missing' : 'value-outside-enum' });
+        assert.equal(error.diagnostics.automaticRetry, false);
+        return true;
+      };
+      await assert.rejects(invoke, rejected);
+      assert.deepEqual(errors, []);
+      const observation = await host.observe(id, state, true);
+      assert.deepEqual(effects(observation).filter(step => step.key === 'command').map(step => step.actor), tools.slice(0, 2));
+      assert.throws(() => freezeInvestigation(id, observation, seed.evidence, 'recorded-evidence', contextSha256));
+      await assert.rejects(invoke, rejected);
+      assert.equal(requests.length, 3, 'a rejected request must not dispatch pod_logs or repeat provider calls');
     } else {
       const expectedStage = ['commentary-only', 'multiple-output'].includes(scenario) ? 'output-selection'
         : scenario === 'invalid-json' ? 'output-json' : 'output-schema';
