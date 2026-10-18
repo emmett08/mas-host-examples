@@ -4,9 +4,10 @@ import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { Journal } from '../controller/journal.js';
+import { writeImmutableFile } from '../controller/immutable-file.js';
 import { runTrustedOperation } from '../host/tool.js';
 import { externalReceiptSchema } from '../deploy/capabilities.js';
-import { sha256 } from '../deploy/effects.js';
+import { canonical, sha256 } from '../deploy/effects.js';
 import type { ImportedImage } from '../deploy/image.js';
 import type { PublishRequest } from './publish.js';
 import type { TrialRequest } from './trial.js';
@@ -36,7 +37,7 @@ if (!manifest.promotion || manifest.promotion.spec.imageDigest !== manifest.cand
   || manifest.promotion.spec.requirementsSha256 !== manifest.candidate.requirementsSha256
   || manifest.promotion.spec.testsSha256 !== manifest.candidate.testsSha256
   || manifest.promotion.spec.environmentSha256 !== manifest.candidate.environmentSha256) throw new Error('Retained image/protected verification projection missing or changed');
-const imageArchive = { ...manifest.promotion.imageArchive, path: await locate(input, 'candidate-image.tar') };
+const imageArchive = { ...manifest.promotion.imageArchive, path: await locate(input, 'candidate-image.json') };
 await mkdir(output, { recursive: true, mode: 0o700 });
 const runId = `run-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}-promotion`;
 const directory = join(output, 'journal'); const journal = new Journal(directory, runId);
@@ -48,7 +49,7 @@ let counter = 0;
 async function run(operation: TrialRequest['operation'], fields: Partial<TrialRequest>): Promise<any> {
   const id = `${runId}-${++counter}`;
   const request: TrialRequest = { journalDirectory: directory, incidentId: runId, operationId: `${id}/${operation}`, attemptId: runId, operation, ...fields };
-  const requestFile = join(output, `request-${counter}.json`); await writeFile(requestFile, JSON.stringify(request), { mode: 0o400 });
+  const requestFile = join(output, `request-${counter}.json`); writeImmutableFile(requestFile, canonical(request));
   const outcome = await runTrustedOperation({ binary: process.env.MAS_HOST_BIN ?? join(repository, '.tools/mas-host/target/debug/mas-host'),
     sdkRoot: process.env.MAS_SDK_ROOT ?? join(repository, '.tools/mas-host'), stateDir: join(output, 'host') }, id,
     { operationId: request.operationId, requestFile, requestSha256: sha256(request) }, {

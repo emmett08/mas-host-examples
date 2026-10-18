@@ -1,14 +1,16 @@
 /** Bind trusted image transfer and Kubernetes operations to admitted host command identities. */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
+import { writeImmutableFile } from './immutable-file.js';
 import { resolve, join } from 'node:path';
 import { runTrustedOperation } from '../host/tool.js';
 import { HostPhaseError, type HostConfiguration } from '../host/phase.js';
 import { Journal, Boundary } from './journal.js';
-import { sha256 } from '../deploy/effects.js';
+import { canonical, sha256 } from '../deploy/effects.js';
 import type { HttpCriterion, TrialSpec, TargetSnapshot, TrialObservation } from '../deploy/trial.js';
 import type { BuildResult, HTTPCheck } from '../sandbox/executor.js';
 import type { Built, Source } from './loop.js';
 import type { Verification } from '../contracts/types.js';
+import type { ImageArchive } from '../deploy/image.js';
 import { externalCapabilities } from '../deploy/capabilities.js';
 const capability=externalCapabilities.find(c=>c.id==='trial')!;
 export function trialCriteria(checks:HTTPCheck[]):HttpCriterion[]{return checks.map(c=>({id:c.id,method:c.method as 'GET'|'POST',path:c.path,expectedStatus:c.status,...(c.json===undefined?{}:{expectedJson:c.json as never}),...(c.body===undefined?{}:{body:c.body as never})}));}
@@ -26,7 +28,7 @@ export class Deployment {
     try{
       const requestFile=join(resolve(this.journal.directory),'contexts',`trial-${sha256(id)}.json`);
       mkdirSync(join(resolve(this.journal.directory),'contexts'),{recursive:true});
-      writeFileSync(requestFile,JSON.stringify(input),{mode:0o400});
+      writeImmutableFile(requestFile,canonical(input));
       const envelope={operationId:id,requestFile,requestSha256:sha256(input)};
       const out=await runTrustedOperation<{operationId:string;invocation_id:string;status:string;result:T}>(this.host,id,envelope,{
         runtimeBundle:resolve('dist-tools/trial.mjs'),inputSchema:capability.inputSchema,outputSchema:capability.outputSchema,operationName:'trusted_trial/1',timeoutMs:capability.timeoutMs,outputBytes:capability.outputBytes,
@@ -133,7 +135,7 @@ export class Deployment {
     return {recovered:result.status==='pass',evidence,observation:result};
   }
   async export(build:Built){
-    return this.operation<{path:string;sha256:string;configDigest:string}>(`${this.runId}.${build.source.tree.slice(0,8)}.export`,{operation:'export',imageConfigDigest:build.imageDigest,archivePath:join(resolve(this.journal.directory),'candidate-image.tar')});
+    return this.operation<ImageArchive>(`${this.runId}.${build.source.tree.slice(0,8)}.export`,{operation:'export',imageConfigDigest:build.imageDigest,archivePath:join(resolve(this.journal.directory),'candidate-image.json')});
   }
   async current(){
     const previous=this.journal.events().filter(e=>e.type==='trial.target'&&e.data.target&&e.data.spec).at(-1)?.data;

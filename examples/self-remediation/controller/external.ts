@@ -1,11 +1,12 @@
 /** Shared envelope composition for externally authorised read operations. */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
+import { writeImmutableFile } from './immutable-file.js';
 import { join, resolve } from 'node:path';
 import { Journal, Boundary } from './journal.js';
 import { HostPhaseError, type HostConfiguration } from '../host/phase.js';
 import { runTrustedOperation } from '../host/tool.js';
 import { externalCapabilities } from '../deploy/capabilities.js';
-import { sha256 } from '../deploy/effects.js';
+import { canonical, sha256 } from '../deploy/effects.js';
 import type { GitHubReadGrant } from '../tools/github-mcp.js';
 import type { OperationalBinding, OperationalTargetGrant } from '../deploy/operational.js';
 
@@ -17,7 +18,7 @@ export class ExternalReads {
     const capability = externalCapabilities.find(item => item.id === frozen.kind)!;
     const requestFile = join(resolve(this.journal.directory), 'contexts', `external-${sha256(id)}.json`);
     mkdirSync(join(resolve(this.journal.directory), 'contexts'), { recursive: true });
-    writeFileSync(requestFile, JSON.stringify(frozen.input), { mode: 0o400 });
+    writeImmutableFile(requestFile, canonical(frozen.input));
     const envelope = { operationId: id, requestFile, requestSha256: sha256(frozen.input) };
     const environment: Record<string, string> = frozen.kind === 'github_metadata'
       ? { SELF_REMEDIATION_GITHUB_READ_TOKEN: process.env.SELF_REMEDIATION_GITHUB_READ_TOKEN ?? '' }

@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { canonical, sha256, UnknownEffect, type EffectRecord, type EffectStore, type Json } from '../deploy/effects.js';
 import type { Budget } from '../contracts/types.js';
 import { Artefacts } from './artefacts.js';
+import { writeImmutableFile } from './immutable-file.js';
 export class Boundary extends Error { constructor(readonly outcome: string, message = outcome) { super(message); } }
 export const DEFAULT_BUDGET: Budget = { calls: 32, candidates: 3, operations: 80, microUsd: 2_000_000, wallMs: 900_000 };
 export interface JournalEvent { seq: number; incidentId: string; time: string; type: string; data: Record<string, unknown> }
@@ -187,7 +188,7 @@ export class Journal implements EffectStore {
     if (!existsSync(path)) this.db.prepare('VACUUM INTO ?').run(path);
     const hash = createHash('sha256').update(readFileSync(path)).digest('hex');
     const manifest = {path,sha256:hash,sequence:seq,artifactSet:this.artefacts.put(this.events()),scope:'process state; external effects require reconciliation after runner loss'};
-    writeFileSync(`${path}.json`,canonical(manifest),{mode:0o400});
+    writeImmutableFile(`${path}.json`,canonical(manifest));
     return {path,sha256:hash,sequence:seq};
   }
   close(): void { this.exportEvents(); this.db.close(); }

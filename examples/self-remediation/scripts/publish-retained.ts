@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { runTrustedOperation } from '../host/tool.js';
 import { Journal } from '../controller/journal.js';
-import { sha256 } from '../deploy/effects.js';
+import { writeImmutableFile } from '../controller/immutable-file.js';
+import { canonical, sha256 } from '../deploy/effects.js';
 import type { PublicationPolicy } from '../deploy/github.js';
 import type { PublishRequest } from './publish.js';
 const arg = (key: string) => { const i = process.argv.indexOf(key); if (i < 0 || !process.argv[i + 1]) throw new Error(`Missing ${key}`); return resolve(process.argv[i + 1]!); };
@@ -46,7 +47,7 @@ const sourceRoot = resolve(here, '../../..');
 // The host carries one small content-addressed file reference, not source blobs in a wire frame.
 async function execute(next: PublishRequest, suffix: string) {
   const requestFile = join(output, `publisher-request-${suffix}.json`);
-  await writeFile(requestFile, JSON.stringify(next), { mode: 0o400 });
+  writeImmutableFile(requestFile, canonical(next));
   const envelope = { operationId: next.operationId, requestFile, requestSha256: sha256(next) };
   return runTrustedOperation({ binary: process.env.MAS_HOST_BIN ?? join(sourceRoot, '.tools/mas-host/target/debug/mas-host'),
     sdkRoot: process.env.MAS_SDK_ROOT ?? join(sourceRoot, '.tools/mas-host'), stateDir: join(output, 'host') }, runId + '-publisher-' + suffix, envelope, {

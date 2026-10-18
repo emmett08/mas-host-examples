@@ -40,7 +40,7 @@ test('publication files survive process restart and conflicting candidate bytes 
     const before=statSync(path,{bigint:true});
     const resumed=execute(candidate);assert.equal(resumed.status,0,resumed.stderr);
     const after=statSync(path,{bigint:true});assert.equal(after.ino,before.ino);assert.equal(after.mtimeNs,before.mtimeNs);assert.equal(after.mode,before.mode);
-    const changed=execute(candidate.replace('value = 1','value = 2'));assert.notEqual(changed.status,0);assert.match(changed.stderr,/Frozen publication artefact changed/);
+    const changed=execute(candidate.replace('value = 1','value = 2'));assert.notEqual(changed.status,0);assert.match(changed.stderr,/Frozen artefact changed/);
     assert.equal(readFileSync(path,'utf8'),candidate);assert.equal(statSync(path,{bigint:true}).mtimeNs,before.mtimeNs);
   } finally {rmSync(directory,{recursive:true,force:true});}
 });

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { Journal } from '../controller/journal.js';
 import { RejectedEffect, sha256, type OperationIdentity } from '../deploy/effects.js';
-import { importK3dImage, exportImage, loadImage, imageCommand, type ImageArchive } from '../deploy/image.js';
+import { importK3dImage, exportImage, loadImage, imageCommand, runImageCommand, type ImageArchive, type ImageCommandDiagnostic } from '../deploy/image.js';
 import { KubectlTransport, KubernetesTrial, type HttpCriterion, type TargetSnapshot, type TrialSpec } from '../deploy/trial.js';
 import { observeOperationalTarget, type OperationalTargetGrant, type OperationalBinding } from '../deploy/operational.js';
 
@@ -21,16 +21,19 @@ export async function trialMain(input: TrialRequest, invocationId: string): Prom
     journal.append('tool.diagnostic', { operationId: identity.operationId, invocationId, tool: 'kubectl', evidence,
       exitCode: diagnostic.exitCode, externalOutcome: diagnostic.externalOutcome });
   });
-  const imageExecutor = (executable: string, args: string[], timeout?: number) => imageCommand(executable, args, timeout, diagnostic => {
+  const imageDiagnostic = (diagnostic: ImageCommandDiagnostic) => {
     const evidence = journal.artefacts.put(diagnostic);
     journal.append('tool.diagnostic', { operationId: identity.operationId, invocationId, tool: diagnostic.tool, evidence,
       exitCode: diagnostic.exitCode, signal: diagnostic.signal, externalOutcome: diagnostic.externalOutcome });
-  });
+  };
+  const imageExecutor = (executable: string, args: string[], timeout?: number) => imageCommand(executable, args, timeout, imageDiagnostic);
+  const archiveExecutor = { command: imageExecutor, stream: (executable: string, args: string[], options: Parameters<typeof runImageCommand>[2]) =>
+    runImageCommand(executable, args, { ...options, onDiagnostic: imageDiagnostic }) };
   try {
     let result: unknown;
     if (input.operation === 'import') result = await importK3dImage(journal, identity, input.imageConfigDigest!, input.cluster, imageExecutor);
-    else if (input.operation === 'export') result = await exportImage(journal, identity, input.imageConfigDigest!, input.archivePath!, imageExecutor);
-    else if (input.operation === 'load') result = await loadImage(journal, identity, input.imageArchive!, imageExecutor);
+    else if (input.operation === 'export') result = await exportImage(journal, identity, input.imageConfigDigest!, input.archivePath!, archiveExecutor);
+    else if (input.operation === 'load') result = await loadImage(journal, identity, input.imageArchive!, archiveExecutor);
     else if (input.operation === 'operational-observe') {
       if (!input.operationalTarget) throw new Error('Frozen operational target grant required');
       result = await observeOperationalTarget(transport(), input.operationalTarget, input.previousOperationalBinding);

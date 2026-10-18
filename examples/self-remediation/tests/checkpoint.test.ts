@@ -224,3 +224,24 @@ test('128 MiB capture bound counts distinct bytes despite larger logical phase c
     assert.equal(readdirSync(join(journal.directory, 'durable-checkpoints')).filter(name => name.startsWith('.pending-')).length, 0);
   } finally { journal.close(); rmSync(journal.directory, { recursive: true, force: true }); }
 });
+
+test('candidate image manifest is retained as an external dependency while payload chunks stay outside checkpoints', () => {
+  const journal = create();
+  try {
+    const bytes = Buffer.from('separately retained immutable image bytes'), sha256 = createHash('sha256').update(bytes).digest('hex');
+    const imageManifest = JSON.stringify({ version: 'mas-image-archive/2', sha256, configDigest: `sha256:${'a'.repeat(64)}`, bytes: bytes.length, chunks: [{ sha256, bytes: bytes.length }] });
+    writeFileSync(join(journal.directory, 'candidate-image.json'), imageManifest);
+    const chunks = join(journal.directory, 'candidate-image.json.parts'); mkdirSync(chunks); writeFileSync(join(chunks, sha256), bytes);
+    const checkpoint = createCheckpoint(journal.directory)!;
+    assert.ok(checkpoint.manifest.files.some(file => file.path === 'candidate-image.json'));
+    assert.equal(checkpoint.manifest.files.some(file => file.path.startsWith('candidate-image.json.parts/')), false);
+    const dependency = { kind: 'candidate-image', manifestPath: 'candidate-image.json', manifestSha256: createHash('sha256').update(imageManifest).digest('hex'), chunksPath: 'candidate-image.json.parts', status: 'separate-artifact-required' };
+    assert.deepEqual(checkpoint.manifest.externalDependencies, [dependency]);
+    const restored = join(journal.directory, 'restore-image-reference'); restoreCheckpoint(checkpoint.directory, restored);
+    assert.equal(readFileSync(join(restored, 'candidate-image.json'), 'utf8'), imageManifest);
+    assert.equal(existsSync(join(restored, 'candidate-image.json.parts')), false);
+    assert.deepEqual(JSON.parse(readFileSync(join(restored, 'RUNNER_LOSS_REQUIRES_RECONCILIATION.json'), 'utf8')).externalDependencies, [dependency]);
+    writeFileSync(join(journal.directory, 'candidate-image.json'), 'x'.repeat(64 * 1024 + 1));
+    assert.throws(() => createCheckpoint(journal.directory), /object byte bound exceeded/);
+  } finally { journal.close(); rmSync(journal.directory, { recursive: true, force: true }); }
+});

@@ -132,7 +132,7 @@ try{
       const policy:PublicationPolicy={repository,baseBranch:configured?.baseBranch??`demo/incidents/${runId}`,allowedPathPrefix:configured?.pathPrefix??prefix,
         mode:configured?.publicationMode??(configured?'pull-request':'archive'),target:configured?'operational':'disposable-demo',runId,requiredChecks:configured?.requiredChecks??[],credentialKind:configured?(configured.credentialKind??'github-app'):'none'};
       const publication:PublishRequest={journalDirectory:directory,incidentId,operationId:`${runId}.publication`,attemptId:journal.value<string>('attempt')!,policy,candidate,
-        ...(incidentGit?{incidentGit}:{}),...(configured?{operationalTarget:configured.operationalTarget,operationalBinding}:{}),promotion:{imageArchive:{...imageArchive,path:'candidate-image.tar'},spec:{...trialSpec,stage:'promotion'},criteria:trialCriteria(checks)}};
+        ...(incidentGit?{incidentGit}:{}),...(configured?{operationalTarget:configured.operationalTarget,operationalBinding}:{}),promotion:{imageArchive:{...imageArchive,path:'candidate-image.json'},spec:{...trialSpec,stage:'promotion'},criteria:trialCriteria(checks)}};
       const verificationRef=journal.artefacts.put(report);
       writeImmutableFile(join(directory,'publication-manifest.json'),JSON.stringify(publication,null,2),0o600);
       writeImmutableFile(join(directory,'candidate-source.json'),JSON.stringify({baseCommit,sourceTree:build.source.tree,publicationTree:tree,files}));

@@ -10,7 +10,7 @@ const MAX_BYTES = 128 * 1024 * 1024;
 const MAX_FILES = 20_000;
 const DIRECTORIES = ['artefacts', 'tool-artefacts', 'sources', 'contexts', 'host', 'checkpoint-receipts'];
 const FILES = ['journal.sqlite', 'tool-effects.sqlite', 'integration-start.json', 'integration-preflight.json',
-  'disclosed-artefacts.json', 'publication-manifest.json', 'result.json', 'checkpoint-acknowledgements.jsonl'];
+  'disclosed-artefacts.json', 'publication-manifest.json', 'candidate-image.json', 'result.json', 'checkpoint-acknowledgements.jsonl'];
 export interface CheckpointManifest {
   schema: 'self-remediation-checkpoint/2'; originalDirectory: string; originalWorkingDirectory: string;
   createdAt: string; finishedAt: string; sequence: number; incidents: string[]; sourceRevision: string | null;
@@ -18,6 +18,7 @@ export interface CheckpointManifest {
   consistency: 'individual SQLite snapshots; cross-store reconciliation required';
   files: Array<{ path: string; bytes: number; sha256: string; mode: number }>;
   objectBytes: number;
+  externalDependencies?: Array<{ kind: 'candidate-image'; manifestPath: 'candidate-image.json'; manifestSha256: string; chunksPath: 'candidate-image.json.parts'; status: 'separate-artifact-required' }>;
   excluded: string[];
 }
 export interface Checkpoint { directory: string; manifestSha256: string; manifest: CheckpointManifest }
@@ -54,7 +55,7 @@ export function createCheckpoint(directory: string, options: { deniedValues?: st
       if (!safe(path) || files.length >= MAX_FILES) throw new Error('Checkpoint path/file bound exceeded');
       const source = join(root, path), stat = lstatSync(source);
       if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o7000)) throw new Error('Checkpoint only admits ordinary files without special permission bits');
-      if (stat.size > MAX_BYTES) throw new Error('Checkpoint object byte bound exceeded');
+      if (stat.size > MAX_BYTES || (path === 'candidate-image.json' && stat.size > 64 * 1024)) throw new Error('Checkpoint object byte bound exceeded');
       let content: Buffer;
       if (path.endsWith('.sqlite')) {
         const temporary = join(pending, `.sqlite-cut-${randomUUID()}`);
@@ -110,7 +111,8 @@ export function createCheckpoint(directory: string, options: { deniedValues?: st
       originalWorkingDirectory: process.cwd(), createdAt: new Date(lstatSync(pending).birthtimeMs).toISOString(), finishedAt: new Date().toISOString(),
       sequence, incidents, sourceRevision: options.sourceRevision ?? null, pendingPhases, pendingEffects,
       consistency: 'individual SQLite snapshots; cross-store reconciliation required', objectBytes: bytes, files: files.sort((a,b) => a.path.localeCompare(b.path)),
-      excluded: ['credentials and kubeconfig', 'mutable log streams', 'Git object databases', 'container/image runtime state', 'candidate image archives', 'previous checkpoint trees'],
+      externalDependencies: files.filter(file => file.path === 'candidate-image.json').map(file => ({ kind: 'candidate-image', manifestPath: 'candidate-image.json', manifestSha256: file.sha256, chunksPath: 'candidate-image.json.parts', status: 'separate-artifact-required' })),
+      excluded: ['credentials and kubeconfig', 'mutable log streams', 'Git object databases', 'container/image runtime state', 'candidate image payloads (candidate-image.json.parts); manifest retained as an external dependency', 'previous checkpoint trees'],
     };
     const content = JSON.stringify(manifest, null, 2) + '\n', manifestSha256 = hash(content);
     writeFileSync(join(pending, 'checkpoint-manifest.json'), content, { flag: 'wx', mode: 0o400 });
@@ -143,6 +145,12 @@ export function verifyCheckpoint(directory: string): Checkpoint {
     objects.set(file.sha256, file.bytes);
   }
   if (!seen.has('journal.sqlite')) throw new Error('Checkpoint lacks controller journal');
+  const image = manifest.files.find(file => file.path === 'candidate-image.json');
+  if (image && image.bytes > 64 * 1024) throw new Error('Checkpoint image manifest exceeds metadata bound');
+  const dependencies = manifest.externalDependencies ?? [];
+  if (!Array.isArray(dependencies) || dependencies.length !== (image ? 1 : 0) || dependencies.some(dependency => dependency.kind !== 'candidate-image'
+    || dependency.manifestPath !== 'candidate-image.json' || dependency.chunksPath !== 'candidate-image.json.parts'
+    || dependency.status !== 'separate-artifact-required' || dependency.manifestSha256 !== image?.sha256)) throw new Error('Checkpoint external image dependency identity changed');
   let bytes = 0;
   for (const [sha256, expectedBytes] of objects) {
     const path = checkpointObjectPath(root, sha256);
@@ -169,7 +177,7 @@ export function restoreCheckpoint(checkpointDirectory: string, destination: stri
     originalDirectory: checkpoint.manifest.originalDirectory, restoredDirectory: root,
     originalWorkingDirectory: checkpoint.manifest.originalWorkingDirectory,
     sourceRevision: checkpoint.manifest.sourceRevision, pendingPhases: checkpoint.manifest.pendingPhases,
-    pendingEffects: checkpoint.manifest.pendingEffects,
+    pendingEffects: checkpoint.manifest.pendingEffects, externalDependencies: checkpoint.manifest.externalDependencies ?? [],
     status: 'unknown_effect', reason: 'Controller/host snapshots are separate cuts. Original absolute paths, runtime images, surviving external effects and target identities require reconciliation before dispatch.',
   }, null, 2) + '\n', { flag: 'wx', mode: 0o400 });
   sync(marker); sync(root); sync(dirname(root));

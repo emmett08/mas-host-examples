@@ -179,6 +179,8 @@ Omit `--promotion` when only publication has run. The command reads the exact jo
 
 The manual workflow's default is **archive**. A separately selected `pull-request` or `automatic` publication job consumes the exact retained candidate. Operational publication policy defaults to PR creation. Publication credentials live in the protected **self-remediation-publication** environment and never enter candidate execution.
 
+The retained image consists of `candidate-image.json` and its sibling `candidate-image.json.parts/` directory. Keep them together when downloading or moving a run. Each content-addressed chunk is at most 8 MiB; the full stream is bounded to 2 GiB and verified against the manifest, stream and image configuration hashes before loading. Export and load stream through the host adapter without creating a file larger than the pinned host's 64 MiB limit. The separate publication process never executes the retained application.
+
 Configure a repository-scoped GitHub App with contents write, pull requests write and checks read permissions:
 
 | Setting | Purpose |
