@@ -68,6 +68,9 @@ jobs:
         run: make setup
       - name: Build the separate application and observer bundle
         working-directory: examples/self-remediation
+        env:
+          SELF_REMEDIATION_OBSERVER_LIVE: ${{ github.event_name == 'workflow_dispatch' && inputs.live_provider && github.ref == 'refs/heads/main' }}
+          SELF_REMEDIATION_OBSERVER_CASE: ${{ inputs.case || 'missing-route' }}
         run: |
           npm ci --ignore-scripts
           npm run build
