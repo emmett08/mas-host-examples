@@ -688,6 +688,14 @@ For example, HTTP 400 with `invalid_json_schema` identifies a rejected structure
 output schema, while HTTP 401 identifies authentication rejection.
 The MCP investigator's HTTP 200 response with invalid JSON or a schema-invalid decision
 is reported as `invalid-output`, including in the top-level recording summary.
+New host observations distinguish response-envelope, output-selection, JSON parsing
+and schema validation failures through fixed stage/code identifiers. The public
+diagnostics also retain bounded message counts, byte lengths and SHA-256 fingerprints;
+the workflow error includes the stage, code and selection counts. Older retained
+observations still report their original classification without inventing a cause.
+The OpenAI Responses adapter selects one eligible final message and one text block:
+`final_answer`, absent and null phases are eligible; commentary and other explicit
+phases are excluded. It never falls back to commentary if the final output is invalid.
 Its prompt includes the exact request and completion envelopes; `input_json`
 must contain a JSON-encoded string. An invalid response remains a failed run.
 A completed host investigation with no tool effects is classified separately as

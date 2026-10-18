@@ -8,6 +8,12 @@ export interface FailedInference {
   actor: string; effectId: string; state: string; classification: FailureClassification;
   certainty?: string; outputStatus?: string; httpStatus?: number; provider?: string; model?: string;
   errorCode?: string; errorType?: string; errorParam?: string;
+  outputDiagnostics?: OutputDiagnostics;
+}
+export interface OutputDiagnostics {
+  stage: string; code: string;
+  eligibleMessages?: number; eligibleTextBlocks?: number; excludedMessages?: number; otherOutputItems?: number;
+  outputBytes?: number; outputSha256?: string; responseBytes?: number; responseSha256?: string;
 }
 export interface FailureDiagnostics {
   version: 'mas-demo-failure/1'; classification: FailureClassification;
@@ -32,12 +38,41 @@ const errorParams = ['model', 'input', 'instructions', 'max_output_tokens', 'max
   'text.format.type', 'text.format.name', 'text.format.schema', 'text.format.strict', 'tools', 'tool_choice',
   'parallel_tool_calls', 'store', 'stream', 'temperature', 'top_p', 'reasoning', 'reasoning.effort',
   'service_tier', 'previous_response_id'];
+const outputCodes: Record<string, readonly string[]> = {
+  'response-envelope': ['invalid-json', 'incomplete', 'nonterminal'],
+  'output-selection': ['refusal', 'missing-output', 'ambiguous-output', 'invalid-output-text'],
+  'output-json': ['integer-json'],
+  'output-schema': ['schema-mismatch', 'expected-object', 'integer-json'],
+};
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const allowed = (value: unknown, values: readonly string[]) =>
   typeof value === 'string' && values.includes(value) ? value : undefined;
 const fallback = (): FailureDiagnostics => ({ version: 'mas-demo-failure/1', classification: 'host-failure',
   automaticRetry: false, effects: [] });
+
+function projectOutputDiagnostics(value: unknown): OutputDiagnostics | undefined {
+  const source = object(value);
+  const stage = allowed(source.stage, Object.keys(outputCodes));
+  const code = stage ? allowed(source.code, outputCodes[stage]!) : undefined;
+  if (!stage || !code) return undefined;
+  const result: OutputDiagnostics = { stage, code };
+  // The host bounds its provider envelope to one MiB. Treat every field as
+  // untrusted nevertheless; retain only bounded integers and SHA-256 digests.
+  for (const [key, projected] of [
+    ['eligible_messages', 'eligibleMessages'], ['eligible_text_blocks', 'eligibleTextBlocks'],
+    ['excluded_messages', 'excludedMessages'], ['other_output_items', 'otherOutputItems'],
+    ['output_bytes', 'outputBytes'], ['response_bytes', 'responseBytes'],
+  ] as const) {
+    const number = source[key];
+    if (Number.isSafeInteger(number) && Number(number) >= 0 && Number(number) <= 1_048_576) result[projected] = Number(number);
+  }
+  for (const [key, projected] of [['output_sha256', 'outputSha256'], ['response_sha256', 'responseSha256']] as const) {
+    const digest = source[key];
+    if (typeof digest === 'string' && /^[a-f0-9]{64}$/.test(digest)) result[projected] = digest;
+  }
+  return result;
+}
 
 function classify(effect: Omit<FailedInference, 'classification'>, output: Record<string, unknown>): FailureClassification {
   if (['executing', 'unknown'].includes(effect.state)) return 'uncertain-provider-outcome';
@@ -73,6 +108,7 @@ export function projectFailure(observation: unknown, runId: string): FailureDiag
     const certainty = allowed(output.certainty, certainties), outputStatus = allowed(output.output_status, outputStatuses);
     if (['completed', 'resolved'].includes(state) && certainty === 'completed' && outputStatus === 'valid' && output.cleanup !== 'incomplete') continue;
     const provider = providers.find(kind => evidence.adapter === `mas-host-${kind}/1` || evidence.provider === kind);
+    const outputDiagnostics = projectOutputDiagnostics(evidence.output_diagnostics);
     const fields = {
       actor, effectId: step.id, state,
       ...(certainty ? { certainty } : {}), ...(outputStatus ? { outputStatus } : {}),
@@ -82,6 +118,7 @@ export function projectFailure(observation: unknown, runId: string): FailureDiag
       ...(allowed(evidence.error_code, errorCodes) ? { errorCode: allowed(evidence.error_code, errorCodes) } : {}),
       ...(allowed(evidence.error_type, errorTypes) ? { errorType: allowed(evidence.error_type, errorTypes) } : {}),
       ...(allowed(evidence.error_param, errorParams) ? { errorParam: allowed(evidence.error_param, errorParams) } : {}),
+      ...(outputDiagnostics ? { outputDiagnostics } : {}),
     };
     effects.push({ ...fields, classification: classify(fields, output) });
   }
@@ -107,7 +144,16 @@ export function failureMessage(diagnostics: FailureDiagnostics): string {
     'investigation-incomplete-tools': 'The investigator did not complete all four distinct MCP tool calls. Assessment cannot use this incomplete evidence.',
     'investigation-no-tools': 'The investigator completed without calling an MCP tool. No evidence was frozen and no assessment was started.',
   };
-  const detail = diagnostics.effects.slice(0, 3).map(effect => [effect.actor,
-    effect.httpStatus ? `HTTP ${effect.httpStatus}` : effect.state, effect.errorCode].filter(Boolean).join(': ')).join('; ');
+  const detail = diagnostics.effects.slice(0, 3).map(effect => {
+    const output = effect.outputDiagnostics;
+    const counts = output ? [
+      output.eligibleMessages !== undefined ? `eligible messages ${output.eligibleMessages}` : undefined,
+      output.eligibleTextBlocks !== undefined ? `text blocks ${output.eligibleTextBlocks}` : undefined,
+      output.excludedMessages !== undefined ? `excluded messages ${output.excludedMessages}` : undefined,
+    ].filter(Boolean).join(', ') : '';
+    const cause = output ? `${output.stage}/${output.code}${counts ? ` (${counts})` : ''}` : undefined;
+    return [effect.actor, effect.httpStatus ? `HTTP ${effect.httpStatus}` : effect.state, effect.errorCode, cause]
+      .filter(Boolean).join(': ');
+  }).join('; ');
   return `${reasons[diagnostics.classification]}${detail ? ` Failed inference: ${detail}.` : ''}`;
 }
