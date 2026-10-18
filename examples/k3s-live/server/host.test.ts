@@ -92,6 +92,7 @@ test('output diagnostics distinguish selection, parsing and schema failures usin
   ]) {
     const observation = observedFailure({ http_status: 200, output_diagnostics: {
       stage, code, eligible_messages: 2, eligible_text_blocks: 2, excluded_messages: 1, other_output_items: 0,
+      final_messages: 1, unphased_messages: 1, distinct_json_outputs: 2, invalid_json_blocks: 0,
       output_bytes: 104, output_sha256: 'a'.repeat(64), response_bytes: 420, response_sha256: 'b'.repeat(64),
       output: 'private-response', message: 'private-api-key', phase: 'private-phase', status: 'private-status',
     } }, { certainty: 'completed', output_status: 'invalid' });
@@ -99,8 +100,9 @@ test('output diagnostics distinguish selection, parsing and schema failures usin
     assert.equal(diagnostics.classification, 'invalid-output');
     assert.deepEqual(diagnostics.effects[0]?.outputDiagnostics, { stage, code,
       eligibleMessages: 2, eligibleTextBlocks: 2, excludedMessages: 1, otherOutputItems: 0,
+      finalMessages: 1, unphasedMessages: 1, distinctJsonOutputs: 2, invalidJsonBlocks: 0,
       outputBytes: 104, outputSha256: 'a'.repeat(64), responseBytes: 420, responseSha256: 'b'.repeat(64) });
-    assert.ok(failureMessage(diagnostics).includes(`${stage}/${code} (eligible messages 2, text blocks 2, excluded messages 1)`));
+    assert.ok(failureMessage(diagnostics).includes(`${stage}/${code} (eligible messages 2, text blocks 2, excluded messages 1, distinct JSON values 2, invalid JSON blocks 0)`));
     assert.doesNotMatch(JSON.stringify(diagnostics) + failureMessage(diagnostics), /private-/);
   }
 });
@@ -149,6 +151,7 @@ test('output diagnostic projection rejects arbitrary labels, values, hashes and 
   for (const invalid of [-1, 0.5, 1_048_577, Number.MAX_SAFE_INTEGER + 1, '2', null, true, {}]) {
     const diagnostics = project({ stage: 'output-selection', code: 'missing-output',
       eligible_messages: invalid, eligible_text_blocks: invalid, excluded_messages: invalid, other_output_items: invalid,
+      final_messages: invalid, unphased_messages: invalid, distinct_json_outputs: invalid, invalid_json_blocks: invalid,
       output_bytes: invalid, response_bytes: invalid, output_sha256: 'private-response', response_sha256: 'A'.repeat(64) });
     assert.deepEqual(diagnostics.effects[0]?.outputDiagnostics, { stage: 'output-selection', code: 'missing-output' });
   }

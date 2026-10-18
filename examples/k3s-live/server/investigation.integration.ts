@@ -89,11 +89,12 @@ function effects(observation: { steps: Record<string, any>[] }) {
 }
 
 test('OpenAI HTTP investigation selects final output, enforces tool coverage and retains rejected decisions without retries', { timeout: 600_000 }, async t => {
-  for (const scenario of ['valid', 'explicit-log-arguments', 'alternate-order', 'invalid-json', 'invalid-decision', 'commentary-only', 'multiple-output',
+  for (const scenario of ['valid', 'explicit-log-arguments', 'alternate-order', 'repeated-output', 'repeated-invalid-decision',
+    'invalid-json', 'invalid-decision', 'commentary-only', 'multiple-output', 'conflicting-output-after-tool',
     'early-completion', 'partial-completion', 'duplicate-request', 'legacy-required-log-arguments', 'log-scope-override']) await t.test(scenario, async t => {
     const order = scenario === 'alternate-order' ? ['pod_metrics', 'pod_logs', 'workload_spec', 'pod_overview'] : tools;
-    const valid = ['valid', 'explicit-log-arguments', 'alternate-order'].includes(scenario);
-    const acceptedCalls = ['partial-completion', 'duplicate-request'].includes(scenario) ? 1 : 0;
+    const valid = ['valid', 'explicit-log-arguments', 'alternate-order', 'repeated-output'].includes(scenario);
+    const acceptedCalls = ['partial-completion', 'duplicate-request', 'conflicting-output-after-tool'].includes(scenario) ? 1 : 0;
     const app = await application(t), requests: Record<string, any>[] = [], errors: unknown[] = [];
     if (scenario === 'legacy-required-log-arguments') {
       // Reproduce run 39131756577 with its old schema and the exact {} request.
@@ -149,7 +150,7 @@ test('OpenAI HTTP investigation selects final output, enforces tool coverage and
         }
         if (scenario === 'partial-completion' && turn === 1) output = finish;
         if (scenario === 'duplicate-request' && turn === 1) output = ask;
-        const text = scenario === 'invalid-json' ? 'This is not JSON.' : scenario === 'invalid-decision'
+        const text = scenario === 'invalid-json' ? 'This is not JSON.' : ['invalid-decision', 'repeated-invalid-decision'].includes(scenario)
           ? JSON.stringify({ decision: { kind: 'request', target: 'pod_overview', input_json: {} } })
           : JSON.stringify(scenario === 'early-completion' ? finish : output);
         const message = (text: string, phase?: string | null) => ({ type: 'message',
@@ -158,9 +159,13 @@ test('OpenAI HTTP investigation selects final output, enforces tool coverage and
         // decision. Only the final eligible message may dispatch a tool. Null
         // and absent phases preserve compatible provider response behaviour.
         const commentary = message(scenario === 'valid' ? 'I will collect the next observation.' : JSON.stringify(ask), 'commentary');
-        const final = message(text, scenario === 'alternate-order' ? [undefined, null, 'final_answer'][turn % 3] : 'final_answer');
+        const final = message(text, ['alternate-order', 'repeated-output'].includes(scenario) ? [undefined, null, 'final_answer'][turn % 3] : 'final_answer');
+        const repeated = scenario.startsWith('repeated-');
+        const conflicting = scenario === 'multiple-output' || scenario === 'conflicting-output-after-tool' && turn === 1;
+        const alternative = { decision: { kind: 'request', target: order[(turn + 1) % tools.length], input_json: '{}' } };
         const responseOutput = scenario === 'commentary-only' ? [commentary]
-          : scenario === 'multiple-output' ? [message(text), final]
+          : conflicting ? [message(JSON.stringify(alternative)), final]
+          : repeated ? [message(JSON.stringify(JSON.parse(text), null, 2)), final]
           : [commentary, message('Ignored non-final phase.', 'analysis'), final];
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(JSON.stringify({ id: `offline-${scenario}-${turn}`, status: 'completed', model: body.model,
@@ -211,9 +216,11 @@ test('OpenAI HTTP investigation selects final output, enforces tool coverage and
       assert.ok(effects(observation).filter(step => step.key.startsWith('inference-'))
         .every(step => step.evidence.adapter === 'mas-host-openai/1' && step.output.output_status === 'valid'));
       for (const step of effects(observation).filter(step => step.key.startsWith('inference-'))) {
-        assert.equal(step.evidence.output_diagnostics.eligible_messages, 1);
-        assert.equal(step.evidence.output_diagnostics.eligible_text_blocks, 1);
-        assert.equal(step.evidence.output_diagnostics.excluded_messages, 2);
+        assert.equal(step.evidence.output_diagnostics.eligible_messages, scenario === 'repeated-output' ? 2 : 1);
+        assert.equal(step.evidence.output_diagnostics.eligible_text_blocks, scenario === 'repeated-output' ? 2 : 1);
+        assert.equal(step.evidence.output_diagnostics.excluded_messages, scenario === 'repeated-output' ? 0 : 2);
+        assert.equal(step.evidence.output_diagnostics.distinct_json_outputs, 1);
+        assert.equal(step.evidence.output_diagnostics.invalid_json_blocks, 0);
         assert.equal(step.evidence.output_diagnostics.stage, undefined);
       }
       assert.deepEqual(await invoke(), output);
@@ -236,9 +243,10 @@ test('OpenAI HTTP investigation selects final output, enforces tool coverage and
       await assert.rejects(invoke, rejected);
       assert.equal(requests.length, 3, 'a rejected request must not dispatch pod_logs or repeat provider calls');
     } else {
-      const expectedStage = ['commentary-only', 'multiple-output'].includes(scenario) ? 'output-selection'
+      const conflicting = ['multiple-output', 'conflicting-output-after-tool'].includes(scenario);
+      const expectedStage = scenario === 'commentary-only' || conflicting ? 'output-selection'
         : scenario === 'invalid-json' ? 'output-json' : 'output-schema';
-      const expectedCode = scenario === 'commentary-only' ? 'missing-output' : scenario === 'multiple-output' ? 'ambiguous-output'
+      const expectedCode = scenario === 'commentary-only' ? 'missing-output' : conflicting ? 'ambiguous-output'
         : scenario === 'invalid-json' ? 'integer-json' : 'schema-mismatch';
       let retainedDiagnostics: HostRunFailure['diagnostics'] | undefined;
       const rejected = (error: unknown) => {
@@ -265,9 +273,10 @@ test('OpenAI HTTP investigation selects final output, enforces tool coverage and
       assert.equal(rejectedInference.evidence.output_diagnostics.stage, expectedStage);
       assert.equal(rejectedInference.evidence.output_diagnostics.code, expectedCode);
       assert.equal(rejectedInference.evidence.output_diagnostics.eligible_messages,
-        scenario === 'commentary-only' ? 0 : scenario === 'multiple-output' ? 2 : 1);
+        scenario === 'commentary-only' ? 0 : conflicting || scenario === 'repeated-invalid-decision' ? 2 : 1);
       assert.equal(rejectedInference.evidence.output_diagnostics.excluded_messages,
-        scenario === 'commentary-only' ? 1 : scenario === 'multiple-output' ? 0 : 2);
+        scenario === 'commentary-only' ? 1 : conflicting || scenario === 'repeated-invalid-decision' ? 0 : 2);
+      if (conflicting) assert.equal(rejectedInference.evidence.output_diagnostics.distinct_json_outputs, 2);
       assert.equal(effects(observation).filter(step => step.key === 'command').length, acceptedCalls,
         'rejected duplicate or premature completion must not dispatch another tool');
       assert.equal(observation.messages.filter((message: any) => tools.includes(message.recipient)).length, acceptedCalls);

@@ -13,6 +13,7 @@ export interface FailedInference {
 export interface OutputDiagnostics {
   stage: string; code: string;
   eligibleMessages?: number; eligibleTextBlocks?: number; excludedMessages?: number; otherOutputItems?: number;
+  finalMessages?: number; unphasedMessages?: number; distinctJsonOutputs?: number; invalidJsonBlocks?: number;
   outputBytes?: number; outputSha256?: string; responseBytes?: number; responseSha256?: string;
 }
 export interface FailureDiagnostics {
@@ -91,6 +92,8 @@ function projectOutputDiagnostics(value: unknown): OutputDiagnostics | undefined
   for (const [key, projected] of [
     ['eligible_messages', 'eligibleMessages'], ['eligible_text_blocks', 'eligibleTextBlocks'],
     ['excluded_messages', 'excludedMessages'], ['other_output_items', 'otherOutputItems'],
+    ['final_messages', 'finalMessages'], ['unphased_messages', 'unphasedMessages'],
+    ['distinct_json_outputs', 'distinctJsonOutputs'], ['invalid_json_blocks', 'invalidJsonBlocks'],
     ['output_bytes', 'outputBytes'], ['response_bytes', 'responseBytes'],
   ] as const) {
     const number = source[key];
@@ -183,6 +186,8 @@ export function failureMessage(diagnostics: FailureDiagnostics): string {
       output.eligibleMessages !== undefined ? `eligible messages ${output.eligibleMessages}` : undefined,
       output.eligibleTextBlocks !== undefined ? `text blocks ${output.eligibleTextBlocks}` : undefined,
       output.excludedMessages !== undefined ? `excluded messages ${output.excludedMessages}` : undefined,
+      output.distinctJsonOutputs !== undefined ? `distinct JSON values ${output.distinctJsonOutputs}` : undefined,
+      output.invalidJsonBlocks !== undefined ? `invalid JSON blocks ${output.invalidJsonBlocks}` : undefined,
     ].filter(Boolean).join(', ') : '';
     const cause = output ? `${output.stage}/${output.code}${counts ? ` (${counts})` : ''}` : undefined;
     return [effect.actor, effect.httpStatus ? `HTTP ${effect.httpStatus}` : effect.state, effect.errorCode, cause]
