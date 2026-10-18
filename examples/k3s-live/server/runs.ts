@@ -3,12 +3,13 @@ import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { HostRunFailure, type Host } from './host.js';
-import { contentHash, freezeInvestigation, InvestigationEvidenceFailure, requireInvestigationTools, retainFile, type InvestigationAudit } from './investigation.js';
+import { contentHash, freezeInvestigation, investigationSummary, InvestigationEvidenceFailure, requireInvestigationTools, retainFile, type InvestigationAudit } from './investigation.js';
 import { runtimeIdentity } from '../project/mcp-client.mjs';
 import { investigationTopology } from './topology.js';
 import type { FailureDiagnostics } from './diagnostics.js';
 import { parseEvidence, type EvidenceBundle } from '../shared/evidence.js';
 import { parseRevisionAudit, verifySelectedOutput, type RevisionAudit } from '../shared/revision.mjs';
+import { validatePostChangeEvidence } from '../shared/post-change-evidence.mjs';
 
 import { validOutcomeCombination, type ResolutionReport, type ReconciliationObservation } from '../shared/resolution.js';
 export type { ResolutionReport, ReconciliationObservation };
@@ -307,7 +308,7 @@ export class Runs {
     await this.investigationReads.get(run.id)?.catch(() => {});
     await this.observeInvestigation(run);
     run.input = { incident: { ...incident, evidence: audit.evidence, context: evidenceContext(audit.evidence) } };
-    run.investigation = { ...audit, source, summary };
+    run.investigation = { ...audit, source, ...investigationSummary(audit, summary) };
     this.ensureRunning(run);
     await this.persist(run); // Freeze before admitting any assessment invocation.
   }
@@ -376,10 +377,11 @@ function inputFingerprint(input: { incident: unknown }) {
   return createHash('sha256').update(stableJson(identity)).digest('hex');
 }
 function validateResolution(value: unknown, run: Run): ResolutionReport {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Buffer.byteLength(JSON.stringify(value)) > 16 * 1024) throw new RequestError(400, 'Resolution report must be an object of at most 16 KiB');
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Buffer.byteLength(JSON.stringify(value)) > 32 * 1024) throw new RequestError(400, 'Resolution report must be an object of at most 32 KiB');
   const report = value as Record<string, unknown>;
   const required = ['version', 'status', 'action', 'target', 'recordedAt', 'reason', 'patch', 'before', 'after', 'checks',
-    ...(report.version === 'mas-k8s-resolution/2' ? ['operationId', 'attemptId', 'effectOutcome', 'verificationOutcome'] : [])];
+    ...(report.version === 'mas-k8s-resolution/2' ? ['operationId', 'attemptId', 'effectOutcome', 'verificationOutcome'] : []),
+    ...(Object.hasOwn(report, 'verificationEvidence') ? ['verificationEvidence'] : [])];
   if (Object.keys(report).length !== required.length || required.some(key => !(key in report)) || !['mas-k8s-resolution/1', 'mas-k8s-resolution/2'].includes(String(report.version)) || !validOutcomeCombination(report) ||
       !['verified', 'failed', 'not-attempted'].includes(String(report.status)) || report.action !== 'replace_readiness_probe_path' ||
       typeof report.recordedAt !== 'string' || !Number.isFinite(Date.parse(report.recordedAt)) || typeof report.reason !== 'string' || report.reason.length > 2000 ||
@@ -399,9 +401,12 @@ function validateResolution(value: unknown, run: Run): ResolutionReport {
     throw new RequestError(400, 'An applied effect requires an acknowledged patch check');
   }
   if (report.status === 'verified' && (!report.checks.length || report.checks.some(check => check.passed !== true))) throw new RequestError(400, 'A verified resolution requires successful verification checks');
+  try { validatePostChangeEvidence(report); }
+  catch (error) { throw new RequestError(400, error instanceof Error ? error.message : 'Invalid post-change evidence'); }
   if (report.status === 'verified') {
     const verificationChecks = report.checks as ResolutionReport['checks'];
-    const checks = ['Admission', 'Patch applied', 'Rollout', 'Template scope', 'New Pod ready', 'Functional HTTP', 'Fresh metrics'];
+    const checks = ['Admission', 'Patch applied', 'Rollout', 'Template scope', 'New Pod ready', 'Functional HTTP', 'Fresh metrics',
+      ...(report.verificationEvidence ? ['Post-change logs', 'Post-change events'] : [])];
     const before = report.before as Record<string, unknown> | null, after = report.after as Record<string, unknown> | null;
     const pod = after?.pod as Record<string, unknown> | undefined, metrics = after?.metrics as Record<string, unknown> | undefined;
     const application = after?.application as Record<string, unknown> | undefined;

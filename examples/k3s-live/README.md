@@ -27,7 +27,8 @@ service.** See [GitHub Actions](#github-actions) for the single required secret.
    all earlier candidates, criterion findings and supplied invocation inputs remain inspectable.
 6. A dedicated remediation controller can apply one allowed readiness-probe
    correction after the selected candidate passes its internal checks. It records the exact patch and checks
-   rollout, replacement Pod identity, application health and fresh metrics.
+   rollout, replacement Pod identity, application health, fresh metrics and
+   post-change probe logs and Events.
 
 ## Compare collected evidence with LLM-selected MCP tools
 
@@ -96,6 +97,12 @@ reopening the same run reuses completed calls. Unknown effects prevent automatic
 repetition. Shutdown prevents subsequent phase launch and asks each active host
 to cancel; already admitted work can settle before cancellation is acknowledged.
 
+The retained investigation `summary.limitations` combines the model's disclosures
+with limitations derived from the collected records, including truncation and
+unavailable or skipped observations. `modelSummary` preserves the original model
+output and `collectionLimitations` identifies the derived disclosures. The host
+observation is unchanged; an empty model list cannot hide missing evidence.
+
 The recording workflow pauses remediation until both approaches have acquired
 evidence from the same faulty Pod. Once MCP evidence is frozen, it restores the
 original remediation flow while the MCP assessment continues. Its downloadable
@@ -105,6 +112,13 @@ specifications and current endpoint logs before accepting a practical comparison
 This compares behaviour on one incident; it does not establish that one method
 has better diagnostic accuracy. A run initiated directly from the MCP tab does
 not create a Kubernetes remediation custom resource.
+
+To see the recorded repair, select **Collected evidence → View final** and scroll
+below the final assessment to **Tool execution and verification**. Its
+**Verified recovery** badge belongs to the controller's checks. The MCP archive
+also links to this separate outcome with **View controller verification** when
+both recordings concern the same Pod UID. It identifies the source run and makes
+clear that the MCP comparison did not execute another repair.
 
 After `make setup`, run application and real-host integration checks:
 
@@ -261,9 +275,29 @@ changed templates and replaced resources are rejected.
 A successful model response means **assessment completed**. **Verified recovery**
 requires the separate tool to observe the corrected Deployment rollout, a Ready
 replacement Pod owned by that Deployment, the expected HTTP response through its
-Service and fresh resource metrics. The archive retains the admitted patch,
-checks and before/after observations. A failed or incomplete verification remains
-visible and is never reported as recovery.
+Service and fresh resource metrics. It then observes the replacement for at least
+ten seconds and two configured readiness probe periods (at most thirty seconds),
+checking that its Ready transition and identity remain unchanged. Current
+`checkout` logs must contain a complete timestamped `GET /healthz` 200 record in
+that window and no observed failing health endpoint. Pod-UID-filtered Events must
+show no readiness Warning occurrence in the window. An aggregated Warning's latest
+occurrence matters; an earlier startup Warning is retained without being mistaken
+for an ongoing failure.
+
+The archive retains the admitted patch, checks, before/after observations and
+`verificationEvidence`: the replacement Pod identity, observation window, bounded
+HTTP log records and projected Events. These records are available in `outcome.json`,
+the durable journal and the dashboard's expandable exact evidence. Arbitrary log
+fields and noncanonical Event messages are omitted. API errors, oversized data,
+unparseable logs and undated readiness Warnings cannot establish recovery; available
+post-change evidence remains retained even when verification fails. A failed or
+incomplete verification remains visible and never triggers another patch. These
+observations establish recovery within the recorded window, not sustained health
+or completeness of Kubernetes Event delivery.
+
+Older archives retain their original seven checks and do not acquire invented
+logs or Events. New practical captures require the two additional checks and
+their retained evidence before reporting success.
 
 The controller reports through a dedicated authenticated endpoint. Deployment
 creates its token automatically and supplies it to the backend and remediator.
@@ -313,8 +347,8 @@ remediation service or an unrestricted exactly-once guarantee.
 Its Role grants patch access only to the named checkout Deployment. The
 admission code enforces the allowed field and value change; Kubernetes RBAC
 does not express that field restriction. The controller can read the Pods,
-ReplicaSets, metrics and named Service proxy needed for verification, and the
-demo namespace UID. It receives neither the provider key nor permission to
+ReplicaSets, current Pod logs, Pod Events, metrics and named Service proxy needed
+for verification, and the demo namespace UID. It receives neither the provider key nor permission to
 read Secrets, execute in Pods or mutate other Deployments.
 
 ## Execution outcomes and later observations

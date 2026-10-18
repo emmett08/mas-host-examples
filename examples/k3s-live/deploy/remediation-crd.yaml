@@ -73,7 +73,7 @@ spec:
                 ownerPodUID: {type: string, minLength: 1, maxLength: 128}
                 ownerPodName: {type: string, minLength: 1, maxLength: 253}
                 startedAt: {type: string, format: date-time}
-                reportJson: {type: string, minLength: 2, maxLength: 16384}
+                reportJson: {type: string, minLength: 2, maxLength: 32768}
                 reconciliations:
                   type: array
                   maxItems: 8

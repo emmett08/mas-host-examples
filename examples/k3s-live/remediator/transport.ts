@@ -8,6 +8,8 @@ const NAMESPACE = 'mas-demo';
 const DEPLOYMENT = 'mas-demo-checkout';
 const SELECTOR = 'app.kubernetes.io/name=mas-demo-checkout';
 const DNS_LABEL = /^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/;
+const UID = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,127}$/;
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const RUN_ID = /^[a-zA-Z0-9_-]{1,64}$/;
 const MAX_REPORT_BYTES = 64 * 1024;
 const MAX_SNAPSHOT_BYTES = 1024 * 1024;
@@ -64,6 +66,19 @@ export function createKubernetesExecutor(client: WorkloadAPI): (args: string[]) 
     }
     if (args.length === 5 && args[0] === 'get' && args[1] === 'pod' && DNS_LABEL.test(args[2]!) && args[3] === '-o' && args[4] === 'json') {
       return JSON.stringify(await client.get(`${core}/pods/${args[2]}`));
+    }
+    if (args.length === 6 && args[0] === 'get' && args[1] === 'events' && args[2] === '--field-selector' &&
+        args[3]!.startsWith('involvedObject.uid=') && UID.test(args[3]!.slice('involvedObject.uid='.length)) && args[4] === '-o' && args[5] === 'json') {
+      // A single bounded page retains continuation metadata so verification
+      // cannot treat an incomplete Event set as absence of readiness failures.
+      return JSON.stringify(await client.get(`${core}/events?fieldSelector=${encodeURIComponent(args[3]!)}&limit=13`));
+    }
+    if (args.length === 7 && args[0] === 'logs' && DNS_LABEL.test(args[1]!) && args[2] === '-c' && args[3] === 'checkout' &&
+        args[4] === '--timestamps=true' && args[5]!.startsWith('--since-time=') && args[6] === '--previous=false') {
+      const since = args[5]!.slice('--since-time='.length);
+      if (TIMESTAMP.test(since) && Number.isFinite(Date.parse(since))) {
+        return client.text(`${core}/pods/${args[1]}/log?container=checkout&timestamps=true&sinceTime=${encodeURIComponent(since)}&previous=false`, 4096);
+      }
     }
     if (args.length === 3 && args[0] === 'get' && args[1] === '--raw') {
       const metricsPrefix = `/apis/metrics.k8s.io/v1beta1/namespaces/${NAMESPACE}/pods/`;

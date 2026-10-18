@@ -2,11 +2,29 @@
 // effect; they neither grant execution authority nor encode Kubernetes policy.
 export type EffectOutcome = 'not_started' | 'rejected' | 'applied' | 'unknown';
 export type VerificationOutcome = 'not_run' | 'passed' | 'failed' | 'inconclusive';
+export interface PostChangeEvidence {
+  version: 'mas-k8s-post-change-evidence/1';
+  subject: { namespace: string; name: string; uid: string; container: 'checkout' };
+  window: { startedAt: string; endedAt: string };
+  logs: {
+    status: 'collected' | 'unavailable'; source: string; observedAt: string; truncated: boolean;
+    records: { timestamp: string; method: 'GET'; path: '/' | '/healthz' | '/readyz'; status: number }[];
+    omittedLines: number; unparsedLines: number; reason?: string;
+  };
+  events: {
+    status: 'collected' | 'unavailable'; source: string; observedAt: string; truncated: boolean;
+    items: { metadata: { name: string; uid: string }; involvedObject: { namespace: string; name: string; uid: string };
+      type: string; reason: string; message: string; count: number | null; readinessFailure: boolean;
+      firstTimestamp: string | null; lastTimestamp: string | null; eventTime: string | null; seriesLastObservedTime: string | null }[];
+    reason?: string;
+  };
+}
 interface ResolutionBase {
   status: 'verified' | 'failed' | 'not-attempted';
   action: 'replace_readiness_probe_path'; target: { namespace: string; name: string; uid: string };
   recordedAt: string; reason: string; patch: unknown[]; before: unknown; after: unknown;
   checks: { name: string; passed: boolean; detail: string }[];
+  verificationEvidence?: PostChangeEvidence;
 }
 export interface CurrentResolutionReport extends ResolutionBase {
   version: 'mas-k8s-resolution/2'; operationId: string; attemptId: string;

@@ -10,6 +10,7 @@ import test from 'node:test';
 import { InClusterKubernetesClient } from '../operator/client.js';
 import { createKubernetesExecutor, createRemediationTransport } from './transport.js';
 import type { ResolutionReport } from './controller.js';
+import { parseAllDocuments } from 'yaml';
 
 const patch = [
   { op: 'test', path: '/metadata/uid', value: 'deployment-uid' },
@@ -19,6 +20,7 @@ const patch = [
   { op: 'replace', path: '/spec/template/spec/containers/0/readinessProbe/httpGet/path', value: '/healthz' },
 ];
 const patchArgs = (value: unknown = patch) => ['patch', 'deployment', 'mas-demo-checkout', '--type=json', '-p', JSON.stringify(value), '-o', 'json'];
+const logArgs = ['logs', 'mas-demo-checkout-abcde-pod', '-c', 'checkout', '--timestamps=true', '--since-time=2026-10-18T07:00:00.000Z', '--previous=false'];
 
 test('direct HTTPS executor performs only fixed Kubernetes operations, rotates its token and preserves CAS content types', async t => {
   const folder = await mkdtemp(join(tmpdir(), 'mas-remediator-transport-'));
@@ -32,7 +34,9 @@ test('direct HTTPS executor performs only fixed Kubernetes operations, rotates i
     seen.push({ method: request.method!, url: request.url!, auth: request.headers.authorization,
       contentType: request.headers['content-type'], body });
     response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(request.url!.includes('/proxy/') ? 'MAS checkout service ready\n' :
+    response.end(request.url!.includes('/log?') ? '2026-10-18T07:00:01.000Z {"method":"GET","path":"/healthz","status":200}\n' :
+      request.url!.includes('/proxy/') ? 'MAS checkout service ready\n' :
+      request.url!.includes('fieldSelector=') ? JSON.stringify({ metadata: { continue: 'more-events' }, items: [] }) :
       request.url!.includes('labelSelector=') ? JSON.stringify({ items: [{ metadata: { name: 'managed-resource' } }] }) :
         JSON.stringify({ metadata: { uid: 'resource-uid', resourceVersion: '28' } }));
   });
@@ -56,6 +60,9 @@ test('direct HTTPS executor performs only fixed Kubernetes operations, rotates i
   await execute(['get', 'pod', 'mas-demo-checkout-abcde-pod', '-o', 'json']);
   await execute(['get', '--raw', '/apis/metrics.k8s.io/v1beta1/namespaces/mas-demo/pods/mas-demo-checkout-abcde-pod']);
   assert.equal(await execute(['get', '--raw', '/api/v1/namespaces/mas-demo/services/mas-demo-checkout:8081/proxy/']), 'MAS checkout service ready\n');
+  assert.match(await execute(logArgs), /healthz/);
+  assert.deepEqual(JSON.parse(await execute(['get', 'events', '--field-selector', 'involvedObject.uid=replacement-pod-uid', '-o', 'json'])),
+    { metadata: { continue: 'more-events' }, items: [] });
   await execute(patchArgs());
   const path = '/apis/demo.mas.dev/v1alpha1/namespaces/mas-demo/masremediations/action-one/status';
   const resource = { apiVersion: 'demo.mas.dev/v1alpha1', kind: 'MASRemediation', metadata: { name: 'action-one', resourceVersion: '19' },
@@ -65,6 +72,13 @@ test('direct HTTPS executor performs only fixed Kubernetes operations, rotates i
   assert.ok(seen.slice(1).every(item => item.auth === 'Bearer rotated-token'));
   assert.ok(seen.filter(item => item.url.includes('labelSelector=')).every(item =>
     new URL(item.url, 'https://kubernetes.test').searchParams.get('labelSelector') === 'app.kubernetes.io/name=mas-demo-checkout'));
+  const log = new URL(seen.find(item => item.url.includes('/log?'))!.url, 'https://kubernetes.test');
+  assert.equal(log.pathname, '/api/v1/namespaces/mas-demo/pods/mas-demo-checkout-abcde-pod/log');
+  assert.deepEqual(Object.fromEntries(log.searchParams), { container: 'checkout', timestamps: 'true', sinceTime: '2026-10-18T07:00:00.000Z', previous: 'false' });
+  const events = new URL(seen.find(item => item.url.includes('fieldSelector='))!.url, 'https://kubernetes.test');
+  assert.equal(events.pathname, '/api/v1/namespaces/mas-demo/events');
+  assert.equal(events.searchParams.get('fieldSelector'), 'involvedObject.uid=replacement-pod-uid');
+  assert.equal(events.searchParams.get('limit'), '13');
   const mutation = seen.find(item => item.method === 'PATCH')!;
   assert.equal(mutation.url, '/apis/apps/v1/namespaces/mas-demo/deployments/mas-demo-checkout');
   assert.equal(mutation.contentType, 'application/json-patch+json');
@@ -89,6 +103,12 @@ test('the compatibility adapter rejects arbitrary commands, cross-namespace path
     ['get', '--raw', 'https://external.test/api'], ['get', '--raw', '/apis/metrics.k8s.io/v1beta1/namespaces/production/pods/pod'],
     ['get', '--raw', '/apis/metrics.k8s.io/v1beta1/namespaces/mas-demo/pods/pod?extra=1'],
     ['get', '--raw', '/api/v1/namespaces/mas-demo/services/other:8081/proxy/'],
+    ['get', 'events', '--field-selector', 'type=Warning', '-o', 'json'],
+    ['get', 'events', '--field-selector', 'involvedObject.uid=one,type=Warning', '-o', 'json'],
+    logArgs.map((value, index) => index === 3 ? 'sidecar' : value),
+    logArgs.map((value, index) => index === 5 ? '--since-time=anything&container=sidecar' : value),
+    logArgs.map((value, index) => index === 6 ? '--previous=true' : value),
+    logArgs.map((value, index) => index === 1 ? '../another-pod' : value),
     ['exec', 'pod', '--', 'sh'], ['delete', 'deployment', 'mas-demo-checkout'],
     patchArgs([{ op: 'replace', path: '/spec/template/spec/containers/0/image', value: 'malicious' }]),
     patchArgs([...patch, { op: 'replace', path: '/spec/replicas', value: 2 }]),
@@ -97,6 +117,23 @@ test('the compatibility adapter rejects arbitrary commands, cross-namespace path
   ];
   for (const args of invalid) await assert.rejects(execute(args), /Unsupported|admitted|requires exact/);
   assert.equal(calls, 0);
+});
+
+test('post-change logs have a transport byte ceiling and the remediator gets only read access to logs and Events', async () => {
+  let capturedLimit;
+  const unexpected = async () => { throw new Error('Unexpected API call'); };
+  const execute = createKubernetesExecutor({ get: unexpected, list: unexpected, patchJSON: unexpected,
+    text: async (_path, maximum) => { capturedLimit = maximum; throw new Error('Kubernetes response exceeds byte limit'); } });
+  await assert.rejects(execute(logArgs), /byte limit/);
+  assert.equal(capturedLimit, 4096);
+  const documents = parseAllDocuments(await readFile(new URL('../deploy/remediator.yaml', import.meta.url), 'utf8')).map(document => document.toJSON());
+  const role = documents.find(document => document.kind === 'Role' && document.metadata.name === 'mas-demo-remediator');
+  for (const [resource, verbs] of [['pods/log', ['get']], ['events', ['list']]] as const) {
+    const rules = role.rules.filter((rule: { resources?: string[] }) => rule.resources?.includes(resource));
+    assert.equal(rules.length, 1);
+    assert.deepEqual(rules[0].apiGroups, ['']);
+    assert.deepEqual(rules[0].verbs, verbs);
+  }
 });
 
 test('backend transport uses the fixed namespace Service, bounded snapshots and authenticated report requests', async t => {

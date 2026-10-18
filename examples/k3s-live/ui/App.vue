@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import TopologyCanvas from "./components/TopologyCanvas.vue";
 import AssessmentPanel from "./components/AssessmentPanel.vue";
 import { ArchivePlayback, archiveTime, playbackTime, type PlaybackFrame } from "./archive";
-import { approachOf, approachRuns, archiveRuns, phaseMessages, selectApproachRun, type Phase } from "./approach";
+import { approachOf, approachRuns, archiveRuns, phaseMessages, recordedRecoverySource, selectApproachRun, type Phase } from "./approach";
 import {
   deduplicateMessages,
   formatDuration,
@@ -108,6 +108,8 @@ const hasOutput = computed(
 const investigation = computed(() => currentRun.value?.investigation);
 const evidence = computed(() => approach.value === "mcp" ? investigation.value?.evidence : currentRun.value?.input?.incident?.evidence);
 const resolution = computed(() => currentRun.value?.resolution);
+const recoverySource = computed(() => hasOutput.value ? recordedRecoverySource(availableArchives.value, currentRun.value) : undefined);
+const recordedRecovery = computed(() => recoverySource.value?.resolution);
 const executionLabels = computed(() => resolution.value ? outcomeLabels(resolution.value) : undefined);
 const reconciliations = computed(() => currentRun.value?.reconciliations ?? []);
 const resolutionLabel = computed(() => resolution.value?.status === "verified"
@@ -506,6 +508,16 @@ function restartPlayback() {
 
 function finalPlayback() {
   if (playbackClock) applyPlayback(playbackClock.final(), true);
+}
+
+async function viewRecordedRecovery() {
+  if (!recoverySource.value) return;
+  await selectApproach("collected");
+  finalPlayback();
+  await nextTick();
+  const title = document.getElementById("resolution-title");
+  title?.focus({ preventScroll: true });
+  title?.scrollIntoView({ block: "center" });
 }
 
 function changePlaybackSpeed(event: Event) {
@@ -1155,9 +1167,21 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
+      <section v-if="recordedRecovery" class="panel comparison-resolution-panel" aria-labelledby="comparison-resolution-title" :data-source-run-id="recoverySource?.id">
+        <div class="panel-heading">
+          <div><span class="section-kicker">SEPARATE RECORDING · COLLECTED EVIDENCE</span><h2 id="comparison-resolution-title">Recorded controller outcome</h2></div>
+          <span class="resolution-state" :class="recordedRecovery.status">{{ recordedRecovery.status === 'verified' ? 'Verified recovery' : recordedRecovery.status === 'failed' ? 'Recovery not verified' : 'Needs engineer' }}</span>
+        </div>
+        <div class="output-body">
+          <p class="assessment-summary">The dedicated controller recorded this outcome for the same incident in Collected evidence. This MCP comparison produced an assessment and did not execute a second repair.</p>
+          <p class="output-note">Final outcome of run {{ recoverySource?.id }}, recorded {{ recordingDate(recordedRecovery.recordedAt) }}. The two recordings have separate playback timelines.</p>
+          <button class="playback-button" @click="viewRecordedRecovery">View controller verification</button>
+        </div>
+      </section>
+
       <section v-if="resolution" class="panel resolution-panel" aria-labelledby="resolution-title" :data-resolution-status="resolution.status">
         <div class="panel-heading">
-          <div><span class="section-kicker">TOOL EXECUTION AND VERIFICATION</span><h2 id="resolution-title">{{ resolution.target.namespace }} / {{ resolution.target.name }}</h2></div>
+          <div><span class="section-kicker">TOOL EXECUTION AND VERIFICATION</span><h2 id="resolution-title" tabindex="-1">{{ resolution.target.namespace }} / {{ resolution.target.name }}</h2></div>
           <span class="resolution-state" :class="resolution.status">{{ resolutionLabel }}</span>
         </div>
         <div class="output-body">
@@ -1166,7 +1190,7 @@ onBeforeUnmount(() => {
           <p v-if="resolution.version === 'mas-k8s-resolution/2'" class="output-note">Operation {{ resolution.operationId }} · Attempt {{ resolution.attemptId }}</p>
           <p class="output-note">Recorded {{ recordingDate(resolution.recordedAt) }} by the constrained demo verifier. This result is separate from the LLM assessment.</p>
           <ul class="verification-checks"><li v-for="check in resolution.checks" :key="check.name" :class="{ failed: !check.passed }"><strong>{{ check.passed ? 'Passed' : 'Failed' }} · {{ check.name }}</strong><span>{{ check.detail }}</span></li></ul>
-          <details class="assessment-details"><summary>Exact patch and before / after evidence</summary><pre>{{ display({ patch: resolution.patch, before: resolution.before, after: resolution.after }) }}</pre></details>
+          <details class="assessment-details"><summary>Exact patch and before / after evidence</summary><pre>{{ display({ patch: resolution.patch, before: resolution.before, after: resolution.after, ...(resolution.verificationEvidence ? { verificationEvidence: resolution.verificationEvidence } : {}) }) }}</pre></details>
           <div v-if="reconciliations.length" class="reconciliation-observations">
             <h3>Later workload observations</h3>
             <p class="output-note">These reads preserve the original attempt outcome. Seeing the desired template does not establish which actor applied it or authorise another attempt.</p>

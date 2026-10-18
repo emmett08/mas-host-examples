@@ -45,7 +45,7 @@ async function checkPlaybackPlacement(page, recording) {
       graphTop: graphBox.top + scrollY,
       boardTop: board.getBoundingClientRect().top + scrollY,
       scrollY,
-      resultsFollowGraph: [...document.querySelectorAll('.investigation-panel, .evidence-panel, .assessment-panel, .output-panel, .resolution-panel')]
+      resultsFollowGraph: [...document.querySelectorAll('.investigation-panel, .evidence-panel, .assessment-panel, .output-panel, .resolution-panel, .comparison-resolution-panel')]
         .every(panel => panel.getBoundingClientRect().top >= graphBox.bottom),
     };
   });
@@ -235,7 +235,8 @@ export async function checkArchive(directory, launchOptions = {}) {
       }
       await panel.locator('.assessment-details summary').first().click();
       assert.deepEqual(JSON.parse(await panel.locator('.assessment-details pre').first().innerText()),
-        { patch: resolution.patch, before: resolution.before, after: resolution.after },
+        { patch: resolution.patch, before: resolution.before, after: resolution.after,
+          ...(resolution.verificationEvidence ? { verificationEvidence: resolution.verificationEvidence } : {}) },
         'The recovery inspector must display the captured patch and before/after evidence unchanged');
     }
     const row = page.locator('.event-table tbody tr').first();
@@ -330,6 +331,30 @@ export async function checkArchive(directory, launchOptions = {}) {
       await page.setViewportSize({ width: 1440, height: 1100 });
       comparisonChecks.push('canvas-size-desktop-mobile');
       await tab(primaryApproach).click();
+    }
+    const recordings = [archive, ...(archive.comparisons ?? [])];
+    const collectedRecording = recordings.find(item => (item.snapshots[0].run.approach ?? 'collected') === 'collected');
+    const mcpRecording = recordings.find(item => item.snapshots[0].run.approach === 'mcp');
+    const collectedRun = collectedRecording?.snapshots.at(-1).run;
+    const comparisonSubject = mcpRecording?.snapshots.at(-1).run.investigation?.evidence?.subject;
+    const collectedSubject = collectedRun?.input?.incident?.evidence?.subject;
+    if (collectedRun?.resolution && comparisonSubject?.uid && ['namespace', 'name', 'uid'].every(key => comparisonSubject[key] === collectedSubject?.[key])) {
+      await tab('mcp').click();
+      await page.getByRole('button', { name: 'View final', exact: true }).click();
+      const pointer = page.locator('.comparison-resolution-panel');
+      assert.equal(await pointer.getAttribute('data-source-run-id'), collectedRun.id);
+      assert.match(await pointer.innerText(), /did not execute a second repair/);
+      assert.match(await pointer.innerText(), /separate playback timelines/);
+      assert.equal(await page.locator('.resolution-panel').count(), 0, 'The comparison must not inherit the other run\'s resolution');
+      await pointer.getByRole('button', { name: 'View controller verification', exact: true }).click();
+      assert.equal(await tab('collected').getAttribute('aria-selected'), 'true');
+      assert.equal(await page.locator('.resolution-panel').getAttribute('data-resolution-status'), collectedRun.resolution.status);
+      assert.equal(await page.locator('#run-picker').inputValue(), collectedRun.id);
+      assert.equal(await page.locator('#resolution-title').evaluate(element => element === document.activeElement), true);
+      await tab('mcp').click();
+      await page.getByRole('button', { name: 'Restart', exact: true }).click();
+      if (!mcpRecording.snapshots[0].run.output) assert.equal(await pointer.count(), 0, 'The comparison pointer follows its assessment during playback');
+      comparisonChecks.push('attributed-controller-outcome-navigation');
     }
     for (const viewport of [{ width: 1440, height: 1100 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(viewport);

@@ -289,7 +289,7 @@ test('real host records four MCP tools, freezes their evidence, assesses a revis
   const contextFile = join(directory, 'investigation', 'context.json');
   const investigationInput = join(directory, 'investigation', 'input.json');
   assert.deepEqual(await host.runInvestigation(id, investigationInput, acquisitionState, 'fixture', contextFile,
-    run.investigation!.contextSha256!), run.investigation!.summary);
+    run.investigation!.contextSha256!), run.investigation!.modelSummary);
   const replayed = await host.observe(id, acquisitionState, true);
   assert.deepEqual(replayed.steps, acquired.steps);
   assert.deepEqual(replayed.calls, acquired.calls);

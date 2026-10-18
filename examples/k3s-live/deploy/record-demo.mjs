@@ -8,6 +8,7 @@ import { isDeepStrictEqual, promisify } from 'node:util';
 import { parseAllDocuments } from 'yaml';
 import { validatePracticalEvidence } from './remediation.mjs';
 import { canonicalJson, parseRevisionAudit } from '../shared/revision.mjs';
+import { validatePostChangeEvidence } from '../shared/post-change-evidence.mjs';
 
 const execute = promisify(execFile);
 const namespace = 'mas-demo';
@@ -55,6 +56,7 @@ export function validateControllerResolution(snapshot, journal, sourceRunUID) {
   if (!isDeepStrictEqual(JSON.parse(journal.status.reportJson), resolution)) {
     throw new Error('The captured recovery differs from the durable controller report');
   }
+  validatePostChangeEvidence(resolution, { required: true });
   return true;
 }
 

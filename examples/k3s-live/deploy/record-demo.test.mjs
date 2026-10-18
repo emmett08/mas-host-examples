@@ -220,6 +220,17 @@ test('recording requires the actual finished controller journal to match its pub
   snapshot.run.output = { requires_human: false, remediation: { action: 'replace_readiness_probe_path' } };
   assert.equal(validateControllerResolution(snapshot, undefined, 'source-uid'), false);
   snapshot.run.resolution = { version: 'mas-k8s-resolution/2', effectOutcome: 'applied', verificationOutcome: 'passed', status: 'verified', reason: 'Ready, HTTP 200 and metrics verified' };
+  const report = snapshot.run.resolution;
+  Object.assign(report, { target: { namespace: 'mas-demo' }, recordedAt: '2026-10-18T07:00:20Z',
+    before: { observedAt: '2026-10-18T07:00:00Z' },
+    after: { observedAt: '2026-10-18T07:00:20Z', pod: { name: 'replacement', uid: 'new-pod', readyTransitionTime: '2026-10-18T07:00:04Z' } },
+    checks: ['Post-change logs', 'Post-change events'].map(name => ({ name, passed: true })),
+    verificationEvidence: { version: 'mas-k8s-post-change-evidence/1',
+      subject: { namespace: 'mas-demo', name: 'replacement', uid: 'new-pod', container: 'checkout' },
+      window: { startedAt: '2026-10-18T07:00:05Z', endedAt: '2026-10-18T07:00:18Z' },
+      logs: { status: 'collected', source: 'Kubernetes API logs', observedAt: '2026-10-18T07:00:17Z', truncated: false,
+        records: [{ timestamp: '2026-10-18T07:00:15Z', method: 'GET', path: '/healthz', status: 200 }], omittedLines: 0, unparsedLines: 0 },
+      events: { status: 'collected', source: 'Kubernetes API events', observedAt: '2026-10-18T07:00:18Z', truncated: false, items: [] } } });
   const journal = { spec: { runId: snapshot.run.id, sourceRunUID: 'source-uid' },
     status: { phase: 'Finished', reportJson: JSON.stringify(snapshot.run.resolution) } };
   assert.equal(selectRemediationForRun([{ spec: { runId: 'old-run' } }, journal], snapshot.run.id), journal);
@@ -229,6 +240,10 @@ test('recording requires the actual finished controller journal to match its pub
   assert.throws(() => validateControllerResolution(snapshot, journal, 'other-source'), /no matching finished/);
   assert.throws(() => validateControllerResolution(snapshot, { ...journal, status: { ...journal.status, phase: 'Applying' } }, 'source-uid'), /no matching finished/);
   assert.throws(() => validateControllerResolution(snapshot, { ...journal, status: { ...journal.status, reportJson: '{}' } }, 'source-uid'), /differs from/);
+  const noProof = structuredClone(snapshot); delete noProof.run.resolution.verificationEvidence;
+  assert.throws(() => validateControllerResolution(noProof, { ...journal, status: { phase: 'Finished', reportJson: JSON.stringify(noProof.run.resolution) } }, 'source-uid'), /requires retained logs and events/);
+  const truncated = structuredClone(snapshot); truncated.run.resolution.verificationEvidence.events.truncated = true;
+  assert.throws(() => validateControllerResolution(truncated, { ...journal, status: { phase: 'Finished', reportJson: JSON.stringify(truncated.run.resolution) } }, 'source-uid'), /complete observations/);
   snapshot.run.resolution.status = 'failed';
   assert.throws(() => validateControllerResolution(snapshot, journal, 'source-uid'), /Practical recovery was failed/);
 });

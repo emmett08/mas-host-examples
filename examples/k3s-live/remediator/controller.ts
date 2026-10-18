@@ -10,7 +10,7 @@ export const POLICY_VERSION = 'mas-k8s-remediation/1';
 export const NAMESPACE = 'mas-demo';
 export const RUN_PATH = `/apis/demo.mas.dev/v1alpha1/namespaces/${NAMESPACE}/masdemoruns`;
 export const JOURNAL_PATH = `/apis/demo.mas.dev/v1alpha1/namespaces/${NAMESPACE}/masremediations`;
-const MAX_REPORT_BYTES = 16 * 1024;
+const MAX_REPORT_BYTES = 32 * 1024;
 
 export interface Snapshot {
   run: {
