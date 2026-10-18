@@ -1,9 +1,11 @@
 /** Run the real host/source-repair/k3s path and publish progress while it runs. */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, createWriteStream } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, createWriteStream, unlinkSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
+import { Journal } from '../controller/journal.js';
+import { Deployment } from '../controller/deployment.js';
 
 const { values } = parseArgs({ options: {
   mode: { type: 'string', default: 'fixture' }, case: { type: 'string', default: 'missing-route' },
@@ -87,6 +89,27 @@ try {
   };
   if (preflight.context !== 'k3d-self-remediation') throw new Error('Integration requires the disposable k3d-self-remediation context');
   writeFileSync(join(output, 'integration-preflight.json'), JSON.stringify(preflight, null, 2) + '\n', { flag: 'wx', mode: 0o400 });
+  // Exercise the actual host-bound image exporter before the repair loop. This
+  // trusted-builder control has no provider calls and is not candidate evidence.
+  const exportDirectory = join(output, 'image-preflight');
+  const exportJournal = new Journal(exportDirectory, 'image-export-preflight', {
+    calls: 0, candidates: 0, microUsd: 0, operations: 1, wallMs: 300_000,
+  });
+  try {
+    exportJournal.put('attempt', incident);
+    const exporter = new Deployment(exportJournal, { binary: process.env.MAS_HOST_BIN,
+      sdkRoot: process.env.MAS_SDK_ROOT ?? resolve('../../.tools/mas-host'),
+      stateDir: join(exportDirectory, 'host'), projectTemplate: resolve('project') }, 'image-preflight', []);
+    const archive = await exporter.operation<{ path: string; sha256: string; configDigest: string }>('image-preflight.export', {
+      operation: 'export', imageConfigDigest: process.env.MAS_SANDBOX_IMAGE, archivePath: join(exportDirectory, 'builder-control.tar'),
+    });
+    writeFileSync(join(output, 'image-export-preflight.json'), JSON.stringify({
+      status: 'passed', scope: 'Trusted builder-image transport control; not candidate verification', archive,
+      operationId: 'image-preflight.export', archiveRemovedAfterVerification: true,
+    }, null, 2) + '\n', { flag: 'wx', mode: 0o400 });
+    unlinkSync(archive.path);
+    process.stdout.write('Host-bound immutable image export preflight passed.\n');
+  } finally { exportJournal.checkpoint(); exportJournal.close(); }
   const checkpointEnv: NodeJS.ProcessEnv = { SELF_REMEDIATION_MODE: values.mode, ACTIONS_ARTIFACT_UPLOAD_TIMEOUT_MS: '30000' };
   for (const key of ['PATH', 'HOME', 'GITHUB_ACTIONS', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_SHA', 'GITHUB_SERVER_URL',
     'GITHUB_WORKSPACE', 'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL', 'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY'])
