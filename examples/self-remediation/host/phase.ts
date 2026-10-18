@@ -5,7 +5,7 @@ import { cp, mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const PINNED_HOST = 'c71d958ee774c4e60bd74b4780f3f695a5d818b7';
+export const PINNED_HOST = 'f3cc7cb1894bebd45c2d708edec27c4b8171be1a';
 export type PhaseKind = 'investigation' | 'synthesis' | 'review';
 export type PhaseOptions = {
   mode: 'fixture' | 'live'; stateDir?: string; model?: string; maxCalls?: number; wallSeconds?: number;

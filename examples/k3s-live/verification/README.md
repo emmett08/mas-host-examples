@@ -4,6 +4,10 @@ This example uses the existing MAS version 1 `Request`, `Result` and `Failure`
 messages. It adds no protocol syntax, message kind or delivery rule. The browser
 observes stored evidence; it does not receive or acknowledge agent messages.
 
+The [provider-result assessment](provider-results.md) records the October 2026
+output-selection and CI failures, the pinned host contract, and fresh verification
+evidence for these application models and real-host replay tests.
+
 `hybrid.pml` checks the application's bounded request choreography. The slots
 represent eight distinct invocations, including two invocations of the same
 security reviewer. Actor identity and task identity are separate.

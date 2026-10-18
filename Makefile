@@ -5,7 +5,8 @@ SHELL := /bin/bash
 .NOTPARALLEL:
 
 export MAS_HOST_SDK_ROOT := $(CURDIR)/.tools/mas-host
-export MAS_HOST_BIN := $(MAS_HOST_SDK_ROOT)/target/debug/mas-host
+export MAS_HOST_BUILD_PROFILE ?= debug
+export MAS_HOST_BIN := $(MAS_HOST_SDK_ROOT)/target/$(MAS_HOST_BUILD_PROFILE)/mas-host
 export PYTHONPATH := $(MAS_HOST_SDK_ROOT)/sdk/python
 export PYTHONDONTWRITEBYTECODE := 1
 export GOWORK := off

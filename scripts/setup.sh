@@ -3,6 +3,13 @@
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
+profile="${MAS_HOST_BUILD_PROFILE:-debug}"
+build_options=()
+case "$profile" in
+  debug) ;;
+  release) build_options+=(--release) ;;
+  *) echo 'MAS_HOST_BUILD_PROFILE must be debug or release.' >&2; exit 1 ;;
+esac
 if [[ "$(uname -s)" != Linux ]]; then
   echo 'The pinned MAS host requires Linux; use a Linux VM or the GitHub Actions workflow.' >&2
   exit 1
@@ -27,5 +34,5 @@ fi
 git -C "$distribution" diff --quiet HEAD -- || { echo 'Host checkout has modified tracked files.' >&2; exit 1; }
 # Specify the target directory so the documented executable path remains stable.
 cargo build --locked --manifest-path "$distribution/Cargo.toml" \
-  --target-dir "$distribution/target" -p mas-host
-"$distribution/target/debug/mas-host" --version
+  --target-dir "$distribution/target" "${build_options[@]}" -p mas-host
+"$distribution/target/$profile/mas-host" --version

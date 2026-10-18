@@ -58,6 +58,13 @@ through ordinary relative dependency replacements. Neither upstream repository
 is modified. Generated application files are ignored under each example's
 `.mas/build/` directory.
 
+The default build profile is `debug`. Use
+`make setup MAS_HOST_BUILD_PROFILE=release` and pass the same setting to later
+Make commands for an optimised host. Conformance CI uses `release`, matching the
+k3s deployment: repeated executable hashing and real-host launches otherwise
+dominate the HTTP/MCP suite. Binary and SDK identity checks, scenarios and test
+deadlines are unchanged.
+
 Each command prints JSON with `status: "completed"` and an application `output`.
 The Go input needs three rounds to provision sufficient capacity. The other
 examples' inputs and documented expected outputs are in their directories.

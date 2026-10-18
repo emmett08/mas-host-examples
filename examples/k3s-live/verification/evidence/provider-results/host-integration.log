@@ -1,0 +1,46 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> mas-k3s-live-demo@0.1.0 test:host
+> node --import tsx --test server/*.integration.ts
+
+✔ real MAS host exercises the hybrid branch, correlated replies, and durable replay (821.553856ms)
+✔ recording fixture command providers produce schema-valid results with observable active message growth (15663.44002ms)
+✔ real host retains a defective draft, exact findings and bounded revision; replay adds no work (1145.45407ms)
+✔ mixed native and model-adapter reviews count only the exact candidate and frozen review context (1095.873731ms)
+▶ host rejects forged evaluator bindings and foreign evidence, retains exhausted history, and replays no work
+  ✔ candidate (956.82834ms)
+  ✔ rubric (890.357301ms)
+  ✔ evaluator (846.61913ms)
+  ✔ evidence (836.961003ms)
+✔ host rejects forged evaluator bindings and foreign evidence, retains exhausted history, and replays no work (3532.155012ms)
+✔ reserved source identities fail preflight before dispatching a scripted provider or deterministic worker (396.99098ms)
+✔ a supplied bundle with an impossible root reply route starts no worker or provider call (155.117958ms)
+✔ real host forwards evidence through both reviews and returns a schema-valid identity-bound readiness proposal (470.278489ms)
+✔ a real host HTTP rejection retains safe diagnostics without repeating model calls (414.459214ms)
+▶ OpenAI HTTP investigation selects final output, enforces tool coverage and retains rejected decisions without retries
+  ✔ valid (3676.585494ms)
+  ✔ explicit-log-arguments (3433.398131ms)
+  ✔ alternate-order (3505.445922ms)
+  ✔ repeated-output (3568.005341ms)
+  ✔ repeated-invalid-decision (1216.60992ms)
+  ✔ invalid-json (1261.788384ms)
+  ✔ invalid-decision (1280.744872ms)
+  ✔ commentary-only (1256.366871ms)
+  ✔ multiple-output (1261.118442ms)
+  ✔ conflicting-output-after-tool (1857.763751ms)
+  ✔ early-completion (1286.459849ms)
+  ✔ partial-completion (1814.746658ms)
+  ✔ duplicate-request (1794.1089ms)
+  ✔ legacy-required-log-arguments (2304.329827ms)
+  ✔ log-scope-override (2447.822592ms)
+✔ OpenAI HTTP investigation selects final output, enforces tool coverage and retains rejected decisions without retries (31969.590665ms)
+✔ real host records four MCP tools, freezes their evidence, assesses a revision and replays no work (4614.002051ms)
+✔ recovery after acquisition completed but before freeze reuses the exact context and all tool outcomes (4406.453304ms)
+ℹ tests 31
+ℹ suites 0
+ℹ pass 31
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 41223.592058

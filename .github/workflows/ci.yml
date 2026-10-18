@@ -37,6 +37,10 @@ jobs:
   conformance:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # Match the deployment build: debug hashing dominates repeated real-host runs.
+    env:
+      MAS_HOST_BUILD_PROFILE: release
+      MAS_HOST_BIN: ${{ github.workspace }}/.tools/mas-host/target/release/mas-host
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -74,7 +78,7 @@ jobs:
       - name: Verify mixed-agent protocol and assessment conformance through the pinned host
         working-directory: examples/k3s-live
         env:
-          MAS_HOST_BIN: ${{ github.workspace }}/.tools/mas-host/target/debug/mas-host
+          MAS_HOST_BIN: ${{ github.workspace }}/.tools/mas-host/target/release/mas-host
           MAS_SDK_ROOT: ${{ github.workspace }}/.tools/mas-host
         run: |
           npm ci --ignore-scripts

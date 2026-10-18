@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 sdk="$root/.tools/mas-host"
-host="$sdk/target/debug/mas-host"
+host="${MAS_HOST_BIN:-$sdk/target/debug/mas-host}"
 mkdir -p .reports
 for project in rust-order; do
   "$host" build --project "examples/$project" --sdk-root "$sdk"
