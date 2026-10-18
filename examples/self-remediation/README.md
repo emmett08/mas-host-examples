@@ -126,18 +126,29 @@ The official GitHub MCP integration requires a frozen admitted schema digest, re
 
 A runner's web server is not automatically reachable from your browser. This example publishes redacted event windows to a dedicated Check Run approximately every **12 seconds**. A local Node observer polls that Check Run through server-side `gh` authentication and serves Vue plus SSE on loopback.
 
-1. Authenticate GitHub CLI locally with access to the repository's checks.
+1. Authenticate GitHub CLI locally with read access to the repository's Actions and Checks.
 2. Download the **self-remediation-observer-RUN-ATTEMPT** artefact. The fixture job uploads it before the live job begins.
-3. Extract it, then copy the complete observer command printed after the publisher acknowledges its first Check Run update. It includes the exact workflow SHA, incident identity and `--check` ID:
+3. Extract the ZIP, open a terminal in that folder and run:
 
 ```sh
-node observe.mjs --repo emmett08/mas-host-examples \
-  --sha EXACT_WORKFLOW_COMMIT --incident INCIDENT_ID
+bash start.command
 ```
 
-Open **http://127.0.0.1:4318** before the live job completes. Add `--check CHECK_RUN_ID` when that identity is already known. No local Kubernetes is required. `gh` credentials remain in the local Node process and never enter browser JavaScript or candidate execution.
+Then open **http://127.0.0.1:4318**. The equivalent cross-platform command is `node start.mjs`. No npm installation or local Kubernetes is required.
 
-Credential-free fixture jobs do not publish this progress Check Run. A live job that stops at configuration validation has not started an observable incident. For a completed fixture, extract its separate diagnostics/replay artefact and open `archive/index.html`, or point `node observe.mjs --events /absolute/path/to/events.jsonl --incident INCIDENT_ID` at the extracted journal. The observer bundle itself contains the server and UI, while the replay artefact contains the incident data.
+The bundle's `run.json` records the repository, exact workflow SHA, run ID, attempt, incident IDs and artefact names. A requested live run is the default. `node start.mjs --mode fixture` selects the separately recorded control case. The launcher resolves the exact download within that run and attempt, downloads available completed evidence and validates its incident before serving replay. While a live incident is active, it discovers the acknowledged progress Check Run. Pending fixture data, failed live setup and expired artefacts produce an explanation before the viewer starts.
+
+The launcher prints the downloaded `archive/index.html` path when available. That file opens directly without Node. The explicit `observe.mjs --events ... --incident ...` and `observe.mjs --repo ... --sha ... --incident ...` interfaces remain available. Local builds without GitHub run metadata use those explicit interfaces.
+
+The ZIP also includes optional MCP setup:
+
+```sh
+bash setup-github-mcp.command
+```
+
+This discovers `actions_get`, saves the schema and its runtime-compatible SHA-256 digest, and displays them for review. Typing `configure` saves `SELF_REMEDIATION_GITHUB_MCP_SCHEMA_SHA256` to the recorded repository's `self-remediation-live` environment. The helper uses `SELF_REMEDIATION_GITHUB_READ_TOKEN` when set, otherwise the existing local `gh` credential. It never writes the token to a file. Discovery without an environment update is `node discover-github-mcp-schema.mjs`.
+
+The workflow's read-token secret still requires separate configuration. Viewing and schema setup do not start a repair workflow. The bundle carries no credentials. GitHub assigns numerical artefact IDs after upload, so the launcher looks them up using the exact recorded name and run instead of guessing them at build time.
 
 On macOS, first confirm that `node --version` starts successfully. A `dyld: Library not loaded` error occurs before JavaScript execution and requires repairing or selecting a working Node installation. Homebrew's supported Node 24 installation can be selected for the current shell:
 
