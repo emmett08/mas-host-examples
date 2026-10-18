@@ -9,12 +9,18 @@ import { canonical } from '../deploy/effects.js';
 import { sha256 } from '../tools/projection.js';
 import { registryDigest, requireCapability } from '../tools/capabilities.js';
 import { reconcileNativeReceipt, UnresolvedNativeEffect } from '../scripts/reconcile.js';
+import { PINNED_HOST } from '../host/phase.js';
+
+test('the self-remediation host identity matches the revision installed by repository setup', async () => {
+  const revision = (await readFile(new URL('../../../host-revision.txt', import.meta.url), 'utf8')).trim();
+  assert.equal(PINNED_HOST, revision);
+});
 
 async function setup(t:any, completed=true) {
   const directory=await mkdtemp(join(tmpdir(),'mas-native-reconcile-'));t.after(()=>rm(directory,{recursive:true,force:true}));
   const runId='incident.test',operationId=runId,incidentId='incident',invocation='eff-test-control';
   const host={binary:'/trusted/control-host',sdkRoot:'/trusted/control-sdk',stateDir:join(directory,'host')};
-  const hostIdentity={sourceRevision:'8df16b640b78999b5eba60d83f2695f29052aaa2',binarySha256:'a'.repeat(64)};
+  const hostIdentity={sourceRevision:PINNED_HOST,binarySha256:'a'.repeat(64)};
   const capability=requireCapability('test'), input={operationId}, project=join(host.stateDir,'tool-projects',runId);
   await mkdir(join(project,'.mas/build'),{recursive:true});await mkdir(join(host.stateDir,'tool-contexts'),{recursive:true});
   await mkdir(join(directory,'contexts'));await mkdir(join(directory,'tool-artefacts'));

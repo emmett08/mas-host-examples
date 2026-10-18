@@ -1,7 +1,7 @@
 # Pinned host boundary
 
 `phase.ts` and `tool.ts` use the MAS host pinned by the repository's
-`host-revision.txt`: `8df16b640b78999b5eba60d83f2695f29052aaa2`.
+`host-revision.txt`: `c71d958ee774c4e60bd74b4780f3f695a5d818b7`.
 Each invocation verifies the SDK checkout's exact revision and clean tracked
 files and records the executable SHA-256. The workflow builds that executable
 from the identified checkout. This does not attest a third-party binary's build.
