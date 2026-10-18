@@ -83,6 +83,16 @@ This establishes actual tool and controller behaviour for one scripted missing-r
 
 No paid/live workflow, demonstration merge or production promotion was dispatched as part of local validation. The implementation PR is separate from the repair PR that a future admitted demonstration may publish.
 
+## Live startup follow-up
+
+[Live run 39125081773, job 117671911252](https://github.com/emmett08/mas-host-examples/actions/runs/39125081773/job/117671911252) ran merged main `089365b2c9b6eff069d6b3a0c1df7efe0bb71f7e`, selected `business-logic`, and stopped before provider execution. The job received empty `OPENAI_API_KEY` and `SELF_REMEDIATION_MODEL` settings. Its official GitHub MCP token and schema digest were also empty. The error was `Live provider credential unavailable`. No progress Check Run or committed incident journal was created.
+
+The follow-up adds a dependency-free configuration check before host compilation, image builds and cluster creation, and repeats it inside the integration wrapper. It reports required omissions together, retains a redacted JSON report and Actions summary, and preserves optional MCP absence as an unexecuted acceptance gate. Partially configured MCP grants remain blocking. The publisher now prints a complete observer command with an exact Check Run ID only after an acknowledged update. Lost responses still require reconciliation.
+
+The supplied Mac screenshots independently show Homebrew Node 25.6.0 failing in the dynamic loader because `libllhttp.9.3.dylib` is missing. JavaScript had not started. The main README and built observer instructions now describe selecting a working Node 24 runtime, checking its version, and viewing the offline archive without Node.
+
+Local follow-up verification: build passed; **110 tests passed, zero skipped or failed**, including both Chromium tests; actionlint and `git diff --check` passed. Seven new configuration controls cover the observed missing settings, redaction, optional MCP configuration, reservation bounds, effect-free CLI validation and retained integration failure. An eighth control verifies that an observer command becomes available only after acknowledged Check Run publication. The user's Mac runtime and live provider configuration require owner action; no paid/live retry was dispatched for this follow-up.
+
 ## Current boundaries
 
 - Application source and `config.json` can change within the admitted projection. The build/execution interface fixes the Node standard-library environment and constrained container grants. Shared persistent-data writes, schema migrations and arbitrary dependencies remain outside the example.

@@ -26,6 +26,10 @@ export class CheckPublisher {
     writeFileSync(`${this.stateFile}.tmp`, JSON.stringify(this.state), { mode: 0o600 });
     renameSync(`${this.stateFile}.tmp`, this.stateFile);
   }
+  observerCommand(): string | undefined {
+    if (!this.state.checkId || !this.state.firstPublishedAt || this.state.pending) return undefined;
+    return `node observe.mjs --repo ${this.repository} --sha ${this.sha} --incident ${this.incidentId} --check ${this.state.checkId}`;
+  }
   acknowledged(text: string, completed: boolean): void {
     const window = decodeWindow(text);
     const at = new Date().toISOString();
@@ -77,7 +81,7 @@ export async function main(): Promise<void> {
   try { fd = openSync(lock, 'wx', 0o600); writeFileSync(fd, String(process.pid)); }
   catch { throw new Error(`publisher owner already reserved at ${lock}; confirm the former process stopped before removing it`); }
   const publisher = new CheckPublisher(new GhCheckApi(repo), repo, sha, incidentId, state);
-  let failures = 0, stopped = false;
+  let failures = 0, stopped = false, announced = false;
   process.once('SIGTERM', () => { stopped = true; }); process.once('SIGINT', () => { stopped = true; });
   try {
     while (!stopped) {
@@ -85,6 +89,8 @@ export async function main(): Promise<void> {
       try {
         const complete = existsSync(done);
         const checkId = await publisher.tick(readEvents(eventsFile), complete);
+        const command = publisher.observerCommand();
+        if (!announced && command) { process.stdout.write(`Live observer: ${command}\n`); announced = true; }
         process.stdout.write(`observer check=${checkId} seq=${publisher.state.lastSeq ?? 0} completed=${complete}\n`);
         failures = 0;
         if (complete || process.argv.includes('--once')) break;

@@ -42,8 +42,6 @@ const scope = {
 };
 writeFileSync(join(output, 'integration-start.json'), JSON.stringify(scope, null, 2) + '\n', { flag: 'wx', mode: 0o400 });
 process.stdout.write(`Incident ${incident}; source ${scope.source ?? 'local checkout'}; mode ${values.mode}.\n`);
-if (process.env.SELF_REMEDIATION_PROGRESS === 'true') process.stdout.write(
-  `Live observer: node observe.mjs --repo ${process.env.GITHUB_REPOSITORY} --sha ${process.env.GITHUB_SHA} --incident ${incident}\n`);
 
 function command(program: string, args: string[]): string {
   const result = spawnSync(program, args, { encoding: 'utf8', timeout: 30_000, maxBuffer: 2 * 1024 * 1024 });
@@ -78,9 +76,16 @@ process.once('SIGTERM', stop);
 process.once('SIGINT', stop);
 
 try {
+  // Check all settings before any infrastructure or provider effect. The same
+  // dependency-free validator also runs before the workflow builds its tools.
+  const configuration = spawnSync(process.execPath, ['scripts/preflight.mjs', '--mode', values.mode!,
+    '--output', join(output, 'integration-configuration.json')], { encoding: 'utf8', timeout: 10_000, maxBuffer: 1024 * 1024 });
+  if (configuration.stdout) process.stdout.write(configuration.stdout);
+  if (configuration.stderr) process.stderr.write(configuration.stderr);
+  if (configuration.error || configuration.status !== 0)
+    throw new Error('Configuration preflight failed; inspect integration-configuration.json and the setting names above');
   if (!process.env.MAS_HOST_BIN || !existsSync(process.env.MAS_HOST_BIN)) throw new Error('Set MAS_HOST_BIN to the exact pinned built host');
   if (!/^sha256:[a-f0-9]{64}$/.test(process.env.MAS_SANDBOX_IMAGE ?? '')) throw new Error('MAS_SANDBOX_IMAGE must be the built immutable sandbox image ID');
-  if (values.mode === 'live' && !process.env.OPENAI_API_KEY) throw new Error('Live provider credential unavailable');
   const preflight = {
     host: command(process.env.MAS_HOST_BIN, ['--version']).trim(),
     docker: command('docker', ['info', '--format', '{{.ServerVersion}}']).trim(),

@@ -105,6 +105,8 @@ Available protected benchmark cases are `missing-route`, `business-logic`, `runt
 
 Configure the protected **self-remediation-live** environment:
 
+The live job checks these settings immediately after Node setup, before host compilation, image builds or cluster creation. A failed check lists every missing or invalid required setting in the job summary and retains `live-preflight.json` in the diagnostics artefact. The integration entry point repeats the same validation for direct invocation. Reports contain setting names and fixed guidance, never credential values.
+
 | Setting | Purpose |
 |---|---|
 | Secret `OPENAI_API_KEY` | Maintained-host live inference only |
@@ -113,6 +115,8 @@ Configure the protected **self-remediation-live** environment:
 | Variable `SELF_REMEDIATION_GITHUB_MCP_SCHEMA_SHA256` | SHA-256 of the admitted official MCP `actions_get` schema and tool name |
 | Variable `SELF_REMEDIATION_MAX_CALL_MICRO_USD` | Positive maximum reservation per inference call, in millionths of a US dollar. Workflow default: `150000` (USD 0.15) |
 | Workflow `checks: write` permission | Dedicated compact redacted progress Check Run |
+
+Set the secrets and variables in **Settings → Environments → self-remediation-live**. Secrets stored only in another environment, such as the existing Kubernetes demonstration environment, are scoped to jobs that use that environment. A live job needs an OpenAI key and explicit model. When both GitHub MCP settings are absent, the report warns that the official MCP acceptance gate remains unexecuted. A partially configured MCP grant or malformed schema digest blocks startup.
 
 Workflow defaults cap inference at **12 calls, 3 candidates, 600 seconds and USD 2 reserved expenditure**. The default USD 0.15 reservation is configuration that must be checked against the selected model and admitted token limits before a paid run. Durable counters survive process restart. Provider usage and reserved cost are retained separately. Reservations need a defensible configured per-call upper bound for the chosen model and token limits. They are not a statement that a fixture's zero provider cost predicts live cost.
 
@@ -124,7 +128,7 @@ A runner's web server is not automatically reachable from your browser. This exa
 
 1. Authenticate GitHub CLI locally with access to the repository's checks.
 2. Download the **self-remediation-observer-RUN-ATTEMPT** artefact. The fixture job uploads it before the live job begins.
-3. Extract it, then use the exact workflow source SHA and incident identity printed by the integration run:
+3. Extract it, then copy the complete observer command printed after the publisher acknowledges its first Check Run update. It includes the exact workflow SHA, incident identity and `--check` ID:
 
 ```sh
 node observe.mjs --repo emmett08/mas-host-examples \
@@ -132,6 +136,19 @@ node observe.mjs --repo emmett08/mas-host-examples \
 ```
 
 Open **http://127.0.0.1:4318** before the live job completes. Add `--check CHECK_RUN_ID` when that identity is already known. No local Kubernetes is required. `gh` credentials remain in the local Node process and never enter browser JavaScript or candidate execution.
+
+Credential-free fixture jobs do not publish this progress Check Run. A live job that stops at configuration validation has not started an observable incident. For a completed fixture, extract its separate diagnostics/replay artefact and open `archive/index.html`, or point `node observe.mjs --events /absolute/path/to/events.jsonl --incident INCIDENT_ID` at the extracted journal. The observer bundle itself contains the server and UI, while the replay artefact contains the incident data.
+
+On macOS, first confirm that `node --version` starts successfully. A `dyld: Library not loaded` error occurs before JavaScript execution and requires repairing or selecting a working Node installation. Homebrew's supported Node 24 installation can be selected for the current shell:
+
+```sh
+brew install node@24
+export PATH="$(brew --prefix node@24)/bin:$PATH"
+hash -r
+node --version
+```
+
+If that Node 24 installation itself reports a missing `llhttp` library, repair its packages with `brew reinstall llhttp node@24` and repeat `node --version`. The built observer requires Node **24.19.0 or later**. The offline `archive/index.html` opens directly in a browser without Node. See the [official Homebrew Node 24 formula](https://formulae.brew.sh/formula/node@24).
 
 The UI displays committed incident identity, lifecycle, MAS message routes, hypotheses, predictions, measured criteria, candidate identities, independent eligibility, budget reservations, deployment observations and GitHub outcomes. Structured rationale is shown through disclosure controls. It does not expose hidden chain-of-thought.
 
