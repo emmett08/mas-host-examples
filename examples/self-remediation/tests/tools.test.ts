@@ -8,7 +8,7 @@ import { build as bundle } from 'esbuild';
 import { applyEdits, assertRemote, exportSnapshot, materialise, sha256, verifySnapshot, type Projection } from '../tools/projection.js';
 import { dispatch, reconcileTool, type ToolContext } from '../tools/broker.js';
 import { registryDigest } from '../tools/capabilities.js';
-import { DockerSandbox, sandboxConstraints, executionWatchdog, protectedProbeArguments, UnknownExecution } from '../sandbox/executor.js';
+import { DockerSandbox, sandboxConstraints, executionWatchdog, protectedProbeArguments, verifyImageConfiguration, applicationCommand, UnknownExecution } from '../sandbox/executor.js';
 import { inject } from '../evaluation/injectors.js';
 import { finalChecks, expose } from '../evaluation/harness.js';
 const projection: Projection = { repository: 'owner/incident', revision: 'a'.repeat(40), paths: ['src/', 'config.json', 'package.json'], mode: 'blind' };
@@ -69,6 +69,14 @@ test('protected HTTP checks run in a separate trusted image and share only candi
   assert.ok(!argv.some(arg=>arg.startsWith('--pid=')||arg.startsWith('--volume')||arg.startsWith('--mount')));
   assert.ok(!argv.join(' ').includes('held-out-expected'));
   assert.deepEqual(JSON.parse(argv.at(-1)!),{method:'POST',path:'/quote',body:{quantity:2}});
+});
+test('deploy-time image defaults must match the command exercised by protected HTTP checks', () => {
+  const config={Entrypoint:applicationCommand.slice(0,1),Cmd:applicationCommand.slice(1),WorkingDir:'/app',User:'10001:10001'};
+  assert.doesNotThrow(()=>verifyImageConfiguration(config));
+  // Real CI exposed a staging /bin/false default masked by the evaluator watchdog override.
+  for(const changed of [{Entrypoint:['/bin/false']},{Entrypoint:[]},{Cmd:['wrong.ts']},{WorkingDir:'/'},{User:'0'}]) {
+    assert.throws(()=>verifyImageConfiguration({...config,...changed}),UnknownExecution);
+  }
 });
 test('benchmark injection is separated from exposure-aware fresh final criteria', async () => {
   const healthy = await exportSnapshot(resolve('target-app'),projection);

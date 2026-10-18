@@ -2,7 +2,7 @@
  * retained as unknown and never automatically dispatched again. */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, openSync, closeSync, fsyncSync, lstatSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { verifyCheckpoint, type Checkpoint } from './checkpoint.js';
+import { verifyCheckpoint, checkpointObjectPath, type Checkpoint } from './checkpoint.js';
 
 export interface ArtifactUploader {
   uploadArtifact(name: string, files: string[], root: string, options: { retentionDays: number; compressionLevel: number }):
@@ -32,8 +32,8 @@ export async function uploadCheckpoint(directory: string, checkpoint: Checkpoint
   sync(intentPath); sync(receipts);
   let receipt: CheckpointUploadReceipt;
   try {
-    const files = [...checkpoint.manifest.files.map(file => join(checkpoint.directory, file.path)),
-      join(checkpoint.directory, 'checkpoint-manifest.json'), join(checkpoint.directory, 'checkpoint-manifest.sha256')];
+    const files = [...new Set(verified.manifest.files.map(file => file.sha256))].map(sha256 => checkpointObjectPath(verified.directory, sha256));
+    files.push(join(verified.directory, 'checkpoint-manifest.json'), join(verified.directory, 'checkpoint-manifest.sha256'));
     const result = await uploader.uploadArtifact(name, files, checkpoint.directory, { retentionDays: 14, compressionLevel: 6 });
     if (!Number.isSafeInteger(result.id) || result.id! <= 0 || !/^[a-f0-9]{64}$/i.test(result.digest ?? '')) throw new Error('Artifact service returned no verified upload identity');
     receipt = { ...intent, status: 'completed', artifactId: result.id, artifactDigest: result.digest, bytes: result.size, settledAt: new Date().toISOString() };

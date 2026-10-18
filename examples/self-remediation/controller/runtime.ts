@@ -69,14 +69,23 @@ export class Runtime implements LoopPorts {
     // receives an explicitly labelled bounded projection with its complete retained reference.
     const summary=(value:any):any=>{
       if(typeof value==='string')return value.length>420?{preview:value.slice(0,420),truncated:true,completeInputRef:reference}:value;
-      if(Array.isArray(value))return value.slice(0,24).map(summary);
+      // Keep every result and its identity. Repeated passing-check explanation
+      // text is already retained exactly and need not occupy an inference frame.
+      // Failed/inconclusive details remain available for discriminating repairs.
+      if(value&&typeof value==='object'&&!Array.isArray(value)&&typeof value.id==='string'&&
+        ['passed','failed','inconclusive'].includes(value.status)&&typeof value.mandatory==='boolean'&&typeof value.explanation==='string'){
+        if(value.status!=='passed')return value;
+        const {explanation,...criterion}=value;
+        return {...criterion,explanationRetained:true};
+      }
+      if(Array.isArray(value))return value.map(summary);
       if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,entry])=>[key,summary(entry)]));
       return value;
     };
-    const result:Record<string,unknown>={...exact,completeInputRef:reference,evidenceProjection:'bounded summaries; source and intended behaviour preserved exactly'};
+    const result:Record<string,unknown>={...exact,completeInputRef:reference,evidenceProjection:'Passing-criterion explanations marked explanationRetained are at the same path in completeInputRef; every criterion, source file and intended behaviour is preserved'};
     for(const key of ['measurements','baseline','experiment'])if(key in exact)result[key]=summary(exact[key]);
     if(Array.isArray(exact.edits))result.edits=exact.edits.map((edit:any)=>({path:edit.path,contentRef:this.journal.artefacts.put(edit),deleted:edit.content===null}));
-    if(Buffer.byteLength(JSON.stringify(result))>9900) throw new Boundary('policy_boundary','Exact source and requirements exceed phase frame budget; a smaller admitted evidence selection is required');
+    if(Buffer.byteLength(JSON.stringify(result))>9900) throw new Boundary('policy_boundary','Frozen phase input still exceeds the frame budget after evidence projection; select less evidence or a smaller admitted source projection');
     return result;
   }
   private async perform(dispatch:Dispatch,recover=false):Promise<any> {

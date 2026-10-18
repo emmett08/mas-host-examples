@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, existsSync, rmSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, existsSync, rmSync, chmodSync, statSync, readdirSync, linkSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
 import { Journal } from '../controller/journal.js';
-import { createCheckpoint, verifyCheckpoint, restoreCheckpoint } from '../controller/checkpoint.js';
+import { createCheckpoint, verifyCheckpoint, restoreCheckpoint, checkpointObjectPath } from '../controller/checkpoint.js';
 import { uploadCheckpoint } from '../controller/checkpoint-upload.js';
 
 const create = () => new Journal(mkdtempSync(join(tmpdir(), 'mas-checkpoint-')), 'recovery');
@@ -21,12 +22,13 @@ test('immutable checkpoint captures WAL-backed budget, pending host phase and CA
     assert.deepEqual(first.manifest.pendingPhases, ['phase-one']);
     assert.ok(first.manifest.files.some(file => file.path === `artefacts/${ref.slice(7)}`));
     assert.ok(first.manifest.files.some(file => file.path === 'host/execution.sqlite'));
-    const firstBytes = readFileSync(join(first.directory, 'journal.sqlite'));
+    const firstJournalObject = checkpointObjectPath(first.directory, first.manifest.files.find(file => file.path === 'journal.sqlite')!.sha256);
+    const firstBytes = readFileSync(firstJournalObject);
     journal.finishPhase('phase-one', 'completed', { result: 'failed' });
     const second = createCheckpoint(journal.directory)!;
     assert.ok(second.manifest.sequence > first.manifest.sequence);
     assert.deepEqual(second.manifest.pendingPhases, []);
-    assert.deepEqual(readFileSync(join(first.directory, 'journal.sqlite')), firstBytes);
+    assert.deepEqual(readFileSync(firstJournalObject), firstBytes);
     assert.equal(verifyCheckpoint(first.directory).manifestSha256, first.manifestSha256);
     const target = join(journal.directory, 'restored'); restoreCheckpoint(first.directory, target);
     const recovered = new DatabaseSync(join(target, 'journal.sqlite'), { readOnly: true });
@@ -45,8 +47,9 @@ test('checkpoint verification rejects altered bytes and does not copy unlisted p
     writeFileSync(join(checkpoint.directory, 'unlisted-program'), 'never copied');
     const restored = join(journal.directory, 'restore'); restoreCheckpoint(checkpoint.directory, restored);
     assert.equal(existsSync(join(restored, 'unlisted-program')), false);
-    chmodSync(join(checkpoint.directory, 'journal.sqlite'), 0o600);
-    writeFileSync(join(checkpoint.directory, 'journal.sqlite'), 'altered');
+    const journalObject = checkpointObjectPath(checkpoint.directory, checkpoint.manifest.files.find(file => file.path === 'journal.sqlite')!.sha256);
+    chmodSync(journalObject, 0o600);
+    writeFileSync(journalObject, 'altered');
     assert.throws(() => verifyCheckpoint(checkpoint.directory), /digest changed/);
   } finally { journal.close(); rmSync(journal.directory, { recursive: true, force: true }); }
 });
@@ -143,4 +146,81 @@ test('writable checkpoint control directories reject symlink redirection before 
     await assert.rejects(uploadCheckpoint(journal.directory, checkpoint, 'bad-destination', { async uploadArtifact() { dispatched = true; return {}; } }), /destination symlink rejected/);
     assert.equal(dispatched, false);
   } finally { journal.close(); rmSync(journal.directory, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); }
+});
+
+test('three phase runtimes share one checkpoint/upload object and restore their executable modes', async () => {
+  const journal = create();
+  try {
+    journal.append('lifecycle', { status: 'investigating' });
+    // Small identical executable bytes model the repeated 57 MiB Node runtime
+    // observed in real CI. Size accounting must count distinct objects only.
+    const runtime = '#!/bin/sh\nprintf checkpoint-runtime-ok\n';
+    const modes = [0o755, 0o550, 0o500];
+    for (let index = 0; index < modes.length; index++) {
+      const phase = join(journal.directory, 'host', `phase-${index}`, '.mas', 'build', 'artifacts'); mkdirSync(phase, { recursive: true });
+      const path = join(phase, 'native-runtime'); writeFileSync(path, runtime); chmodSync(path, modes[index]!);
+    }
+    const checkpoint = createCheckpoint(journal.directory)!;
+    assert.equal(checkpoint.manifest.schema, 'self-remediation-checkpoint/2');
+    const runtimes = checkpoint.manifest.files.filter(file => file.path.endsWith('/native-runtime'));
+    assert.equal(runtimes.length, 3); assert.equal(new Set(runtimes.map(file => file.sha256)).size, 1);
+    assert.deepEqual(runtimes.map(file => file.mode), modes);
+    const objectSizes = new Map(checkpoint.manifest.files.map(file => [file.sha256, file.bytes]));
+    assert.equal(checkpoint.manifest.objectBytes, [...objectSizes.values()].reduce((total, bytes) => total + bytes, 0));
+    assert.equal(checkpoint.manifest.files.reduce((total, file) => total + file.bytes, 0) - checkpoint.manifest.objectBytes, 2 * Buffer.byteLength(runtime));
+    assert.equal(readdirSync(join(checkpoint.directory, 'objects')).length, objectSizes.size);
+    assert.equal(statSync(checkpointObjectPath(checkpoint.directory, runtimes[0]!.sha256)).mode & 0o111, 0);
+    await uploadCheckpoint(journal.directory, checkpoint, 'deduplicated-runtime', { async uploadArtifact(_name, files) {
+      assert.equal(files.length, objectSizes.size + 2); assert.equal(new Set(files).size, files.length);
+      assert.equal(files.filter(path => path === checkpointObjectPath(checkpoint.directory, runtimes[0]!.sha256)).length, 1);
+      assert.equal(files.some(path => path.endsWith('native-runtime')), false);
+      return { id: 57, digest: 'd'.repeat(64), size: checkpoint.manifest.objectBytes };
+    } });
+    const restored = join(journal.directory, 'restore-executable'); restoreCheckpoint(checkpoint.directory, restored);
+    for (const file of runtimes) {
+      const path = join(restored, file.path);
+      assert.equal(statSync(path).mode & 0o777, file.mode);
+      const executed = spawnSync(path, [], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' }, timeout: 5000 });
+      assert.equal(executed.status, 0); assert.equal(executed.stdout, 'checkpoint-runtime-ok');
+    }
+    assert.ok(existsSync(join(restored, 'RUNNER_LOSS_REQUIRES_RECONCILIATION.json')));
+  } finally { journal.close(); rmSync(journal.directory, { recursive: true, force: true }); }
+});
+test('checkpoint rejects special executable permission bits before retaining or restoring objects', () => {
+  const journal = create();
+  try {
+    const host = join(journal.directory, 'host'); mkdirSync(host);
+    const executable = join(host, 'runtime'); writeFileSync(executable, '#!/bin/sh\nexit 0\n'); chmodSync(executable, 0o4755);
+    assert.throws(() => createCheckpoint(journal.directory), /special permission bits/);
+    chmodSync(executable, 0o755);
+    const checkpoint = createCheckpoint(journal.directory)!;
+    const manifest = structuredClone(checkpoint.manifest); manifest.files.find(file => file.path === 'host/runtime')!.mode = 0o4755;
+    const text = JSON.stringify(manifest);
+    chmodSync(join(checkpoint.directory, 'checkpoint-manifest.json'), 0o600);
+    chmodSync(join(checkpoint.directory, 'checkpoint-manifest.sha256'), 0o600);
+    writeFileSync(join(checkpoint.directory, 'checkpoint-manifest.json'), text);
+    writeFileSync(join(checkpoint.directory, 'checkpoint-manifest.sha256'), createHash('sha256').update(text).digest('hex'));
+    const restored = join(journal.directory, 'invalid-mode-restore');
+    assert.throws(() => restoreCheckpoint(checkpoint.directory, restored), /mode or object identity/);
+    assert.equal(existsSync(restored), false);
+  } finally { journal.close(); rmSync(journal.directory, { recursive: true, force: true }); }
+});
+
+test('128 MiB capture bound counts distinct bytes despite larger logical phase copies and rejects excess unique bytes', () => {
+  const journal = create();
+  try {
+    const host = join(journal.directory, 'host'); mkdirSync(host);
+    const runtime = join(host, 'phase-1-runtime');
+    writeFileSync(runtime, Buffer.alloc(48 * 1024 * 1024, 0x42));
+    linkSync(runtime, join(host, 'phase-2-runtime')); linkSync(runtime, join(host, 'phase-3-runtime'));
+    const checkpoint = createCheckpoint(journal.directory)!;
+    const logicalBytes = checkpoint.manifest.files.reduce((total, file) => total + file.bytes, 0);
+    assert.ok(logicalBytes > 128 * 1024 * 1024);
+    assert.ok(checkpoint.manifest.objectBytes < 49 * 1024 * 1024);
+    assert.equal(verifyCheckpoint(checkpoint.directory).manifest.objectBytes, checkpoint.manifest.objectBytes);
+    // Every individual object still fits. Only their distinct aggregate breaches the cap.
+    writeFileSync(join(host, 'additional-distinct-object'), Buffer.alloc(81 * 1024 * 1024, 0x43));
+    assert.throws(() => createCheckpoint(journal.directory), /distinct object byte bound exceeded/);
+    assert.equal(readdirSync(join(journal.directory, 'durable-checkpoints')).filter(name => name.startsWith('.pending-')).length, 0);
+  } finally { journal.close(); rmSync(journal.directory, { recursive: true, force: true }); }
 });

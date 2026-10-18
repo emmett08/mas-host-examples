@@ -44,6 +44,15 @@ function archive(files: Record<string, string>): Buffer {
 }
 const constraints = ['--log-driver=none', '--network=none', '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges', '--pids-limit=64', '--memory=256m', '--memory-swap=256m', '--cpus=1', '--ulimit=nofile=128:128', '--user=10001:10001', '--tmpfs=/tmp:rw,noexec,nosuid,size=16m', '--workdir=/app'];
 export const executionWatchdog = ['/usr/bin/timeout', '--signal=TERM', '--kill-after=2s', '45s'];
+export const applicationCommand = ['/usr/local/bin/node', '--experimental-strip-types', 'src/server.ts'];
+/** A verified process override must not conceal an invalid deploy-time default. */
+export function verifyImageConfiguration(config: any): void {
+  if (JSON.stringify(config?.Entrypoint) !== JSON.stringify(applicationCommand.slice(0,1))
+    || JSON.stringify(config?.Cmd) !== JSON.stringify(applicationCommand.slice(1))
+    || config?.WorkingDir !== '/app' || config?.User !== '10001:10001') {
+    throw new UnknownExecution('Immutable image runtime configuration differs from the independently checked command');
+  }
+}
 const compiler = `const fs=require('node:fs'),cp=require('node:child_process'); function check(p){for(const e of fs.readdirSync(p,{withFileTypes:true})){const f=p+'/'+e.name;if(e.isDirectory())check(f);else if(f.endsWith('.ts'))cp.execFileSync(process.execPath,['--check',f],{stdio:'inherit'});}} check('/app/src');const c=JSON.parse(fs.readFileSync('/app/config.json'));if(!Number.isInteger(c.port)||c.port<1024||c.port>65535)throw Error('invalid application port');`;
 const requestProgram = `const http=require('node:http'),q=JSON.parse(process.argv[1]);const r=http.request({host:'127.0.0.1',port:8080,path:q.path,method:q.method,headers:{'content-type':'application/json'},timeout:2000},res=>{let b='';res.on('data',x=>{b+=x;if(b.length>32768){r.destroy();process.exitCode=3;}});res.on('end',()=>{let json;try{json=JSON.parse(b)}catch{};console.log(JSON.stringify({status:res.statusCode,json,body:b.slice(0,8192)}));});});r.on('timeout',()=>r.destroy(Error('request timeout')));r.on('error',()=>{console.log(JSON.stringify({error:'request unavailable'}));process.exitCode=2;});if(q.body!==undefined)r.write(JSON.stringify(q.body));r.end();`;
 /** Trusted probe joins only networking. Candidate PID and filesystem namespaces remain private. */
@@ -71,8 +80,11 @@ export class DockerSandbox {
     await this.require(['create','--name',name,...constraints.filter(value=>value!=='--read-only'),'--label',`mas.operation=${operation}`,'--label',`mas.tree=${tree}`,'--entrypoint','/bin/false',this.builderImage]);
     try {
       await this.require(['cp','-a','-',`${name}:/app`],archive(files));
-      const image=await this.require(['commit','--change','ENTRYPOINT []','--change','CMD ["node","--experimental-strip-types","src/server.ts"]',name]);
+      // An empty ENTRYPOINT may be merged with the staging /bin/false default
+      // by Docker commit. Set a nonempty executable and verify the image itself.
+      const image=await this.require(['commit','--change',`ENTRYPOINT ${JSON.stringify(applicationCommand.slice(0,1))}`,'--change',`CMD ${JSON.stringify(applicationCommand.slice(1))}`,name]);
       if(!/^sha256:[0-9a-f]{64}$/.test(image))throw new UnknownExecution('Staged immutable image identity unavailable');
+      verifyImageConfiguration(JSON.parse(await this.require(['image','inspect','--format','{{json .Config}}',image])));
       return image;
     } finally {await this.require(['rm','-f',name]);}
   }
@@ -106,7 +118,8 @@ export class DockerSandbox {
   async evaluate(build: BuildResult, checks: HTTPCheck[], operationId?: string): Promise<Evaluation> {
     if (build.status !== 'passed' || !build.imageDigest) throw new Error('Evaluation requires a built immutable image');
     const started = Date.now(), name = `mas-evaluate-${randomUUID()}`;
-    await this.require(['run', '-d', '--name', name, ...constraints, '--label', `mas.tree=${build.tree}`, '--label', `mas.operation=${operationId ?? name}`, '--entrypoint', executionWatchdog[0]!, build.imageDigest, '--signal=TERM', '--kill-after=2s', '55s', 'node', '--experimental-strip-types', 'src/server.ts']);
+    verifyImageConfiguration(JSON.parse(await this.require(['image','inspect','--format','{{json .Config}}',build.imageDigest])));
+    await this.require(['run', '-d', '--name', name, ...constraints, '--label', `mas.tree=${build.tree}`, '--label', `mas.operation=${operationId ?? name}`, '--entrypoint', executionWatchdog[0]!, build.imageDigest, '--signal=TERM', '--kill-after=2s', '55s', ...applicationCommand]);
     const measurements: Measurement[] = [];
     try {
       // Startup is a readiness observation, never a passing acceptance criterion.

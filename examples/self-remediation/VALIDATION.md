@@ -7,7 +7,7 @@ Observed locally on **18 October 2026**, against the implementation prepared for
 | Check | Observed result | Scope |
 |---|---|---|
 | `npm run build` in `examples/self-remediation` | **Passed** | Controller/server TypeScript, Vue type-check, production Vue bundle, portable observer and trusted tool bundles |
-| `npm test` in `examples/self-remediation` | **70 passed, 0 skipped, 0 failed** | Full suite with the explicit browser opt-in and available Chromium, including the combined-replay control |
+| `npm test` in `examples/self-remediation` | **77 passed, 0 skipped, 0 failed** | Full suite with the explicit browser opt-in and available Chromium, including the combined-replay control |
 | Separate `tests/observer-browser.test.ts` run | **1 passed** | Actual Chromium browser, live SSE updates before completion, desktop/mobile layout, escaped before/after source disclosure and offline playback without future-result leakage |
 | `npm run test:host` with the exact pinned host | **8 passed** | Actual maintained host, native/command/custom MCP paths, compiled topology, delegation, replay, accepted failed measurements and unknown-response recovery controls |
 | `verification/verify.py` | **30/30 SPIN checks passed** | Finite safety models, checks without partial-order reduction, guard-removal counterexamples and selected reachability controls |
@@ -23,6 +23,12 @@ The browser was run using an available executable through `PLAYWRIGHT_CHROMIUM_E
 The unit suite includes eleven pure controller-loop controls and separate deployment restart controls. They demonstrate a failed candidate followed by a new investigation and useful revision, independent review rejection followed by continued repair, final-check disclosure followed by a fresh final suite, stale source/build rejection, cancellation before publication, incomplete baseline evidence, exact-phase recovery without double charging and aggregate workflow-budget persistence and source repair after an observed baseline build failure. Deployment controls separately retain original mutation preconditions across interruption and establish the first trial from a verified candidate when no runnable baseline image exists. These scripted ports test controller behaviour. They are not provider repair measurements.
 
 The SPIN report includes model, checker-runner and corresponding implementation hashes. Original models pass and deliberate guard removals reach their specified assertions. This provides finite control-safety evidence and an implementation correspondence argument. It does not establish a machine-checked refinement proof, complete tests, unbounded liveness or arbitrary generated-code correctness.
+
+## First automatic PR integration observation
+
+[PR run 39115856935](https://github.com/emmett08/mas-host-examples/actions/runs/39115856935), at head `42c52ac6a17ff42d462a55310423fa0358db567d`, passed the host, browser, formal, Docker image and k3s setup checks. Real isolated baseline checks observed ten passing criteria and the intended missing-route failure. The controller then stopped at its phase-input size boundary; it did **not** recover the trial. Diagnostics and a complete failure replay were retained. An immutable checkpoint upload was acknowledged while the controller was running.
+
+That evidence led to three follow-up fixes: repeated passing-check explanations now use the retained complete-input reference without dropping any criterion; image defaults are explicitly set and verified against the independently exercised command; and checkpoint objects are deduplicated while retaining executable permission modes. Regression controls cover the actual failed input, the subsequent rejected-candidate/revision/review inputs, the image configuration mismatch, 144 MiB of logical checkpoint paths sharing less than 49 MiB of objects, and rejection when distinct objects exceed 128 MiB. The 77-test and repeated host/formal results above include those fixes. Subsequent automatic CI results are bound to the PR head and reported separately; this initial failed run is not recovery evidence.
 
 ## External acceptance gates not executed locally
 

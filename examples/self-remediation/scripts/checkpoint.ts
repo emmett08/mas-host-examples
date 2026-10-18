@@ -12,7 +12,7 @@ const { values } = parseArgs({ options: {
 } });
 if (values.verify) {
   const checkpoint = verifyCheckpoint(values.verify);
-  process.stdout.write(JSON.stringify({ manifestSha256: checkpoint.manifestSha256, sequence: checkpoint.manifest.sequence, verified: true }) + '\n');
+  process.stdout.write(JSON.stringify({ manifestSha256: checkpoint.manifestSha256, sequence: checkpoint.manifest.sequence, objectBytes: checkpoint.manifest.objectBytes, fileCount: checkpoint.manifest.files.length, verified: true }) + '\n');
 } else if (values.restore) {
   if (!values.output) throw new Error('--restore requires --output');
   const checkpoint = restoreCheckpoint(values.restore, values.output);

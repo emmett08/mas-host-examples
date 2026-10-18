@@ -109,13 +109,14 @@ jobs:
         env:
           MAS_HOST_BIN: ${{ github.workspace }}/.tools/mas-host/target/debug/mas-host
           MAS_SDK_ROOT: ${{ github.workspace }}/.tools/mas-host
-      - name: Retain all diagnostics, immutable checkpoints and offline observer
+      - name: Retain diagnostics, checkpoint receipts and offline observer
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: self-remediation-fixture-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/self-remediation-fixture
+            !${{ runner.temp }}/self-remediation-fixture/durable-checkpoints/**
             ${{ runner.temp }}/self-remediation-formal
           if-no-files-found: warn
           retention-days: 14
@@ -200,7 +201,11 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: self-remediation-live-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/self-remediation-live
+          # Immutable checkpoints already have separately acknowledged artifacts.
+          # Retain their index/receipts here, without reuploading every local cut.
+          path: |
+            ${{ runner.temp }}/self-remediation-live
+            !${{ runner.temp }}/self-remediation-live/durable-checkpoints/**
           retention-days: 14
           if-no-files-found: warn
       - name: Capture observations before destroying the trial
