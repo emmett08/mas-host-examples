@@ -10,6 +10,21 @@ import { pathToFileURL } from 'node:url';
 
 export const TOOL_NAMES = ['pod_overview', 'pod_logs', 'pod_metrics', 'workload_spec'];
 const MAX_BYTES = 8192;
+
+// This demonstration always reads the current checkout log tail. The model
+// chooses when to request it; the bridge supplies its fixed collection policy.
+// Exact explicit values remain accepted for existing callers. Reject attempted
+// overrides rather than silently collecting a different observation.
+export function fixedToolArguments(tool, args) {
+  if (tool !== 'pod_logs') return args;
+  const policy = { container: 'checkout', previous: false, tail_lines: 40 };
+  if (!args || typeof args !== 'object' || Array.isArray(args) ||
+      Object.entries(args).some(([key, value]) => !Object.hasOwn(policy, key) || value !== policy[key])) {
+    throw new Error('Log arguments must match the fixed current checkout collection policy');
+  }
+  return { ...policy, ...args };
+}
+
 export async function runtimeIdentity(packageRoot) {
   const files = ['package-lock.json'];
   const walk = async relative => {
@@ -42,6 +57,7 @@ export function exactJSON(value) {
 
 export async function invokeTool(tool, args, environment = process.env, options = {}) {
   if (!TOOL_NAMES.includes(tool)) throw new Error('Unknown registered MCP tool');
+  args = fixedToolArguments(tool, args);
   const packageRoot = environment.MAS_MCP_PACKAGE_ROOT, serverModule = environment.MAS_MCP_SERVER_MODULE;
   if (![packageRoot, serverModule, environment.MAS_MCP_CONTEXT_FILE].every(value => typeof value === 'string' && isAbsolute(value)))
     throw new Error('Absolute controller-owned MCP configuration is required');

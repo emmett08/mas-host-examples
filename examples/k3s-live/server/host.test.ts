@@ -105,6 +105,38 @@ test('output diagnostics distinguish selection, parsing and schema failures usin
   }
 });
 
+test('a valid model decision with rejected tool arguments exposes the retained schema failure safely', () => {
+  const task = `task-${'b'.repeat(64)}`;
+  const raw = { version: 'mas-host-observation/1', run_id: 'failed-run', steps: [
+    { kind: 'request', id: task, state: 'failed', target: 'investigator',
+      evidence: { error: 'required property is missing', stderr: 'private-stderr' } },
+    { kind: 'effect', key: 'inference-2', id: effectId, parent: task, actor: 'investigator', state: 'completed',
+      output: { certainty: 'completed', output_status: 'valid',
+        output: { decision: { kind: 'request', target: 'pod_logs', input_json: '{}' } } },
+      evidence: { adapter: 'mas-host-openai/1', http_status: 200, response: 'private-response' } },
+  ] };
+  const diagnostics = projectFailure(raw, 'failed-run');
+  assert.equal(diagnostics.classification, 'invalid-tool-arguments');
+  assert.deepEqual(diagnostics.effects, []);
+  assert.deepEqual(diagnostics.rejectedRequest, { actor: 'investigator', target: 'pod_logs', code: 'required-property-missing' });
+  assert.equal(diagnostics.automaticRetry, false);
+  assert.match(failureMessage(diagnostics), /investigator to pod_logs: required-property-missing/);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /private-|input_json|stderr|response/);
+  for (const mutate of [
+    (value: any) => { value.steps[0].evidence.error += ' private-data'; },
+    (value: any) => { value.steps[1].output.output.decision.target = 'private-target'; },
+    (value: any) => { value.steps[1].parent = `task-${'c'.repeat(64)}`; },
+    (value: any) => { value.steps[1].output.output.decision.kind = 'complete'; },
+    (value: any) => { value.steps.push({ kind: 'request', parent: task, actor: 'investigator', key: 'peer-2', state: 'failed' }); },
+  ]) {
+    const changed = structuredClone(raw); mutate(changed);
+    const projected = projectFailure(changed, 'failed-run');
+    assert.equal(projected.classification, 'host-failure');
+    assert.equal(projected.rejectedRequest, undefined);
+    assert.doesNotMatch(JSON.stringify(projected), /private-/);
+  }
+});
+
 test('output diagnostic projection rejects arbitrary labels, values, hashes and oversized counts', () => {
   const project = (output_diagnostics: unknown) => projectFailure(observedFailure({ http_status: 200, output_diagnostics },
     { certainty: 'completed', output_status: 'invalid' }), 'failed-run');

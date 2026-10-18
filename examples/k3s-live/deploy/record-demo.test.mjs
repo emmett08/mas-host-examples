@@ -198,7 +198,9 @@ test('MCP failure diagnostics remain attached to its own incident after another 
   const page = { getByRole: locator, locator, reload: async () => {}, screenshot: async () => {},
     evaluate: async () => ({ selectedRunId: snapshot.run.id, status: 'failed', envelopeCount: 0 }) };
   let captureError;
+  const retained = [];
   await assert.rejects(captureIncident({ workload, mode: 'live', destination: directory, page, deadline: Date.now() + 5000,
+    onSnapshot: async value => retained.push({ runId: value.run.id, status: value.run.status }),
     prepare: async () => ({ pod: { metadata: snapshot.run.input.incident.evidence.subject }, deploymentUID: 'mcp-deployment-uid' }),
     kube: async args => args[1] === 'namespace' ? JSON.stringify({ metadata: { uid: 'namespace-uid' } })
       : args[1] === 'masdemoruns' ? JSON.stringify({ items: [resource] }) : '',
@@ -209,6 +211,7 @@ test('MCP failure diagnostics remain attached to its own incident after another 
   assert.equal(failure.classification, 'invalid-output');
   assert.deepEqual(failureReport(addRecovery(incidentSnapshot(managedWorkloads[0]), managedWorkloads[0]), captureError), failure);
   assert.equal(JSON.parse(await readFile(join(directory, 'run.json'), 'utf8')).status, 'failed');
+  assert.deepEqual(retained, [{ runId: snapshot.run.id, status: 'failed' }]);
 });
 
 test('recording selects this Pod UID and rejects duplicate admitted investigations', () => {

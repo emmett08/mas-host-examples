@@ -22,7 +22,7 @@ export function checkDualCapture(archive) {
     assert.equal(matches.length, 1, `Exactly one ${approach} recording is required`);
     const run = matches[0].snapshots.at(-1).run;
     assert.equal(run.id, entry.runId, `${approach} run identity was not retained`);
-    assert.equal(run.status, 'completed');
+    assert.equal(run.status, 'completed', `${approach} investigation ${run.id} ended with status ${run.status}; see its failure-diagnostics.json`);
     const subject = run.investigation?.evidence?.subject ?? run.input?.incident?.evidence?.subject;
     assert.deepEqual(subject, entry.subject, `${approach} incident Pod identity differs`);
     assert.ok(subject?.uid, `${approach} incident Pod UID is required`);

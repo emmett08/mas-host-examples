@@ -3,7 +3,7 @@
 // those objects, provider messages or CLI stderr may cross this boundary.
 export type FailureClassification = 'authentication' | 'permission' | 'model-unavailable' | 'quota' |
   'rate-limit' | 'invalid-schema' | 'invalid-request' | 'missing-credential' |
-  'uncertain-provider-outcome' | 'invalid-output' | 'provider-rejected' | 'host-failure' | 'investigation-no-tools' | 'investigation-incomplete-tools';
+  'uncertain-provider-outcome' | 'invalid-output' | 'invalid-tool-arguments' | 'provider-rejected' | 'host-failure' | 'investigation-no-tools' | 'investigation-incomplete-tools';
 export interface FailedInference {
   actor: string; effectId: string; state: string; classification: FailureClassification;
   certainty?: string; outputStatus?: string; httpStatus?: number; provider?: string; model?: string;
@@ -18,6 +18,7 @@ export interface OutputDiagnostics {
 export interface FailureDiagnostics {
   version: 'mas-demo-failure/1'; classification: FailureClassification;
   automaticRetry: false; effects: FailedInference[];
+  rejectedRequest?: { actor: string; target: string; code: string };
 }
 const actors = ['investigator', 'diagnose', 'platform_diagnosis', 'security_review', 'decision'];
 const models = ['gpt-5.4-mini-2026-03-17', 'gpt-5.4-2026-03-05'];
@@ -50,6 +51,34 @@ const allowed = (value: unknown, values: readonly string[]) =>
   typeof value === 'string' && values.includes(value) ? value : undefined;
 const fallback = (): FailureDiagnostics => ({ version: 'mas-demo-failure/1', classification: 'host-failure',
   automaticRetry: false, effects: [] });
+
+// A valid decision envelope can contain invalid arguments for its chosen tool.
+// The host records that failure on the parent request before dispatch. Project
+// only recognised validation codes and the last decision's allowlisted target.
+function rejectedToolRequest(steps: unknown[]): FailureDiagnostics['rejectedRequest'] {
+  const codes: Record<string, string> = {
+    'required property is missing': 'required-property-missing',
+    'additional property is forbidden': 'additional-property-forbidden',
+    'value is outside schema enum': 'value-outside-enum',
+    'value has wrong schema type': 'wrong-type',
+  };
+  for (const value of steps) {
+    const request = object(value), error = object(request.evidence).error;
+    if (request.kind !== 'request' || request.state !== 'failed' || request.target !== 'investigator' ||
+        typeof request.id !== 'string' || !/^task-[a-f0-9]{64}$/.test(request.id) ||
+        typeof error !== 'string' || !Object.hasOwn(codes, error)) continue;
+    const last = steps.map(object).filter(step => step.kind === 'effect' && step.actor === 'investigator' &&
+      step.parent === request.id && typeof step.key === 'string' && /^inference-[0-9]{1,2}$/.test(step.key))
+      .sort((left, right) => Number(String(right.key).slice(10)) - Number(String(left.key).slice(10)))[0];
+    const output = object(last?.output), decision = object(object(output.output).decision);
+    const target = allowed(decision.target, ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics']);
+    const dispatched = last && steps.map(object).some(step => step.kind === 'request' && step.parent === request.id &&
+      step.actor === 'investigator' && step.key === `peer-${String(last.key).slice(10)}`);
+    if (last?.state === 'completed' && output.certainty === 'completed' && output.output_status === 'valid' &&
+        decision.kind === 'request' && target && !dispatched) return { actor: 'investigator', target, code: codes[error]! };
+  }
+  return undefined;
+}
 
 function projectOutputDiagnostics(value: unknown): OutputDiagnostics | undefined {
   const source = object(value);
@@ -122,9 +151,12 @@ export function projectFailure(observation: unknown, runId: string): FailureDiag
     };
     effects.push({ ...fields, classification: classify(fields, output) });
   }
+  const rejectedRequest = rejectedToolRequest(source.steps);
   const classification = effects.find(effect => effect.classification === 'uncertain-provider-outcome')?.classification ??
-    effects.find(effect => effect.classification !== 'host-failure')?.classification ?? 'host-failure';
-  return { version: 'mas-demo-failure/1', classification, automaticRetry: false, effects };
+    effects.find(effect => effect.classification !== 'host-failure')?.classification ??
+    (rejectedRequest ? 'invalid-tool-arguments' : 'host-failure');
+  return { version: 'mas-demo-failure/1', classification, automaticRetry: false, effects,
+    ...(rejectedRequest ? { rejectedRequest } : {}) };
 }
 
 export function failureMessage(diagnostics: FailureDiagnostics): string {
@@ -139,6 +171,7 @@ export function failureMessage(diagnostics: FailureDiagnostics): string {
     'missing-credential': 'The provider credential environment is missing or invalid. Check the backend OPENAI_API_KEY Secret.',
     'uncertain-provider-outcome': 'A provider effect has an uncertain outcome. Inspect and reconcile retained host state before retrying; inference will not repeat automatically.',
     'invalid-output': 'The provider completed without usable schema-valid output. Inspect retained host state before starting another run.',
+    'invalid-tool-arguments': 'The host rejected the investigator request because its arguments do not match the selected tool schema. The rejected tool was not called.',
     'provider-rejected': 'The provider rejected the request. Check the retained HTTP status and diagnostic identifiers.',
     'host-failure': 'Host did not complete. Inspect retained state before retrying an uncertain provider outcome.',
     'investigation-incomplete-tools': 'The investigator did not complete all four distinct MCP tool calls. Assessment cannot use this incomplete evidence.',
@@ -155,5 +188,7 @@ export function failureMessage(diagnostics: FailureDiagnostics): string {
     return [effect.actor, effect.httpStatus ? `HTTP ${effect.httpStatus}` : effect.state, effect.errorCode, cause]
       .filter(Boolean).join(': ');
   }).join('; ');
-  return `${reasons[diagnostics.classification]}${detail ? ` Failed inference: ${detail}.` : ''}`;
+  const request = diagnostics.rejectedRequest;
+  return `${reasons[diagnostics.classification]}${detail ? ` Failed inference: ${detail}.` : ''}` +
+    (request ? ` Rejected request: ${request.actor} to ${request.target}: ${request.code}.` : '');
 }

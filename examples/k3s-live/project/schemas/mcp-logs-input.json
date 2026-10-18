@@ -5,6 +5,5 @@
     "previous": { "type": "boolean", "enum": [false] },
     "tail_lines": { "type": "integer", "enum": [40] }
   },
-  "required": ["container", "previous", "tail_lines"],
   "additionalProperties": false
 }

@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { invokeTool, exactJSON, runtimeIdentity } from '../project/mcp-client.mjs';
+import { invokeTool, exactJSON, fixedToolArguments, runtimeIdentity } from '../project/mcp-client.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
@@ -46,12 +46,40 @@ test('retained command bridge executes actual stdio MCP handshake, list and one 
     assert.equal(result.context_sha256, env.MAS_MCP_CONTEXT_SHA256);
     const missing = await invokeTool('pod_metrics', {}, env);
     assert.equal(missing.status, 'unavailable');
-    const rejected = await invokeTool('pod_logs', { namespace: 'other' }, env);
-    assert.equal(rejected.status, 'error'); assert.match(rejected.evidence_items[0].reason, /rejected/);
+    await assert.rejects(invokeTool('pod_logs', { namespace: 'other' }, env), /fixed current checkout/);
     const otherRejected = await invokeTool('pod_metrics', { namespace: 'other' }, env);
-    assert.notEqual(otherRejected.evidence_items[0].id, rejected.evidence_items[0].id);
+    assert.equal(otherRejected.status, 'error'); assert.match(otherRejected.evidence_items[0].reason, /rejected/);
     await assert.rejects(invokeTool('exec', {}, env), /Unknown registered/);
     await assert.rejects(invokeTool('pod_overview', {}, { ...env, MAS_MCP_CONTEXT_FILE: 'relative.json' }), /Absolute/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('empty and partial log requests bind the exact fixed policy and cannot override it', async () => {
+  const policy = { container: 'checkout', previous: false, tail_lines: 40 };
+  for (const args of [{}, policy, { container: 'checkout' }, { previous: false, tail_lines: 40 }]) {
+    assert.deepEqual(fixedToolArguments('pod_logs', args), policy);
+  }
+  for (const args of [null, [], 'checkout', { container: 'sidecar' }, { previous: true },
+    { tail_lines: 1 }, { tail_lines: '40' }, { namespace: 'other' }]) {
+    assert.throws(() => fixedToolArguments('pod_logs', args), /fixed current checkout/);
+  }
+  const { directory, context, env } = await fixture();
+  try {
+    const data = JSON.parse(await readFile(context, 'utf8'));
+    const item = { kind: 'logs', status: 'collected', observedAt: data.evidence.capturedAt,
+      source: 'recorded-fixture', truncated: false };
+    data.evidence.items = [
+      { ...item, id: 'logs-sidecar-current', data: { container: 'sidecar', previous: false, text: 'unrequested-sidecar' } },
+      { ...item, id: 'logs-checkout-current', data: { container: 'checkout', previous: false, text: 'current-checkout' } },
+      { ...item, id: 'logs-checkout-previous', data: { container: 'checkout', previous: true, text: 'unrequested-previous' } },
+    ];
+    const bytes = JSON.stringify(data);
+    await writeFile(context, bytes);
+    const result = await invokeTool('pod_logs', {}, { ...env,
+      MAS_MCP_CONTEXT_SHA256: createHash('sha256').update(bytes).digest('hex') });
+    assert.equal(result.status, 'collected');
+    assert.deepEqual(result.evidence_items.map((entry: { id: string }) => entry.id), ['logs-checkout-current']);
+    assert.equal(result.evidence_items[0].data.text, 'current-checkout');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
