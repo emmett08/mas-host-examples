@@ -745,9 +745,18 @@ and schema validation failures through fixed stage/code identifiers. The public
 diagnostics also retain bounded message counts, byte lengths and SHA-256 fingerprints;
 the workflow error includes the stage, code and selection counts. Older retained
 observations still report their original classification without inventing a cause.
-The OpenAI Responses adapter selects one eligible final message and one text block:
-`final_answer`, absent and null phases are eligible; commentary and other explicit
-phases are excluded. It never falls back to commentary if the final output is invalid.
+The OpenAI Responses adapter requires one distinct JSON value across eligible
+messages, with one complete text block in each message. `final_answer`, absent
+and null phases are eligible; commentary and other explicit phases are excluded.
+Repeated equivalent JSON messages produce one decision. Conflicting values,
+malformed siblings and split text blocks fail. It never falls back to commentary
+if the final output is invalid. Diagnostics record eligible phase counts, distinct
+JSON values and malformed JSON blocks without retaining provider text.
+Run `39140672322` failed on the investigator's second inference with two eligible
+messages and two text blocks. Its retained evidence cannot establish whether
+those texts were equivalent or conflicting. The repeated-output regression covers
+equivalent messages, while the conflict regression proves that no second tool is
+dispatched when two different decisions follow the first tool result.
 Its prompt includes the exact request and completion envelopes; `input_json`
 must contain a JSON-encoded string. An invalid response remains a failed run.
 All four tools accept `input_json: "{}"`. For `pod_logs`, the bridge binds the

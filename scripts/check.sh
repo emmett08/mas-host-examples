@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 export GOWORK=off GOTOOLCHAIN=local
-if [[ ! -x .tools/mas-host/target/debug/mas-host ]]; then
+if [[ ! -x "${MAS_HOST_BIN:-.tools/mas-host/target/debug/mas-host}" ]]; then
   echo 'Run make setup first.' >&2
   exit 1
 fi
