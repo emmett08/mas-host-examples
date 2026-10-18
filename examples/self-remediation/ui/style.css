@@ -5,3 +5,6 @@
 .journal table{min-width:620px}.message-strip>span{overflow-wrap:anywhere}
 
 .source-change h4{font-weight:500;margin:15px 0 6px;color:#c7d9e8}.source-change h4 span{color:#83c9b7;margin-left:8px}.source-comparison{display:grid;grid-template-columns:1fr 1fr;gap:10px}.source-comparison section{min-width:0}.source-comparison p{font-size:10px;color:#a7baca}.source-comparison section:first-child pre{border-left:2px solid #9e6670}.source-comparison section:last-child pre{border-left:2px solid #548f7e}.source-comparison pre{margin-top:6px;max-height:400px}@media(max-width:650px){.source-comparison{grid-template-columns:1fr}}
+
+/* Real retained criteria include long JSON counterexamples and identity strings. */
+.criterion{grid-template-columns:auto minmax(0,1fr)}.criterion>*{min-width:0;overflow-wrap:anywhere}.seek b{min-width:3ch}

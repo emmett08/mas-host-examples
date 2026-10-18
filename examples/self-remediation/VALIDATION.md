@@ -1,20 +1,22 @@
 # Validation record
 
-Observed locally on **18 October 2026**, against the implementation prepared for this PR. The repository baseline was `7a0b5f37d7a28ee7a676ecc9d12154361c9f2fb0`; the pinned host remained `8df16b640b78999b5eba60d83f2695f29052aaa2`. This record describes local evidence. The automatic PR workflow separately binds its results to the published PR commit.
+Observed locally on **18 October 2026**, against the implementation prepared for this PR. The repository baseline was `7a0b5f37d7a28ee7a676ecc9d12154361c9f2fb0`; the pinned host remained `8df16b640b78999b5eba60d83f2695f29052aaa2`. This record distinguishes local evidence from automatic PR workflow results, each bound to its published PR commit.
 
 ## Executed checks
 
 | Check | Observed result | Scope |
 |---|---|---|
 | `npm run build` in `examples/self-remediation` | **Passed** | Controller/server TypeScript, Vue type-check, production Vue bundle, portable observer and trusted tool bundles |
-| `npm test` in `examples/self-remediation` | **101 passed, 0 skipped, 0 failed** | Full suite with the explicit browser opt-in and available Chromium, including combined replay, actual file-limit/stream controls and immutable request/publication restart controls |
-| Separate `tests/observer-browser.test.ts` run | **1 passed** | Actual Chromium browser, live SSE updates before completion, desktop/mobile layout, escaped before/after source disclosure and offline playback without future-result leakage |
+| `npm test` in `examples/self-remediation` | **102 passed, 0 skipped, 0 failed** | Full suite with the explicit browser opt-in and available Chromium, including combined replay, actual file-limit/stream controls and immutable request/publication restart controls |
+| `tests/observer-browser.test.ts` within the full run | **2 passed** | Actual Chromium browser, live SSE updates before completion, desktop/mobile layout, escaped before/after source disclosure and offline playback without future-result leakage |
 | `npm run test:host` with the exact pinned host | **8 passed** | Actual maintained host, native/command/custom MCP paths, compiled topology, delegation, replay, accepted failed measurements and unknown-response recovery controls |
 | `verification/verify.py` | **30/30 SPIN checks passed** | Finite safety models, checks without partial-order reduction, guard-removal counterexamples and selected reachability controls |
 | Existing `examples/k3s-live` unit suite | **212 passed** | Regression checks for the preserved existing example |
 | Existing `examples/k3s-live` build | **Passed** | Preserved example's TypeScript/Vue build |
 | `actionlint` for the new workflow | **Passed** | Workflow syntax and static expression checks |
 | Offline archive smoke check | **Passed** | Built Vue, styles and committed event data embedded into one HTML document, with the portable observer also packaged |
+
+The complete 241-event archive from the fourth automatic run was also opened in Chromium. It retained the distinction between verified trial recovery and a later unknown export effect, disclosed both candidates as three file comparisons, and made no network requests. Desktop and 390-pixel mobile inspection found no browser errors or document overflow. Seeking before the recovery event hid that outcome. This larger trace exposed a missing safe summary field and long-criterion wrapping; both have dedicated regression coverage.
 
 The combined-replay control verifies original job incident/sequence/type/hash provenance, retained gaps, redaction, publication versus deployed recovery, and no future outcomes while seeking. The combiner reads only explicitly supplied journal paths and never executes retained candidate code.
 
@@ -40,9 +42,31 @@ The fourth [automatic run 39119115206](https://github.com/emmett08/mas-host-exam
 
 That run subsequently stopped with an unknown image-export effect, so `trialRecovery` was true while overall success remained false. It retained 2 candidates, 9 scripted calls, 29 operations, zero provider micro-USD and 444.503 seconds. Publication/false promotion was unassessed. The image adapter had discarded subprocess stderr, preventing exact diagnosis of this export failure. The follow-up retains bounded redacted image-command diagnostics and exercises the actual host-bound exporter on the trusted builder image before the repair loop. This separate bounded transport control makes no provider calls and does not count as candidate evidence. Subsequent automatic results remain bound to their exact PR commits. All existing Application examples checks passed in the fourth run.
 
-The fifth [automatic run 39120453013](https://github.com/emmett08/mas-host-examples/actions/runs/39120453013), at head `27a371d5e025e987acab42e8dd50e25370cc14a9`, stopped at that early preflight. Its retained Docker diagnostic reported `file too large`. The exact pinned host's `docs/native-contract.md` and `crates/mas-host-worker/src/lib.rs` specify a **64 MiB per-file guardian limit**. The original monolithic tar exceeded it. The replacement archive streams image bytes through content-addressed chunks of at most 8 MiB, with a small manifest, an aggregate 2 GiB bound, and hashes checked before load. It preserves the host limit and process supervision. A real subprocess control reproduces a failed monolithic write under a 64 MiB hard limit, then retains and verifies a 72 MiB chunked stream under that same limit. Corruption, symlinks, traversal and aggregate limits remain blocking. Actual Docker export of the new representation is left to the next automatic PR run.
+The fifth [automatic run 39120453013](https://github.com/emmett08/mas-host-examples/actions/runs/39120453013), at head `27a371d5e025e987acab42e8dd50e25370cc14a9`, stopped at that early preflight. Its retained Docker diagnostic reported `file too large`. The exact pinned host's `docs/native-contract.md` and `crates/mas-host-worker/src/lib.rs` specify a **64 MiB per-file guardian limit**. The original monolithic tar exceeded it. The replacement archive streams image bytes through content-addressed chunks of at most 8 MiB, with a small manifest, an aggregate 2 GiB bound, and hashes checked before load. It preserves the host limit and process supervision. A real subprocess control reproduces a failed monolithic write under a 64 MiB hard limit, then retains and verifies a 72 MiB chunked stream under that same limit. Corruption, symlinks, traversal and aggregate limits remain blocking. The sixth automatic run below then exercised actual Docker export of this representation successfully.
 
 The final restart review also repairs retained deployment/external request envelopes, publication/promotion requests and same-sequence checkpoint manifests. Canonical JSON prevents insertion-order differences between initial requests and journal recovery. Separate-process controls exercise the actual recovery adapters, immutable file preservation and changed-input rejection, with only the host transport explicitly simulated.
+
+## Completed automatic recovery control
+
+The sixth [automatic run 39121381802](https://github.com/emmett08/mas-host-examples/actions/runs/39121381802), at PR head `1f024f0802ca777f4fa7362c973e48f5ac0d56be`, **passed the entire credential-free integration**. Both the new workflow and the existing Application examples workflow completed successfully. Incident `39121381802-1-missing-route` ended with `verified_recovery`, scope `isolated trial`, and publication status `archived`.
+
+The real baseline passed ten criteria and failed liveness. The first candidate was rejected for two regressions; another investigation produced a useful revision. All eleven development, eleven fresh final and eleven trial criteria passed. The host-bound image-export preflight and final retained candidate export completed. The archived candidate preserves the source, independent verification, immutable image and offline replay for a separately authorised publisher.
+
+| Identity or measurement | Observed value |
+|---|---|
+| Case / provider | `missing-route` / `explicit-scripted-control` |
+| Faulty incident base | `0af27ec55e37ef7ff854ebeff3ba91bad52e5b56` |
+| Candidate source tree | `b99636b6c0d16c043a08a911fc591f34ab0b6ab0d18ba54a52ff87dcf24336a2` |
+| Image configuration digest | `sha256:d56acc2e57b0541031614f5e17e65a13edee3bb206cefdadf2ac73d0a1856995` |
+| Deployed image manifest digest | `sha256:58c44dadb8cd226dc1d189dc192f2f7086e21a53a4d9fbc2a248c3633ea4f0b4` |
+| Controller elapsed time | 450.630 seconds |
+| Candidates / scripted calls / operations | 2 / 9 / 29 |
+| Provider spend | 0 micro-USD; no live provider used |
+| Success / abstention | True / false, within the isolated trial scope |
+| Regression evidence | One rejected candidate with two failing behavioural criteria |
+| False promotion | Unassessed: publication and promotion were not run |
+
+This establishes actual tool and controller behaviour for one scripted missing-route control. It does not establish live-provider repair competence, success across the entire benchmark, or production recovery. The seventh automatic run checks the subsequent UI-only fixes and this evidence record; its outcome is reported on the PR.
 
 ## External acceptance and local availability
 
@@ -50,7 +74,7 @@ The final restart review also repairs retained deployment/external request envel
 |---|---|
 | Original operational cluster trigger → Pod/release → image/configuration → source binding | **Unexecuted remotely:** needs an exact owner-supplied target grant and scoped source-cluster read credential; local identity/precondition controls passed |
 | Container build and candidate execution in the real constrained sandbox | **Executed in automatic PR CI:** real Docker execution passed. Usable Docker infrastructure was unavailable locally |
-| Baseline failure → generated source change → protected checks → immutable image → real isolated k3s recovery | **Executed in fourth automatic PR CI:** scripted-control source revision, independent checks and real trial recovery passed. Image export subsequently blocked whole-run completion. This does not measure live-provider repair |
+| Baseline failure → generated source change → protected checks → immutable image → real isolated k3s recovery | **Executed in sixth automatic PR CI:** baseline failure, rejected candidate, useful scripted source revision, independent checks, immutable image, real trial recovery and retained image export all passed. This does not measure live-provider repair |
 | Official GitHub MCP metadata call | **Unexecuted remotely:** requires the runtime read credential and frozen admitted official schema. Local MCP transport/schema/projection controls passed |
 | Live-provider patch generation and revision | **Unexecuted:** no paid/live workflow was authorised or dispatched in this session |
 | Real nonempty GitHub repair PR against an injected faulty branch | **Unexecuted:** requires the separately scoped runtime publication credential and retained verified candidate. Transport controls verify the intended semantics locally |

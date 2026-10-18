@@ -45,6 +45,8 @@ test('compact Check Run projection bounds bytes and redacts secrets before trans
   const retained = identity.events[0]!.data.trigger as Record<string, unknown>;
   assert.equal(retained.podUid, 'pod-identity'); assert.equal(retained.sourceCommit, 'a'.repeat(40));
   assert.equal(retained.configurationSha256, 'b'.repeat(64)); assert.equal(retained.kubeconfig, '[redacted]');
+  const trial = makeWindow([event(1, 'trial', { recovered: true, observation: { diagnostics: 'raw deployment detail' } })], incidentId).events[0]!;
+  assert.equal(trial.data.recovered, true); assert.equal(trial.data.observation, '[retained in artefact]');
 });
 test('rate limits respect server retry/reset instructions and bounded exponential fallback', () => {
   assert.equal(retryDelay(new ApiError('limit', 429, { 'retry-after': '77' }), 0), 77_000);

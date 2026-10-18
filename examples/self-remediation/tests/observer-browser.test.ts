@@ -77,3 +77,37 @@ test('browser receives committed live updates before completion; offline seeking
     assert.deepEqual(network, []);
   } finally { await browser.close(); hub.close(); await new Promise<void>(done => server.close(() => done())); rmSync(temp, { recursive: true, force: true }); }
 });
+
+
+test('large retained journal keeps trial recovery separate from a later unknown effect and wraps real-shaped criteria on mobile', { skip: process.env.SELF_REMEDIATION_BROWSER_TEST !== '1' }, async () => {
+  const temp = mkdtempSync(join(tmpdir(), 'observer-large-journal-'));
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'], ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) });
+  try {
+    // Control data reproduces the 241-event journal shape observed in real CI.
+    // It exercises presentation and does not assert provider or cluster behaviour.
+    const events: ObservationEvent[] = Array.from({ length: 241 }, (_, index) => ({ seq: index + 1, incidentId: 'large-journal-control', time: new Date(1_792_300_000_000 + index * 1000).toISOString(), type: 'phase.completed', data: { status: 'completed' } }));
+    events[0] = { ...events[0]!, type: 'incident.opened', data: { baseCommit: 'a'.repeat(40), sourceTree: 'b'.repeat(64) } };
+    for (const sequence of [50, 118, 175, 198]) events[sequence - 1] = { ...events[sequence - 1]!, type: 'measurement', data: { candidateId: 'b'.repeat(64), criteria: Array.from({ length: 11 }, (_, index) => ({ id: `final-quote-${index}`, status: 'passed', mandatory: true, explanation: JSON.stringify({ expected: { status: 200, json: { subtotalPence: 12945, shippingPence: 0, totalPence: 12945 } }, actual: { status: 200, json: { subtotalPence: 12945, shippingPence: 0, totalPence: 12945 }, body: '{"subtotalPence":12945,"shippingPence":0,"totalPence":12945}' } }) })) } };
+    events[227] = { ...events[227]!, type: 'trial', data: { recovered: true, candidateId: 'b'.repeat(64), imageDigest: `sha256:${'c'.repeat(64)}`, observation: { diagnostics: 'must remain undisclosed' } } };
+    events[240] = { ...events[240]!, type: 'outcome', data: { outcome: 'unknown_effect', reason: 'Export acknowledgement unavailable' } };
+    const eventsFile = join(temp, 'events.jsonl'); writeFileSync(eventsFile, events.map(event => JSON.stringify(event)).join('\n') + '\n');
+    const { createArchive } = await import(pathToFileURL(resolve('scripts/archive.mjs')).href);
+    await createArchive({ eventsFile, output: join(temp, 'archive'), incidentId: 'large-journal-control' });
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto(pathToFileURL(join(temp, 'archive/index.html')).href);
+    await page.getByRole('slider').fill('227');
+    assert.equal(await page.getByRole('heading', { name: 'Isolated trial recovered', exact: true }).count(), 0);
+    await page.getByRole('slider').fill('241');
+    await page.getByRole('heading', { name: 'Isolated trial recovered', exact: true }).waitFor();
+    assert.match(await page.locator('.status-card').innerText(), /unknown_effect/);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.getByRole('checkbox', { name: 'Show redacted details' }).check();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    assert.ok(!(await page.locator('body').innerText()).includes('must remain undisclosed'));
+    await page.getByRole('slider').fill('227');
+    assert.equal(await page.getByRole('heading', { name: 'Isolated trial recovered', exact: true }).count(), 0);
+    assert.ok(!(await page.locator('.status-card').innerText()).includes('unknown_effect'));
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); rmSync(temp, { recursive: true, force: true }); }
+});

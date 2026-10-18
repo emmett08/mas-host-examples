@@ -53,12 +53,14 @@ const groups = [
   { id: 'effects', title: 'Effects & checkpoints', kind: 'Recovery and uncertainty', types: ['effect.intended', 'effect.completed', 'effect.unknown', 'effect.reconciled', 'effect.result', 'checkpoint', 'outcome'], hint: 'Unknown effects stay unresolved until external evidence reconciles them.' },
 ];
 function forTypes(types: string[]): readonly ObservationEvent[] { return recent.value.filter(e => types.includes(e.type)); }
-function headline(event: ObservationEvent): string { return String(event.data.summary ?? event.data.reason ?? event.data.outcome ?? event.data.status ?? event.data.name ?? event.data.phase ?? event.data.stage ?? event.data.disposition ?? event.type.replaceAll('.', ' ')); }
+function headline(event: ObservationEvent): string {
+  if (event.type === 'trial' && typeof event.data.recovered === 'boolean') return event.data.recovered ? 'Isolated trial recovered' : 'Isolated trial recovery not verified';
+  return String(event.data.summary ?? event.data.reason ?? event.data.outcome ?? event.data.status ?? event.data.name ?? event.data.phase ?? event.data.stage ?? event.data.disposition ?? event.type.replaceAll('.', ' ')); }
 function pretty(value: unknown): string { return JSON.stringify(redact(value), null, 2); }
 function short(value: unknown): string { if (typeof value === 'string') return value.length > 40 ? `${value.slice(0, 18)}…${value.slice(-10)}` : value; return JSON.stringify(value); }
 function label(key: string): string { return key.replace(/([A-Z])/g, ' $1').replaceAll('_', ' '); }
 function summary(event: ObservationEvent): Record<string, unknown> {
-  const keys = ['sourceTree', 'configurationSha256', 'deploymentUid', 'podUid', 'sourceCommit', 'status', 'outcome', 'phase', 'baseCommit', 'candidateTree', 'tree', 'candidateId', 'imageDigest', 'criterion', 'passed', 'mandatory', 'value', 'unit', 'costUsd', 'operationId', 'invocationId', 'invocation_id', 'url', 'reason', 'summary', 'artifact', 'artefact', 'sourceRef', 'patchRef', 'changedCapabilities', 'changedResources', 'eligible', 'disposition', 'remainingUncertainty', 'exposure'];
+  const keys = ['recovered', 'sourceTree', 'configurationSha256', 'deploymentUid', 'podUid', 'sourceCommit', 'status', 'outcome', 'phase', 'baseCommit', 'candidateTree', 'tree', 'candidateId', 'imageDigest', 'criterion', 'passed', 'mandatory', 'value', 'unit', 'costUsd', 'operationId', 'invocationId', 'invocation_id', 'url', 'reason', 'summary', 'artifact', 'artefact', 'sourceRef', 'patchRef', 'changedCapabilities', 'changedResources', 'eligible', 'disposition', 'remainingUncertainty', 'exposure'];
   return Object.fromEntries(Object.entries(event.data).filter(([key]) => keys.includes(key)));
 }
 function pause(): void { cursor.value = visible.value.lastSeq; mode.value = 'playback'; playing.value = false; }
