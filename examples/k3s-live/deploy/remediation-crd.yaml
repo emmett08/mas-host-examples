@@ -37,6 +37,8 @@ spec:
                 sourceRunUID: {type: string, minLength: 1, maxLength: 128}
                 namespaceUID: {type: string, minLength: 1, maxLength: 128}
                 targetUID: {type: string, minLength: 1, maxLength: 128}
+                targetName: {type: string, enum: [mas-demo-checkout, mas-demo-checkout-mcp]}
+                approach: {type: string, enum: [collected, mcp]}
                 templateHash: {type: string, pattern: '^[a-f0-9]{64}$'}
                 evidenceHash: {type: string, pattern: '^[a-f0-9]{64}$'}
             status:

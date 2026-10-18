@@ -11,34 +11,38 @@ import { Runs, type Run } from './runs.js';
 import { freezeInvestigation, retainFile } from './investigation.js';
 import { runtimeIdentity } from '../project/mcp-client.mjs';
 import { EVIDENCE_VERSION, type EvidenceBundle, type EvidenceItem } from '../shared/evidence.js';
+import { managedWorkloads, type ManagedWorkload } from '../shared/workloads.mjs';
 
 const tools = ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics'];
 const observedAt = '2026-10-17T18:00:00Z';
 const subject = { namespace: 'mas-demo', name: 'checkout-pod', uid: 'pod-fixture-uid' };
 
-function incident(id: string) {
+function incident(id: string, policy: ManagedWorkload = managedWorkloads[0]!) {
+  const targetSubject = policy.approach === 'mcp' ? { ...subject, name: 'checkout-mcp-pod', uid: 'mcp-pod-fixture-uid' } : subject;
   const item = (id: string, kind: EvidenceItem['kind'], data: unknown): EvidenceItem => ({
     id, kind, source: `recorded-fixture:${id}`, status: 'collected', observedAt, truncated: false, data,
   });
-  const evidence: EvidenceBundle = { version: EVIDENCE_VERSION, capturedAt: observedAt, subject, items: [
-    item('pod', 'pod', { kind: 'Pod', metadata: subject,
+  const evidence: EvidenceBundle = { version: EVIDENCE_VERSION, capturedAt: observedAt, subject: targetSubject, items: [
+    item('pod', 'pod', { kind: 'Pod', metadata: targetSubject,
       spec: { containers: [{ name: 'checkout' }] },
       status: { conditions: [{ type: 'Ready', status: 'False' }] } }),
-    item('events', 'events', [{ reason: 'Unhealthy', message: 'Readiness returned HTTP 404', involvedObject: subject }]),
+    item('events', 'events', [{ reason: 'Unhealthy', message: 'Readiness returned HTTP 404', involvedObject: targetSubject }]),
     item('workload-deployment', 'workload', { kind: 'Deployment',
-      metadata: { namespace: 'mas-demo', name: 'mas-demo-checkout', uid: 'deployment-fixture-uid', resourceVersion: '12345' },
-      spec: { template: { spec: { containers: [{ name: 'checkout',
-        readinessProbe: { httpGet: { path: '/readyz' } }, livenessProbe: { httpGet: { path: '/healthz' } },
+      metadata: { namespace: 'mas-demo', name: policy.name,
+        uid: policy.approach === 'mcp' ? 'deployment-mcp-fixture-uid' : 'deployment-fixture-uid', resourceVersion: '12345' },
+      spec: { template: { spec: { containers: [{ name: 'checkout', command: ['node', '/app/deploy/probe-app.mjs'],
+        readinessProbe: { httpGet: { path: policy.currentPath } }, livenessProbe: { httpGet: { path: policy.proposedPath } },
       }] } } } }),
     item('logs-checkout-current', 'logs', { container: 'checkout', previous: false,
-      text: '{"method":"GET","path":"/readyz","status":404}\n{"method":"GET","path":"/healthz","status":200}' }),
+      text: [JSON.stringify({ method: 'GET', path: policy.currentPath, status: 404 }),
+        JSON.stringify({ method: 'GET', path: policy.proposedPath, status: 200 })].join('\n') }),
     // A seed observation not selected by the model must not enter the new evidence bundle.
     item('logs-checkout-previous', 'logs', { container: 'checkout', previous: true, text: 'unrequested-previous-observation' }),
     item('metrics', 'metrics', { timestamp: observedAt, containers: [{ name: 'checkout', usage: { cpu: '1m', memory: '16Mi' } }] }),
   ] };
   return { id, scenario: 'pod-incident', approach: 'mcp', evidence,
-    event: { namespace: subject.namespace, name: 'checkout-warning', uid: 'event-fixture-uid',
-      reason: 'Unhealthy', message: 'Readiness probe returned HTTP 404', involvedObject: { kind: 'Pod', ...subject } } };
+    event: { namespace: targetSubject.namespace, name: 'checkout-warning', uid: 'event-fixture-uid',
+      reason: 'Unhealthy', message: 'Readiness probe returned HTTP 404', involvedObject: { kind: 'Pod', ...targetSubject } } };
 }
 
 async function application(t: TestContext) {
@@ -260,7 +264,8 @@ test('real host records four MCP tools, freezes their evidence, assesses a revis
   }
   const host = new ObservedHost(app.options), runs = new Runs(app.directory, 'fixture', host);
   await runs.initialise();
-  await runs.create(incident(id));
+  const admitted = incident(id, managedWorkloads[1]!);
+  await runs.create(admitted);
   const run = await settled(runs, id);
   assert.equal(run.status, 'completed', JSON.stringify({ error: run.error, diagnostics: run.diagnostics }));
   assert.ok(freezeChecked);
@@ -277,6 +282,11 @@ test('real host records four MCP tools, freezes their evidence, assesses a revis
   assert.equal(run.revision?.assessments[0]?.findings.find(finding => finding.criterion_id === 'evidence-references')?.verdict, 'fail');
   assert.ok(run.revision?.assessments[1]?.findings.every(finding => finding.verdict === 'pass'));
   assert.equal((run.output as any).remediation.action, 'replace_readiness_probe_path');
+  assert.equal((run.output as any).remediation.target.name, 'mas-demo-checkout-mcp');
+  assert.equal((run.output as any).remediation.current_path, '/ready');
+  assert.equal((run.output as any).remediation.proposed_path, '/healthz');
+  assert.deepEqual(run.admissionEvidence, admitted.evidence);
+  assert.ok(run.investigation?.calls.every(call => call.contextSha256 === run.investigation?.contextSha256));
 
   const directory = join(app.directory, id), acquisitionState = join(directory, 'investigation', 'host');
   const acquired = await host.observe(id, acquisitionState, true);

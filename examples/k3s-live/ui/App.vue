@@ -616,12 +616,12 @@ onBeforeUnmount(() => {
             <span class="eyebrow-line" /> AGENT SYSTEMS · {{ isArchive ? "RECORDED OBSERVATIONS" : "LIVE OBSERVABILITY" }}
           </div>
           <h1 id="page-title">
-            One incident.<br class="mobile-break" />
-            A team of agents.
+            From incident<br class="mobile-break" />
+            to verified recovery.
           </h1>
           <p class="intro-copy">
-            Follow a Kubernetes investigation across supervised workflows,
-            specialist LLMs and peer critique.
+            Follow Kubernetes incidents through evidence collection, specialist
+            assessment and independently verified repairs.
           </p>
         </div>
         <div class="intro-tag">
@@ -639,8 +639,8 @@ onBeforeUnmount(() => {
       </div>
       <div id="approach-panel" role="tabpanel" :aria-labelledby="`tab-${approach}`">
       <div class="approach-description">
-        <template v-if="approach === 'mcp'"><strong>The LLM chooses what to inspect.</strong><p>MAS host admits each delegated request. A custom MCP server executes the permitted evidence tools. Recorded results are frozen before the assessment and revision stages.</p></template>
-        <template v-else><strong>Evidence is collected before the LLM assessment.</strong><p>The operator supplies a bounded evidence bundle. Specialist agents assess the same recorded observations and propose a response.</p></template>
+        <template v-if="approach === 'mcp'"><strong>The LLM chooses what to inspect.</strong><p>MAS host admits each delegated request to the custom MCP evidence tools. The agents assess the frozen results. For operator-admitted incidents, the dedicated controller checks, applies and verifies an eligible repair.</p></template>
+        <template v-else><strong>Evidence is collected before the LLM assessment.</strong><p>The operator supplies a bounded evidence bundle. Specialist agents assess it and propose a response. The dedicated controller checks, applies and verifies an eligible repair.</p></template>
       </div>
       <div v-if="isArchive && !activeArchive && !error" class="notice" role="status">This download contains no recording for this approach. Open a comparison capture to view both approaches on this page.</div>
 
@@ -684,10 +684,10 @@ onBeforeUnmount(() => {
         <div class="scenario">
           <div class="scenario-icon" aria-hidden="true">!</div>
           <div>
-            <span class="control-label">INCIDENT SCENARIO</span
-            ><strong>Pod restart warning</strong
+            <span class="control-label">CLUSTER INCIDENTS</span
+            ><strong>Automatic detection and repair</strong
             ><span class="scenario-detail"
-              >Investigation and recommendations</span
+              >The operator watches each managed workload</span
             >
           </div>
         </div>
@@ -715,7 +715,7 @@ onBeforeUnmount(() => {
               starting
                 ? "Starting…"
                 : approach === 'mcp'
-                  ? "Investigate same incident"
+                  ? "Compare same incident (read-only)"
                   : isLaunchFixture
                   ? "Run fixture"
                   : isLaunchLive
@@ -1078,8 +1078,9 @@ onBeforeUnmount(() => {
 
       <div class="run-findings">
         <div v-if="!isArchive && approach === 'mcp'" class="notice comparison-source" role="status">
-          <template v-if="comparisonSource">Using incident evidence from run {{ comparisonSource.id }}: {{ comparisonSource.input?.incident?.evidence?.subject.namespace }} / {{ comparisonSource.input?.incident?.evidence?.subject.name }}. Tools inspect this captured incident through MCP.</template>
-          <template v-else>Collect a Kubernetes incident first. This approach needs a recorded event and its evidence bundle to identify the same pod.</template>
+          <span>The operator automatically starts MCP investigations for its managed workload. Select their runs to follow the controller's repair and verification.</span>
+          <template v-if="comparisonSource"> The optional comparison button investigates {{ comparisonSource.input?.incident?.evidence?.subject.namespace }} / {{ comparisonSource.input?.incident?.evidence?.subject.name }} from run {{ comparisonSource.id }}. This manually submitted comparison cannot authorise a repair.</template>
+          <template v-else> A collected incident is needed before the optional read-only comparison can start.</template>
         </div>
 
         <div v-if="isFixture" class="notice fixture-notice">
@@ -1179,13 +1180,14 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section v-if="resolution" class="panel resolution-panel" aria-labelledby="resolution-title" :data-resolution-status="resolution.status">
+      <section v-if="resolution" class="panel resolution-panel" aria-labelledby="resolution-title" :data-resolution-status="resolution.status" :data-source-run-id="currentRun?.id">
         <div class="panel-heading">
           <div><span class="section-kicker">TOOL EXECUTION AND VERIFICATION</span><h2 id="resolution-title" tabindex="-1">{{ resolution.target.namespace }} / {{ resolution.target.name }}</h2></div>
           <span class="resolution-state" :class="resolution.status">{{ resolutionLabel }}</span>
         </div>
         <div class="output-body">
           <p class="assessment-summary">{{ resolution.reason }}</p>
+          <p class="output-note">Controller outcome for this {{ approach === 'mcp' ? 'LLM tools + MCP' : 'Collected evidence' }} run: <code>{{ currentRun?.id }}</code>.</p>
           <p class="execution-outcomes"><strong>Effect:</strong> <span data-effect-outcome>{{ executionLabels?.effect }}</span> · <strong>Verification:</strong> <span data-verification-outcome>{{ executionLabels?.verification }}</span></p>
           <p v-if="resolution.version === 'mas-k8s-resolution/2'" class="output-note">Operation {{ resolution.operationId }} · Attempt {{ resolution.attemptId }}</p>
           <p class="output-note">Recorded {{ recordingDate(resolution.recordedAt) }} by the constrained demo verifier. This result is separate from the LLM assessment.</p>
@@ -1206,7 +1208,7 @@ onBeforeUnmount(() => {
         <span
           ><span class="footer-dot" />mas-host
           <span class="footer-separator">+</span> MAS protocol</span
-        ><span>{{ isArchive ? "Recorded observations · no cluster or provider connection" : "Read-only agent evidence · separately verified demo remediation" }}</span>
+        ><span>{{ isArchive ? "Recorded observations · no cluster or provider connection" : "Detected incidents · bounded controller repairs · retained verification" }}</span>
       </footer>
       <div class="sr-only" aria-live="polite" aria-atomic="true">
         {{

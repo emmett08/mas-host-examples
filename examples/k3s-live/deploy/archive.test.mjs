@@ -145,6 +145,25 @@ test('comparison packaging preserves both approaches and acquisition observation
   await assert.rejects(readArchive(directory, [repeatedApproach]), /distinct runs and approaches/);
 });
 
+test('independent incident capture metadata and each controller report survive packaging separately', async t => {
+  const collected = snapshot(1000, [message], 'completed');
+  const mcp = snapshot(2000, [message], 'completed');
+  mcp.run.id = 'mcp-independent'; mcp.run.approach = 'mcp';
+  collected.run.resolution = { target: { uid: 'collected-deployment' }, reason: 'First repair' };
+  mcp.run.resolution = { target: { uid: 'mcp-deployment' }, reason: 'Second repair' };
+  const directory = await capture(t, [collected]);
+  const other = await capture(t, [mcp]);
+  const metadata = { version: 'mas-k8s-dual-capture/1', runs: [
+    { approach: 'collected', workload: 'mas-demo-checkout', runId: collected.run.id },
+    { approach: 'mcp', workload: 'mas-demo-checkout-mcp', runId: mcp.run.id },
+  ] };
+  await writeFile(join(directory, 'capture.json'), JSON.stringify(metadata));
+  const archive = await readArchive(directory, [other]);
+  assert.deepEqual(archive.capture, metadata);
+  assert.deepEqual(archive.snapshots[0].run.resolution, collected.run.resolution);
+  assert.deepEqual(archive.comparisons[0].snapshots[0].run.resolution, mcp.run.resolution);
+});
+
 test('missing comparison capture preserves the primary recording; malformed capture still fails', async t => {
   const directory = await capture(t), absent = join(directory, 'not-started-mcp');
   const unavailable = await readArchive(directory, [absent]);

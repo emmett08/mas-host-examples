@@ -30,7 +30,7 @@ export function canonicalTemplateHash(template: unknown): string {
 function metadata(value: unknown): JSONRecord {
   const source = record(value);
   const labels = Object.fromEntries(Object.entries(record(source.labels))
-    .filter(([key]) => ['app.kubernetes.io/name', 'demo.mas.dev/trigger', 'demo.mas.dev/managed'].includes(key)).slice(0, 3)
+    .filter(([key]) => ['app.kubernetes.io/name', 'demo.mas.dev/trigger', 'demo.mas.dev/managed', 'demo.mas.dev/approach'].includes(key)).slice(0, 4)
     .map(([key, value]) => [key.slice(0, 128), text(value, 128)]));
   return { ...pick(source, ['name', 'namespace', 'uid', 'resourceVersion']), labels,
     ownerReferences: array(source.ownerReferences).slice(0, 3).map(owner => pick(owner, ['apiVersion', 'kind', 'name', 'uid', 'controller'])) };
@@ -120,6 +120,27 @@ export function evidenceForStorage(bundle: EvidenceBundle): unknown {
 export function evidenceFromStorage(bundle: EvidenceBundle | undefined): EvidenceBundle | undefined {
   if (!bundle) return undefined;
   return parseEvidence({ ...bundle, items: bundle.items.map(item => ({ ...item, data: item.data ?? null })) });
+}
+
+// Admission retains the single Pod response used for UID and approach checks.
+// Do not precollect tool results: live MCP delegation owns their acquisition.
+export function collectInvestigationSeed(event: EventEvidence, pod: unknown,
+  options: EvidenceOptions = {}): EvidenceBundle {
+  const target = event.involvedObject, identity = record(record(pod).metadata);
+  if (target.kind !== 'Pod' || !target.uid || target.namespace !== event.namespace
+      || identity.uid !== target.uid || identity.name !== target.name || identity.namespace !== target.namespace) {
+    throw new Error('MCP admission requires the original namespace, Pod name and UID');
+  }
+  const capturedAt = new Date((options.now ?? Date.now)()).toISOString();
+  const base = `/api/v1/namespaces/${encodeURIComponent(target.namespace)}`;
+  return parseEvidence({ version: EVIDENCE_VERSION, capturedAt,
+    subject: { namespace: target.namespace, name: target.name, uid: target.uid }, items: [
+      { id: 'pod', kind: 'pod', source: `${base}/pods/${encodeURIComponent(target.name)}`,
+        status: 'collected', observedAt: capturedAt, truncated: false, data: projectResource(pod, 'Pod') },
+      { id: 'events', kind: 'events', source: `${base}/events/${encodeURIComponent(event.name)}`,
+        status: 'collected', observedAt: capturedAt, truncated: false,
+        data: [{ ...event, message: redactEvidenceText(event.message, 2000) }] },
+    ] })!;
 }
 
 export async function collectEvidence(kube: KubernetesAPI, event: EventEvidence,

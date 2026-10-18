@@ -8,7 +8,7 @@ export interface PostChangeEvidence {
   window: { startedAt: string; endedAt: string };
   logs: {
     status: 'collected' | 'unavailable'; source: string; observedAt: string; truncated: boolean;
-    records: { timestamp: string; method: 'GET'; path: '/' | '/healthz' | '/readyz'; status: number }[];
+    records: { timestamp: string; method: 'GET'; path: '/' | '/healthz' | '/readyz' | '/ready'; status: number }[];
     omittedLines: number; unparsedLines: number; reason?: string;
   };
   events: {

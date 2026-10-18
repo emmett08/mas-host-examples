@@ -27,7 +27,7 @@ export function requireInvestigationTools(tools: readonly unknown[]) {
 export interface InvestigationAudit {
   status: 'running' | 'completed' | 'failed'; runId: string;
   contextSha256?: string; evidence?: EvidenceBundle;
-  calls: { id: string; tool: string; status: 'collected' | 'unavailable' | 'error'; evidenceIds: string[] }[];
+  calls: { id: string; tool: string; status: 'collected' | 'unavailable' | 'error'; evidenceIds: string[]; contextSha256?: string }[];
   summary?: unknown;
   // Retain the provider's output separately from the audit summary, whose
   // limitations also include facts enforced by the collection boundary.
@@ -95,7 +95,7 @@ export function freezeInvestigation(id: string, raw: unknown, seed: EvidenceBund
       // explicitly timed bundle, not a claim of an atomic cluster snapshot.
       items.set(item.id, item);
     }
-    calls.push({ id: step.id, tool: step.actor, status: result.status, evidenceIds: bundle.items.map(item => item.id) });
+    calls.push({ id: step.id, tool: step.actor, status: result.status, evidenceIds: bundle.items.map(item => item.id), contextSha256 });
   }
   const evidence = parseEvidence({ version: EVIDENCE_VERSION, capturedAt: new Date(observation.observed_at_ms).toISOString(),
     subject: seed.subject, items: [...items.values()] });

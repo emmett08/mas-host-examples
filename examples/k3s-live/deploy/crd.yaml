@@ -18,6 +18,7 @@ spec:
         status: {}
       additionalPrinterColumns:
         - {name: Phase, type: string, jsonPath: .status.phase}
+        - {name: Approach, type: string, jsonPath: .spec.approach}
         - {name: Run, type: string, jsonPath: .status.runId}
         - {name: Age, type: date, jsonPath: .metadata.creationTimestamp}
       schema:
@@ -30,11 +31,16 @@ spec:
               required: [scenario]
               x-kubernetes-validations:
                 - rule: self == oldSelf
-                  message: Create a new MASDemoRun to change the admitted scenario or evidence.
+                  message: Create a new MASDemoRun to change the admitted approach, scenario or evidence.
               properties:
                 scenario:
                   type: string
                   enum: [pod-incident, pod-crash]
+                approach:
+                  type: string
+                  enum: [collected, mcp]
+                  default: collected
+                  description: Immutable investigation approach selected from the observed Pod's managed workload policy.
                 evidence:
                   type: object
                   required: [version, capturedAt, subject, items]

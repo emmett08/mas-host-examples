@@ -13,8 +13,9 @@ service.** See [GitHub Actions](#github-actions) for the single required secret.
 
 ## What the demonstration shows
 
-1. An opted-in Pod Warning triggers collection of bounded Kubernetes evidence.
-   The controller retains that evidence in a `MASDemoRun` before starting agents.
+1. Each opted-in Pod Warning creates an immutable `MASDemoRun` with its selected
+   approach. The collected path retains bounded evidence; the MCP path retains a
+   Pod/Event seed and delegates fresh evidence collection to its LLM investigator.
 2. The coordinator workflow starts platform and security branches in parallel.
 3. The platform branch asks a platform LLM for a diagnosis, then contacts the
    security branch directly for peer critique. The independent security branch
@@ -34,16 +35,26 @@ service.** See [GitHub Actions](#github-actions) for the single required secret.
 
 The dashboard has two tabs on the same page:
 
-- **Collected evidence** keeps the original operator collection and hybrid assessment.
-- **LLM tools + MCP** selects the same incident, asks an LLM investigator to choose
-  tools, freezes their recorded results, then runs the same hybrid assessment and
-  bounded revision. Select **Investigation** or **Assessment** to inspect each
+- **Collected evidence** collects, assesses and repairs the original checkout workload.
+- **LLM tools + MCP** detects a second faulty workload, asks an LLM investigator to
+  choose tools, freezes their recorded results, then runs the same hybrid assessment,
+  bounded revision and guarded repair. Select **Investigation** or **Assessment** to inspect each
   phase's own topology and request/result trace.
 
-First select a collected run with a Pod-bound evidence bundle. In the MCP tab,
-**Investigate same incident** copies its event and Pod identity into a new run.
-The investigator receives the event and subject, but does not receive the earlier
-logs and specifications. It chooses the order in which to request `pod_overview`,
+The live operator routes each admitted Pod to one of two fixed policies:
+
+| Tab | Deployment in `mas-demo` | Fault and permitted correction |
+| --- | --- | --- |
+| Collected evidence | `mas-demo-checkout` | Readiness requests `/readyz`, which returns 404; replace with `/healthz` |
+| LLM tools + MCP | `mas-demo-checkout-mcp` | Readiness requests `/ready`, which returns 404; replace with `/healthz` |
+
+These are separate incidents in separate Deployments, with distinct Pod UIDs,
+run resources, journals and outcomes. Both exercise the same bounded class of
+misconfiguration; this is a comparison of acquisition approaches, not a claim
+to handle arbitrary faults.
+
+The MCP investigator receives the event and subject from the operator's minimal
+admission seed. It chooses the order in which to request `pod_overview`,
 `workload_spec`, `pod_logs` and `pod_metrics`, and must obtain a result from each
 before returning its findings. The log request selects the current `checkout`
 container and the full bounded tail of 40 lines. Tool arguments cannot choose another
@@ -103,22 +114,21 @@ unavailable or skipped observations. `modelSummary` preserves the original model
 output and `collectionLimitations` identifies the derived disclosures. The host
 observation is unchanged; an empty model list cannot hide missing evidence.
 
-The recording workflow pauses remediation until both approaches have acquired
-evidence from the same faulty Pod. Once MCP evidence is frozen, it restores the
-original remediation flow while the MCP assessment continues. Its downloadable
-HTML embeds both captured approaches, including the MCP calls and their evidence.
-The recorder validates the MCP bundle's collected workload identity, probe
-specifications and current endpoint logs before accepting a practical comparison.
-This compares behaviour on one incident; it does not establish that one method
-has better diagnostic accuracy. A run initiated directly from the MCP tab does
-not create a Kubernetes remediation custom resource.
+The recording workflow triggers and records the two incidents sequentially while
+the remediation controller stays running. It accepts the MCP capture only after
+four actual tool calls, a frozen live evidence bundle, a completed assessment and
+its own verified controller journal. The root directory retains the collected
+run; `mcp/` retains the second run's trigger, evidence, assessment, journal and
+`outcome.json`. The downloadable HTML embeds both complete flows. This demonstration
+does not establish that one approach has better diagnostic accuracy.
 
-To see the recorded repair, select **Collected evidence → View final** and scroll
-below the final assessment to **Tool execution and verification**. Its
-**Verified recovery** badge belongs to the controller's checks. The MCP archive
-also links to this separate outcome with **View controller verification** when
-both recordings concern the same Pod UID. It identifies the source run and makes
-clear that the MCP comparison did not execute another repair.
+In either tab, choose **View final** and scroll below the final assessment to
+**Tool execution and verification**. Each **Verified recovery** badge identifies
+that tab's own run and controller checks. Older archives with a read-only MCP
+comparison remain readable and retain their separately attributed link to the
+original repair. The optional **Compare same incident (read-only)** button also
+remains available: it starts an additional assessment without a Kubernetes run
+resource and cannot admit a repair.
 
 After `make setup`, run application and real-host integration checks:
 
@@ -242,16 +252,17 @@ they establish neither live-model quality nor improvement on unseen incidents.
 
 ## The practical incident and outcome
 
-The sample checkout application serves `/healthz` and `/`, but its readiness
-probe requests `/readyz`. Kubernetes reports an `Unhealthy` Warning; the Pod is
-running and unready. Its access logs show `/readyz` returning 404 and `/healthz`
+The sample checkout application serves `/healthz` and `/`, but the two workloads'
+readiness probes request `/readyz` and `/ready` respectively. Kubernetes reports an
+`Unhealthy` Warning for each running, unready Pod. Its access logs show the
+configured unsupported path returning 404 and `/healthz`
 returning 200. The live Pod, ReplicaSet and Deployment specifications identify
 the faulty readiness path and the owning workload. Because the process remains
 running, metrics-server can sample its real CPU and memory usage.
 
 All three agent prompts state the bundled `probe-app.mjs` endpoint contract:
 `/healthz` serves readiness and liveness, `/` serves the application, and
-`/readyz` is unsupported. That contract applies only to this managed example
+both `/readyz` and `/ready` are unsupported. That contract applies only to these managed workloads
 running the bundled command. Collected logs and specifications must still
 support the diagnosis. The controller checks current execution preconditions
 and subsequent recovery; those pending checks do not themselves prevent a
@@ -264,8 +275,8 @@ when evidence does not support that remedy; missing metrics are never zeroes,
 and a current usage sample cannot rule out earlier resource pressure.
 
 Deploying with `DEMO_AUTO_REMEDIATE=true` enables a dedicated controller restricted
-to the managed `mas-demo/mas-demo-checkout` Deployment and its `checkout`
-container. It accepts only `/readyz` → `/healthz`, verifies the proposal against
+to the two named Deployments and their `checkout` containers. It accepts only
+the target/approach/path pairs in the table above, verifies the proposal against
 the collected specification and probe logs, checks Deployment UID and the full
 original template hash, then uses JSON Patch tests for current UID, resource
 version, container name and old path. It executes no model-supplied shell.
@@ -315,7 +326,12 @@ considering a change. It reuses the same admission and recovery functions as
 the original workflow tool, through direct Kubernetes HTTPS requests.
 Its `/api/runs/:id/remediation` response carries the unchanged incident, exact
 selected output and digest reference, completion state and retained remediation
-records. Invocation history stays in the dashboard snapshot so a growing audit
+records. For MCP it additionally carries the unchanged `admissionEvidence`, the
+frozen investigation bundle and context-bound tool-call references. The controller
+requires the CR's approach, Event, original seed and Pod identity to match, then
+requires completed acquisition from `kubernetes-api` and assessment of that exact
+frozen bundle. A collected run cannot repair the MCP workload or vice versa.
+Invocation history stays in the dashboard snapshot so a growing audit
 does not exhaust the controller's unchanged 1 MiB response limit. All original
 evidence and live-resource admission checks still apply.
 
@@ -344,7 +360,7 @@ one replica and the `Recreate` strategy;
 it provides durable effect reservations rather than a highly available
 remediation service or an unrestricted exactly-once guarantee.
 
-Its Role grants patch access only to the named checkout Deployment. The
+Its Role grants patch access only to the two named checkout Deployments. The
 admission code enforces the allowed field and value change; Kubernetes RBAC
 does not express that field restriction. The controller can read the Pods,
 ReplicaSets, current Pod logs, Pod Events, metrics and named Service proxy needed
@@ -590,7 +606,9 @@ Both jobs deploy the dedicated remediator with automatic correction enabled and
 enable payload capture. Recordings observe its retained outcome and include the
 `MASRemediation` resource. Successful practical capture requires collected logs, live resource
 specifications, real metric samples, every message payload and a verified
-recovery. It fails explicitly when that evidence or outcome is missing.
+recovery for each approach. The two independent incidents must have different
+Pod, Deployment and journal identities; one run's recovery cannot satisfy the
+other run's capture. It fails explicitly when evidence or either outcome is missing.
 If the final assessment requests human review or proposes no permitted action,
 capture fails immediately with classification `remediation-not-proposed`.
 `failure-diagnostics.json` retains the proposed action and the agent's reason;

@@ -31,6 +31,26 @@ function snapshot(run: DemoRun): Snapshot {
     incident: { scenario: 'pod-incident', source: 'kubernetes-event', event: clone(run.spec.event), evidence: clone(run.spec.evidence) },
   }, output: { requires_human: false } } };
 }
+function mcpSource(id = 'mcp-run'): { run: DemoRun; state: Snapshot } {
+  const run = source(id);
+  run.spec.approach = 'mcp';
+  run.spec.event!.involvedObject = { kind: 'Pod', namespace: NAMESPACE, name: 'checkout-mcp-original', uid: 'pod-mcp-original' };
+  run.spec.evidence!.subject = { namespace: NAMESPACE, name: 'checkout-mcp-original', uid: 'pod-mcp-original' };
+  const deployment = run.spec.evidence!.items[0]!.data as { metadata: { name: string; uid: string } };
+  deployment.metadata.name = 'mas-demo-checkout-mcp';
+  deployment.metadata.uid = 'deployment-mcp';
+  const state = snapshot(run);
+  state.run.approach = 'mcp';
+  state.run.admissionEvidence = clone(run.spec.evidence!);
+  const evidence = state.run.input.incident.evidence!;
+  evidence.capturedAt = new Date(epoch + 1000).toISOString();
+  const contextSha256 = 'c'.repeat(64);
+  state.run.investigation = { status: 'completed', runId: state.run.id, source: 'kubernetes-api', contextSha256,
+    evidence: clone(evidence), calls: ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics'].map((tool, index) => ({
+      id: `tool-${index}`, tool, status: 'collected', contextSha256, evidenceIds: evidence.items.map(item => item.id),
+    })) };
+  return { run, state };
+}
 function report(status: ResolutionReport['status'] = 'not-attempted'): ResolutionReport {
   return { version: 'mas-k8s-resolution/1', status, action: 'replace_readiness_probe_path',
     target: { namespace: NAMESPACE, name: 'mas-demo-checkout', uid: 'deployment-1' },
@@ -454,4 +474,93 @@ test('a report cannot reserve another operation or attempt identity', async () =
     assert.equal(f.kube.creates, 0);
     assert.equal(f.backend.reports.length, 0);
   }
+});
+
+test('the collected and MCP runs reserve independent targets and never repeat either repair after restart', async () => {
+  const f = fixture();
+  const mcp = mcpSource();
+  f.kube.runs.push(mcp.run);
+  f.backend.snapshots.set(mcp.state.run.id, mcp.state);
+  const effects: string[] = [];
+  const resolver: Resolver = async (state, options) => {
+    const prepared = report();
+    if (state.run.approach === 'mcp') prepared.target = { namespace: NAMESPACE, name: 'mas-demo-checkout-mcp', uid: 'deployment-mcp' };
+    await options.beforePatch(prepared);
+    effects.push(prepared.target.name);
+    return { ...prepared, status: 'verified' };
+  };
+  await f.make('owner', 'pod', resolver).tick();
+  await f.make('restart', 'new-pod', resolver).tick();
+  assert.deepEqual(effects.sort(), ['mas-demo-checkout', 'mas-demo-checkout-mcp']);
+  assert.equal(f.kube.journals.size, 2);
+  assert.deepEqual([...f.kube.journals.values()].map(journal => [journal.spec.targetName, journal.spec.approach]).sort(),
+    [['mas-demo-checkout', 'collected'], ['mas-demo-checkout-mcp', 'mcp']]);
+  assert.ok(f.backend.reports.some(value => value.id === mcp.state.run.id && value.report.status === 'verified'));
+});
+
+test('MCP remediation rejects forged approach, seed, frozen evidence, subject and tool context before reservation', async () => {
+  const changes: [string, (value: ReturnType<typeof mcpSource>) => void][] = [
+    ['approach', value => { value.state.run.approach = 'collected'; }],
+    ['CR approach', value => { value.run.spec.approach = 'collected'; }],
+    ['admission seed', value => { value.state.run.admissionEvidence!.capturedAt = new Date(epoch - 1).toISOString(); }],
+    ['missing admission', value => { delete value.state.run.admissionEvidence; }],
+    ['frozen evidence', value => { value.state.run.input.incident.evidence!.capturedAt = new Date(epoch - 1).toISOString(); }],
+    ['foreign subject', value => {
+      value.state.run.investigation!.evidence!.subject.uid = 'other-pod';
+      value.state.run.input.incident.evidence = clone(value.state.run.investigation!.evidence);
+    }],
+    ['context', value => { value.state.run.investigation!.contextSha256 = 'd'.repeat(64); }],
+    ['call context', value => { value.state.run.investigation!.calls[0]!.contextSha256 = 'd'.repeat(64); }],
+    ['missing call context', value => { delete value.state.run.investigation!.calls[0]!.contextSha256; }],
+    ['recorded source', value => { value.state.run.investigation!.source = 'recorded-evidence'; }],
+    ['incomplete', value => { value.state.run.investigation!.status = 'running'; }],
+    ['wrong run', value => { value.state.run.investigation!.runId = 'another-run'; }],
+    ['duplicate tool', value => { value.state.run.investigation!.calls[0]!.tool = 'workload_spec'; }],
+    ['missing evidence', value => { value.state.run.investigation!.calls[0]!.evidenceIds.push('invented-evidence'); }],
+    ['other workload', value => {
+      const data = value.state.run.investigation!.evidence!.items[0]!.data as { metadata: { name: string } };
+      data.metadata.name = 'mas-demo-checkout';
+      value.state.run.input.incident.evidence = clone(value.state.run.investigation!.evidence);
+    }],
+  ];
+  for (const [label, change] of changes) {
+    const f = fixture(), value = mcpSource();
+    change(value);
+    f.kube.runs = [value.run];
+    f.backend.snapshots.set(value.state.run.id, value.state);
+    await f.make().tick();
+    assert.equal(f.calls(), 0, label);
+    assert.equal(f.kube.creates, 0, label);
+    assert.equal(f.backend.reports.length, 0, label);
+  }
+});
+
+test('an MCP reservation never accepts an executor report for the collected target', async () => {
+  const f = fixture(), value = mcpSource();
+  f.kube.runs = [value.run];
+  f.backend.snapshots.set(value.state.run.id, value.state);
+  await f.make().tick();
+  assert.equal(f.calls(), 1);
+  assert.equal(f.effects(), 0);
+  assert.equal(f.kube.creates, 0);
+});
+
+test('an abandoned MCP attempt retains the second target and cannot retry its effect', async () => {
+  const f = fixture(), value = mcpSource();
+  f.kube.runs = [value.run];
+  f.backend.snapshots.set(value.state.run.id, value.state);
+  f.kube.lostApplyingACK = true;
+  let effects = 0;
+  const resolver: Resolver = async (_state, options) => {
+    const prepared = { ...report(), target: { namespace: NAMESPACE, name: 'mas-demo-checkout-mcp', uid: 'deployment-mcp' } };
+    await options.beforePatch(prepared);
+    effects++;
+    return { ...prepared, status: 'verified' };
+  };
+  await f.make('owner', 'pod', resolver).tick();
+  await f.make('restart', 'pod', resolver).tick();
+  assert.equal(effects, 0);
+  assert.equal(f.kube.journal().status?.phase, 'Finished');
+  assert.equal(f.backend.reports[0]?.report.target.name, 'mas-demo-checkout-mcp');
+  assert.equal(f.backend.reports[0]?.report.status, 'failed');
 });

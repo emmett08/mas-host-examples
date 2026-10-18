@@ -10,12 +10,14 @@ permission() {
   [[ "$actual" == "$expected" ]] || { echo "Unexpected permission: $actor $* = $actual (expected $expected)" >&2; exit 1; }
 }
 permission mas-demo-remediator yes patch deployments.apps/mas-demo-checkout
+permission mas-demo-remediator yes patch deployments.apps/mas-demo-checkout-mcp
 permission mas-demo-remediator no patch deployments.apps/mas-demo
 permission mas-demo-remediator no patch deployments.apps/another-service
 permission mas-demo-remediator no delete deployments.apps/mas-demo-checkout
 permission mas-demo-remediator no get secrets
 permission mas-demo-remediator no create pods --subresource=exec
 permission mas-demo-remediator yes get services/mas-demo-checkout:8081 --subresource=proxy
+permission mas-demo-remediator yes get services/mas-demo-checkout-mcp:8081 --subresource=proxy
 permission mas-demo-remediator no get services/mas-demo:8080 --subresource=proxy
 permission mas-demo-remediator yes get namespaces/mas-demo
 permission mas-demo-remediator no get namespaces/kube-system
@@ -65,6 +67,7 @@ expect_immutable_rejection() {
   [[ "$rejection" == *'Create a new MASDemoRun'* ]] || { echo "Unexpected API validation failure: $rejection" >&2; exit 1; }
 }
 expect_immutable_rejection '[{"op":"replace","path":"/spec/scenario","value":"pod-crash"}]'
+expect_immutable_rejection '[{"op":"replace","path":"/spec/approach","value":"mcp"}]'
 pod_item_index="$(kubectl -n mas-demo get "masdemorun/$run_name" -o json | node --input-type=module -e 'import {readFileSync} from "node:fs"; console.log(JSON.parse(readFileSync(0,"utf8")).spec.evidence.items.findIndex(item=>item.id==="pod"&&item.status==="collected"))')"
 [[ "$pod_item_index" =~ ^[0-9]+$ ]] || { echo 'No collected Pod evidence was admitted to test opaque-data immutability' >&2; exit 1; }
 expect_immutable_rejection "[{\"op\":\"replace\",\"path\":\"/spec/evidence/items/$pod_item_index/data/metadata/name\",\"value\":\"changed-pod\"}]"

@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { canonicalTemplateHash, collectEvidence, evidenceForStorage, evidenceFromStorage, projectResource } from './evidence.js';
+import { canonicalTemplateHash, collectEvidence, collectInvestigationSeed, evidenceForStorage, evidenceFromStorage, projectResource } from './evidence.js';
 import { InClusterKubernetesClient, safeKubernetesErrorDetails } from './client.js';
 import { EVIDENCE_VERSION, MAX_EVIDENCE_BYTES, parseEvidence, redactEvidenceText, type EvidenceBundle } from '../shared/evidence.js';
 import { APIError, type EventEvidence, type KubernetesAPI } from './controller.js';
@@ -235,5 +235,18 @@ test('HTTPS log transport negotiates an API serializer and retains plain-text st
   } finally {
     if (server) await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));
     await rm(folder, { recursive: true, force: true });
+  }
+});
+
+
+test('MCP admission seed contains only the observed Pod and trigger, with projection and exact subject identity', () => {
+  const seed = collectInvestigationSeed(event, pod, { now: () => now });
+  assert.deepEqual(seed.items.map(item => item.kind), ['pod', 'events']);
+  assert.equal(seed.capturedAt, new Date(now).toISOString());
+  assert.deepEqual(seed.subject, { namespace: 'mas-demo', name: 'checkout-1', uid: 'pod-1' });
+  assert.doesNotMatch(JSON.stringify(seed), /private-token|private-key|private-header|do-not-copy/);
+  for (const identity of [{ uid: 'replacement' }, { name: 'different' }, { namespace: 'other' }]) {
+    assert.throws(() => collectInvestigationSeed(event, { ...pod, metadata: { ...pod.metadata, ...identity } }),
+      /original namespace, Pod name and UID/);
   }
 });

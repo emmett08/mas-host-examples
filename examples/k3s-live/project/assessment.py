@@ -4,6 +4,14 @@ import hashlib
 import json
 
 
+# These are fixed deployment/path pairs, not independently interchangeable names
+# and paths. The external controller still validates and authorises every effect.
+READINESS_PATHS = {
+    ("mas-demo", "mas-demo-checkout"): "/readyz",
+    ("mas-demo", "mas-demo-checkout-mcp"): "/ready",
+}
+
+
 def canonical(record) -> str:
     return json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -33,17 +41,25 @@ def assess(_ctx, invocation: dict) -> dict:
     target = remedy.get("target", {})
     deployment = collected.get("workload-deployment", {}).get("data", {})
     metadata = deployment.get("metadata", {})
+    expected_path = READINESS_PATHS.get((metadata.get("namespace"), metadata.get("name")))
+    containers = deployment.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+    container = next((item for item in containers if item.get("name") == "checkout"), {})
     constrained = abstains or (
         remedy.get("action") == "replace_readiness_probe_path"
         and target.get("kind") == "Deployment"
-        and target.get("namespace") == "mas-demo"
-        and target.get("name") == "mas-demo-checkout"
+        and deployment.get("kind") == "Deployment"
+        and expected_path is not None
+        and target.get("namespace") == metadata.get("namespace")
+        and target.get("name") == metadata.get("name")
         and target.get("container") == "checkout"
         and isinstance(metadata.get("uid"), str) and bool(metadata.get("uid"))
         and isinstance(metadata.get("resourceVersion"), str) and bool(metadata.get("resourceVersion"))
         and target.get("uid") == metadata["uid"]
         and target.get("resource_version") == metadata["resourceVersion"]
-        and remedy.get("current_path") == "/readyz" and remedy.get("proposed_path") == "/healthz"
+        and remedy.get("current_path") == expected_path and remedy.get("proposed_path") == "/healthz"
+        and container.get("command") == ["node", "/app/deploy/probe-app.mjs"]
+        and container.get("readinessProbe", {}).get("httpGet", {}).get("path") == expected_path
+        and container.get("livenessProbe", {}).get("httpGet", {}).get("path") == "/healthz"
         and {"pod", "workload-deployment", "logs-checkout-current"}.issubset(remedy.get("evidence_ids", []))
         and {"pod", "workload-deployment", "logs-checkout-current"}.issubset(collected)
         and bool(remedy.get("verification")) and bool(remedy.get("rollback"))

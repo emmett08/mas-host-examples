@@ -3,10 +3,9 @@ import { APIError } from '../operator/controller.js';
 import type { InClusterKubernetesClient } from '../operator/client.js';
 import type { ResolutionReport, Snapshot } from './controller.js';
 import type { ReconciliationObservation } from '../shared/resolution.js';
+import { managedWorkload, managedWorkloads, type ManagedWorkload } from '../shared/workloads.mjs';
 
 const NAMESPACE = 'mas-demo';
-const DEPLOYMENT = 'mas-demo-checkout';
-const SELECTOR = 'app.kubernetes.io/name=mas-demo-checkout';
 const DNS_LABEL = /^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/;
 const UID = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,127}$/;
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -20,7 +19,7 @@ function exact(args: readonly string[], expected: readonly string[]): boolean {
   return args.length === expected.length && args.every((value, index) => value === expected[index]);
 }
 
-function validatePatch(value: unknown): unknown[] {
+function validatePatch(value: unknown, policy: ManagedWorkload): unknown[] {
   if (!Array.isArray(value) || value.length !== 5) throw new Error('Only the admitted readiness JSON Patch is supported');
   const index = /^\/spec\/template\/spec\/containers\/(0|[1-9][0-9]?)\/name$/.exec(String(value[2]?.path));
   if (!index || !value[0] || !value[1] || typeof value[0].value !== 'string' || !value[0].value ||
@@ -31,9 +30,9 @@ function validatePatch(value: unknown): unknown[] {
   const expected = [
     { op: 'test', path: '/metadata/uid', value: value[0].value },
     { op: 'test', path: '/metadata/resourceVersion', value: value[1].value },
-    { op: 'test', path: `${path}/name`, value: 'checkout' },
-    { op: 'test', path: `${path}/readinessProbe/httpGet/path`, value: '/readyz' },
-    { op: 'replace', path: `${path}/readinessProbe/httpGet/path`, value: '/healthz' },
+    { op: 'test', path: `${path}/name`, value: policy.container },
+    { op: 'test', path: `${path}/readinessProbe/httpGet/path`, value: policy.currentPath },
+    { op: 'replace', path: `${path}/readinessProbe/httpGet/path`, value: policy.proposedPath },
   ];
   // Key order is immaterial; additional fields and operations are forbidden.
   if (!value.every((operation, position) => operation && typeof operation === 'object' &&
@@ -55,14 +54,17 @@ export function createKubernetesExecutor(client: WorkloadAPI): (args: string[]) 
     if (exact(args, ['get', 'namespace', NAMESPACE, '-o', 'json'])) {
       return JSON.stringify(await client.get(`/api/v1/namespaces/${NAMESPACE}`));
     }
-    if (exact(args, ['get', 'deployment', DEPLOYMENT, '-o', 'json'])) {
-      return JSON.stringify(await client.get(`${apps}/deployments/${DEPLOYMENT}`));
-    }
-    if (exact(args, ['get', 'replicasets', '-l', SELECTOR, '-o', 'json'])) {
-      return JSON.stringify({ items: await client.list(`${apps}/replicasets?labelSelector=${encodeURIComponent(SELECTOR)}`) });
-    }
-    if (exact(args, ['get', 'pods', '-l', SELECTOR, '-o', 'json'])) {
-      return JSON.stringify({ items: await client.list(`${core}/pods?labelSelector=${encodeURIComponent(SELECTOR)}`) });
+    for (const policy of managedWorkloads) {
+      const selector = `app.kubernetes.io/name=${policy.name}`;
+      if (exact(args, ['get', 'deployment', policy.name, '-o', 'json'])) {
+        return JSON.stringify(await client.get(`${apps}/deployments/${policy.name}`));
+      }
+      if (exact(args, ['get', 'replicasets', '-l', selector, '-o', 'json'])) {
+        return JSON.stringify({ items: await client.list(`${apps}/replicasets?labelSelector=${encodeURIComponent(selector)}`) });
+      }
+      if (exact(args, ['get', 'pods', '-l', selector, '-o', 'json'])) {
+        return JSON.stringify({ items: await client.list(`${core}/pods?labelSelector=${encodeURIComponent(selector)}`) });
+      }
     }
     if (args.length === 5 && args[0] === 'get' && args[1] === 'pod' && DNS_LABEL.test(args[2]!) && args[3] === '-o' && args[4] === 'json') {
       return JSON.stringify(await client.get(`${core}/pods/${args[2]}`));
@@ -85,14 +87,15 @@ export function createKubernetesExecutor(client: WorkloadAPI): (args: string[]) 
       if (args[2]!.startsWith(metricsPrefix) && DNS_LABEL.test(args[2]!.slice(metricsPrefix.length))) {
         return JSON.stringify(await client.get(args[2]!));
       }
-      if (args[2] === `${core}/services/${DEPLOYMENT}:8081/proxy/`) return client.text(args[2], 4096);
+      if (managedWorkloads.some(policy => args[2] === `${core}/services/${policy.name}:8081/proxy/`)) return client.text(args[2]!, 4096);
     }
-    if (args.length === 8 && args[0] === 'patch' && args[1] === 'deployment' && args[2] === DEPLOYMENT &&
+    const policy = managedWorkload(NAMESPACE, args[2]);
+    if (args.length === 8 && args[0] === 'patch' && args[1] === 'deployment' && policy &&
         args[3] === '--type=json' && args[4] === '-p' && args[6] === '-o' && args[7] === 'json' &&
         Buffer.byteLength(args[5]!) <= 4096) {
       let patch: unknown;
       try { patch = JSON.parse(args[5]!); } catch { throw new Error('Invalid readiness JSON Patch'); }
-      return JSON.stringify(await client.patchJSON(`${apps}/deployments/${DEPLOYMENT}`, validatePatch(patch)));
+      return JSON.stringify(await client.patchJSON(`${apps}/deployments/${policy.name}`, validatePatch(patch, policy)));
     }
     throw new Error('Unsupported remediation Kubernetes operation');
   };

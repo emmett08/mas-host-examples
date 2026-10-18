@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { request } from 'node:https';
-import { APIError, type DemoAPI, type EventEvidence, type KubernetesAPI, type RunState } from './controller.js';
-import type { EvidenceBundle } from '../shared/evidence.js';
+import { APIError, type DemoAPI, type KubernetesAPI, type RunState } from './controller.js';
 
 // API Status messages can embed the rejected resource, including its logs. Keep
 // diagnostic codes and field paths, and classify familiar validation messages;
@@ -148,7 +147,7 @@ export class LocalDemoClient implements DemoAPI {
     return await response.json() as RunState;
   }
 
-  async start(input: { id: string; scenario: 'pod-incident' | 'pod-crash'; event?: EventEvidence; evidence?: EvidenceBundle }): Promise<RunState> {
+  async start(input: Parameters<DemoAPI['start']>[0]): Promise<RunState> {
     const response = await fetch(new URL('/api/runs', this.baseURL), {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input), signal: AbortSignal.timeout(10_000),

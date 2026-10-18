@@ -19,6 +19,17 @@ TIMEOUT_SECONDS = 30
 MEMORY_BYTES = 512 * 1024 * 1024
 DEPTH = 100_000
 CASES = [
+    ("dual-repair-safety", None, False, False, None),
+    ("dual-repair-safety-no-reduction", None, False, True, None),
+    ("dual-repair-settlement", None, True, False, None),
+    ("dual-repair-settlement-no-reduction", None, True, True, None),
+    ("dual-repair-source", "BUG_DUAL_SOURCE", False, False, "snapshot_run==source_run"),
+    ("dual-repair-seed", "BUG_DUAL_SEED", False, False, "snapshot_seed==source_seed"),
+    ("dual-repair-approach", "BUG_DUAL_APPROACH", False, False, "snapshot_approach==id"),
+    ("dual-repair-before-freeze", "BUG_DUAL_FREEZE", False, False, "frozen_trusted"),
+    ("dual-repair-target", "BUG_DUAL_TARGET", False, False, "evidence_target==source_run"),
+    ("dual-repair-shared-journal", "BUG_DUAL_JOURNAL", False, False, "journal_key==(evidence_target-1)"),
+    ("dual-repair-success-witness", "WITNESS_DUAL_REPAIR", False, False, "phase[0]==Verified"),
     ("investigation-safety", None, False, False, None),
     ("investigation-safety-no-reduction", None, False, True, None),
     ("investigation-settlement", None, True, False, None),
@@ -128,10 +139,25 @@ def main() -> int:
     compiler = shutil.which(os.environ.get("CC", "cc"))
     source = ROOT / "hybrid.pml"
     summary = {
-        "schema": "mas-k3s-application-verification/6",
+        "schema": "mas-k3s-application-verification/7",
         "compiler_optimisation": f"-O{args.compile_optimisation}",
         "model_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "models": {
+            "dual-repair.pml": {
+                "sha256": hashlib.sha256((ROOT / "dual-repair.pml").read_bytes()).hexdigest(),
+                "bounds": {"runs": 2, "approaches": 2, "workload_identities": 2,
+                           "retained_fault_journals": 2, "maximum_patch_effects_per_target": 1},
+                "assumptions": [
+                    "Each immutable source Run binds its Event, original seed Pod, approach and fixed workload policy",
+                    "Only a complete trusted frozen MCP bundle supplies evidence for MCP controller admission",
+                    "Single-failed-guard classes cover mismatched source, seed, approach, freeze and target predicates",
+                    "Distinct Deployment UID/original-template keys reserve distinct journals; one process per incident",
+                    "Existing investigation, revision, controller and remediation models separately check their local lifecycles",
+                    "Accepted execution abstracts unchanged guarded live UID/RV/template checks and an acknowledged API effect",
+                    "Recovery completion abstracts the conjunction of the executor's independent verification checks",
+                    "No elapsed-time guarantee, hash-collision argument or implementation refinement proof",
+                ],
+            },
             "investigation.pml": {
                 "sha256": hashlib.sha256((ROOT / "investigation.pml").read_bytes()).hexdigest(),
                 "bounds": {"runs": 1, "delegate_invocation_identities": 4, "required_actor_identities": 4, "server_restarts": 2,
@@ -201,11 +227,11 @@ def main() -> int:
                          "project/workflows/platform.yaml", "project/workflows/security.yaml",
                          "deploy/remediation.mjs", "deploy/remediation.test.mjs",
                          "deploy/guarded-operation.mjs", "deploy/guarded-operation.test.mjs",
-                         "shared/resolution.ts", "remediator/outcomes.test.ts",
+                         "shared/resolution.ts", "shared/workloads.mjs", "remediator/outcomes.test.ts",
                          "server/http.ts", "server/runs.ts", "server/runs.test.ts",
                          "remediator/controller.ts", "remediator/controller.test.ts", "remediator/index.ts", "remediator/transport.ts",
-                         "remediator/transport.test.ts", "operator/client.ts", "deploy/rbac.yaml",
-                         "deploy/remediation-crd.yaml", "deploy/remediator.yaml", "project/revision.json",
+                         "remediator/transport.test.ts", "operator/client.ts", "operator/controller.ts", "operator/controller.test.ts", "deploy/rbac.yaml",
+                         "deploy/crd.yaml", "deploy/remediation-crd.yaml", "deploy/remediator.yaml", "project/revision.json",
                          "project/assessment.py", "shared/revision.mjs", "ui/revision.test.ts", "server/host.integration.ts",
                          "server/host.ts", "server/investigation.ts", "server/investigation.test.ts", "server/investigation.integration.ts", "mcp/server.ts", "mcp/tools.ts",
                          "mcp/client.test.ts", "mcp/tools.test.ts", "project/mcp-client.mjs",
@@ -237,9 +263,9 @@ def main() -> int:
     archive_members = {}
     archive = zipfile.ZipFile(counterexamples, "w", zipfile.ZIP_DEFLATED)
     for name, macro, liveness, no_reduction, violation in CASES:
-        model = "investigation" if name.startswith("investigation-") else "revision" if name.startswith("revision-") else "controller" if name.startswith("controller-") else "remediation" if name.startswith("remediation-") else "hybrid"
+        model = "dual-repair" if name.startswith("dual-repair-") else "investigation" if name.startswith("investigation-") else "revision" if name.startswith("revision-") else "controller" if name.startswith("controller-") else "remediation" if name.startswith("remediation-") else "hybrid"
         source = ROOT / f"{model}.pml"
-        claim = {"investigation": "investigation_settles", "revision": "revision_settles", "controller": "controller_settles", "remediation": "remediation_settles", "hybrid": "choreography_settles"}[model]
+        claim = {"dual-repair": "dual_repair_settles", "investigation": "investigation_settles", "revision": "revision_settles", "controller": "controller_settles", "remediation": "remediation_settles", "hybrid": "choreography_settles"}[model]
         commands = []
         check = {"name": name, "model": source.name, "claim": claim if liveness else None,
                  "macro": macro, "mode": "ltl" if liveness else "safety",
@@ -250,7 +276,7 @@ def main() -> int:
                 build = Path(temporary)
                 shutil.copyfile(source, build / source.name)
                 definitions = [f"-D{macro}"] if macro else []
-                if name in ("safety", "remediation-safety", "controller-safety", "investigation-safety"):
+                if name in ("safety", "remediation-safety", "controller-safety", "investigation-safety", "dual-repair-safety"):
                     for seed in (17, 29):
                         run([spin, f"-n{seed}", "-u1000", "-p", *definitions, source.name], build, commands)
                 run([spin, *definitions, "-a", source.name], build, commands)

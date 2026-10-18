@@ -28,7 +28,7 @@ test('only recorded tool results form frozen evidence; model prose and admission
   const audit = freezeInvestigation('run-a', observed(), seed, 'kubernetes-api', hash);
   assert.deepEqual(audit.evidence!.items.map(item => item.id), ['pod', 'workload-spec', 'pod-logs', 'pod-metrics']);
   assert.deepEqual(audit.calls.map(call => call.tool), ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics']);
-  assert.deepEqual(audit.calls[0], { id: 'tool-effect-a', tool: 'pod_overview', status: 'collected', evidenceIds: ['pod'] });
+  assert.deepEqual(audit.calls[0], { id: 'tool-effect-a', tool: 'pod_overview', status: 'collected', evidenceIds: ['pod'], contextSha256: hash });
   assert.equal(audit.contextSha256, hash);
 });
 
@@ -148,6 +148,8 @@ test('merged limitations and original model summary are durable before assessmen
     observe: async () => observation,
     run: async () => {
       const retained = JSON.parse(await readFile(join(runDirectory, id, 'run.json'), 'utf8'));
+      assert.deepEqual(retained.admissionEvidence, seed, 'The immutable operator seed survives fresh acquisition');
+      assert.notDeepEqual(retained.input.incident.evidence, seed, 'Assessment reads the fresh MCP results');
       assert.deepEqual(retained.investigation.modelSummary, modelSummary);
       assert.deepEqual(retained.investigation.summary.limitations, [
         'Evidence pod-logs is truncated; omitted content is unavailable for assessment.',
@@ -163,8 +165,15 @@ test('merged limitations and original model summary are durable before assessmen
   await waitFor(() => !['queued', 'running'].includes(runs.get(id).status));
   assert.equal(runs.get(id).status, 'completed', runs.get(id).error);
   assert.ok(assessed);
+  const compact = (await runs.remediationSnapshot(id)).run;
+  assert.equal(compact.approach, 'mcp');
+  assert.deepEqual(compact.admissionEvidence, seed);
+  assert.deepEqual(compact.investigation?.evidence, (runs.get(id).input.incident as { evidence: EvidenceBundle }).evidence);
+  assert.ok(compact.investigation?.calls.every(call => call.contextSha256 === compact.investigation?.contextSha256));
+  assert.equal('modelSummary' in compact.investigation!, false, 'Controller admission omits irrelevant model prose');
   const restarted = new Runs(runDirectory, 'fixture', host); await restarted.initialise();
   assert.deepEqual(restarted.get(id).investigation, runs.get(id).investigation);
+  assert.deepEqual((await restarted.remediationSnapshot(id)).run.admissionEvidence, seed);
 });
 
 test('completed investigators with empty, partial or duplicate tool coverage cannot start assessment or replay', async t => {

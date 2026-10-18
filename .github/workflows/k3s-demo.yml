@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy_live:
-        description: 'Create k3s on this GitHub runner and record a real LLM investigation'
+        description: 'Create k3s and record two independently repaired LLM incidents'
         type: boolean
         default: false
 
@@ -85,7 +85,7 @@ jobs:
         run: |
           kubectl -n mas-demo set env deployment/mas-demo --containers=dashboard DEMO_FIXTURE_RECORDING=true
           kubectl -n mas-demo rollout status deployment/mas-demo --timeout=180s
-      - name: Record both approaches before controller-owned fixture recovery
+      - name: Record both incident approaches and their independent fixture repairs
         env:
           DEMO_MODE: fixture
           DEMO_FIXTURE_RECORDING: 'true'
@@ -199,7 +199,7 @@ jobs:
           SHOW_PAYLOADS: 'true'
           DEMO_AUTO_REMEDIATE: 'true'
         run: examples/k3s-live/deploy/apply.sh
-      - name: Record collected evidence and MCP tool use before live recovery
+      - name: Record collected evidence and MCP incidents through independent live repairs
         env:
           DEMO_MODE: live
           DEMO_ARTIFACT_DIR: ${{ runner.temp }}/mas-demo-artifacts

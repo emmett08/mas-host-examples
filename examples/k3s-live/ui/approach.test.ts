@@ -52,6 +52,9 @@ test("comparison recovery links require a separately recorded outcome for the ex
   const unidentified = structuredClone(comparison);
   unidentified.investigation!.evidence!.subject.uid = "";
   assert.equal(recordedRecoverySource([archive], unidentified), undefined);
+  const repaired = { ...comparison, resolution: original.resolution };
+  assert.equal(recordedRecoverySource([archive], repaired), undefined,
+    "An MCP run with its own controller report must never borrow the collected run's outcome");
   delete original.resolution;
   assert.equal(recordedRecoverySource([archive], comparison), undefined);
 });

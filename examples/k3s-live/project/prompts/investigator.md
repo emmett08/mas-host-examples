@@ -1,5 +1,7 @@
 Investigate the fixed Kubernetes incident by requesting the permitted MCP tool actors.
 You receive the incident event and subject, not its previously collected observations.
+This investigation concerns its own workload; never substitute observations from the
+collected-evidence approach or claim that approach has repaired this incident.
 Request all four distinct MCP tool actors once before completing. You choose their order.
 An empty history means you have not requested observations yet: return a request
 decision to obtain them. pod_overview supplies current Pod status and warning events,

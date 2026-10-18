@@ -119,6 +119,34 @@ test('the compatibility adapter rejects arbitrary commands, cross-namespace path
   assert.equal(calls, 0);
 });
 
+test('the second fixed workload admits only its own path correction and gets separate Service and selector reads', async () => {
+  const seen: { path: string; patch?: unknown }[] = [];
+  const execute = createKubernetesExecutor({
+    get: async <T>(path: string): Promise<T> => { seen.push({ path }); return {} as T; },
+    list: async <T>(path: string): Promise<T[]> => { seen.push({ path }); return []; },
+    text: async (path: string) => { seen.push({ path }); return 'ok'; },
+    patchJSON: async <T>(path: string, body: unknown): Promise<T> => { seen.push({ path, patch: body }); return {} as T; },
+  });
+  const second = patch.map((operation, index) => index === 3 ? { ...operation, value: '/ready' } : operation);
+  const args = patchArgs(second); args[2] = 'mas-demo-checkout-mcp';
+  await execute(args);
+  const wrongTarget = patchArgs(second);
+  const wrongPath = patchArgs(); wrongPath[2] = 'mas-demo-checkout-mcp';
+  await assert.rejects(execute(wrongTarget), /admitted readiness JSON Patch/);
+  await assert.rejects(execute(wrongPath), /admitted readiness JSON Patch/);
+  for (const resource of ['pods', 'replicasets']) {
+    await execute(['get', resource, '-l', 'app.kubernetes.io/name=mas-demo-checkout-mcp', '-o', 'json']);
+  }
+  await execute(['get', '--raw', '/api/v1/namespaces/mas-demo/services/mas-demo-checkout-mcp:8081/proxy/']);
+  assert.equal(seen.length, 4);
+  assert.equal(seen[0]!.path, '/apis/apps/v1/namespaces/mas-demo/deployments/mas-demo-checkout-mcp');
+  assert.deepEqual(seen[0]!.patch, second);
+  const documents = parseAllDocuments(await readFile(new URL('../deploy/remediator.yaml', import.meta.url), 'utf8')).map(document => document.toJSON());
+  const role = documents.find(document => document.kind === 'Role' && document.metadata.name === 'mas-demo-remediator');
+  assert.deepEqual(role.rules.find((rule: { resources: string[] }) => rule.resources.includes('deployments')).resourceNames,
+    ['mas-demo-checkout', 'mas-demo-checkout-mcp']);
+});
+
 test('post-change logs have a transport byte ceiling and the remediator gets only read access to logs and Events', async () => {
   let capturedLimit;
   const unexpected = async () => { throw new Error('Unexpected API call'); };

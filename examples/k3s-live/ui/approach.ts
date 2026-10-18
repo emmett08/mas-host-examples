@@ -6,7 +6,7 @@ export const archiveRuns = (archive?: RunArchive): RunArchive[] => archive ? [ar
 
 /** Link a comparison to a separately recorded outcome only for the same Pod identity. */
 export function recordedRecoverySource(archives: RunArchive[], comparison?: Run): Run | undefined {
-  if (approachOf(comparison) !== "mcp") return undefined;
+  if (approachOf(comparison) !== "mcp" || comparison?.resolution) return undefined;
   const subject = comparison?.investigation?.evidence?.subject;
   if (!subject?.uid) return undefined;
   return archives.map(archive => archive.snapshots.at(-1)?.run).find(run => {

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { DemoRun, EventEvidence, Metadata } from '../operator/controller.js';
 import { evidenceFromStorage } from '../operator/evidence.js';
 import type { EvidenceBundle } from '../shared/evidence.js';
+import { managedWorkload, type ManagedWorkload } from '../shared/workloads.mjs';
 import type { DigestRef } from '../shared/revision.mjs';
 import { validOutcomeCombination, type ResolutionReport, type ReconciliationObservation } from '../shared/resolution.js';
 
@@ -14,7 +15,10 @@ const MAX_REPORT_BYTES = 32 * 1024;
 
 export interface Snapshot {
   run: {
-    id: string; status: string; startedAt?: string;
+    id: string; status: string; startedAt?: string; approach?: 'collected' | 'mcp';
+    admissionEvidence?: EvidenceBundle;
+    investigation?: { status: string; runId: string; source?: string; contextSha256?: string; evidence?: EvidenceBundle;
+      calls: { id: string; tool: string; status: string; evidenceIds: string[]; contextSha256?: string }[] };
     input: { incident: { scenario?: string; source?: string; event?: EventEvidence; evidence?: EvidenceBundle } };
     output?: unknown; resolution?: ResolutionReport; reconciliations?: ReconciliationObservation[];
     revisionSelection?: { status: string; candidate: DigestRef; output_sha256: string };
@@ -34,6 +38,7 @@ export interface RemediationBackendAPI {
 export interface JournalSpec {
   version: typeof POLICY_VERSION; runId: string; sourceRunUID: string;
   namespaceUID: string; targetUID: string; templateHash: string; evidenceHash: string;
+  targetName?: string; approach?: 'collected' | 'mcp';
 }
 export interface JournalStatus {
   phase: 'Pending' | 'Applying' | 'Finished';
@@ -76,13 +81,20 @@ function itemData(bundle: EvidenceBundle, id: string): Record<string, unknown> {
   assert(data && typeof data === 'object' && !Array.isArray(data), `Collected ${id} evidence is required`);
   return data as Record<string, unknown>;
 }
-function target(bundle: EvidenceBundle): { uid: string; templateHash: string } {
+function target(bundle: EvidenceBundle, approach: 'collected' | 'mcp'): { uid: string; templateHash: string; policy: ManagedWorkload } {
   const deployment = itemData(bundle, 'workload-deployment');
   const metadata = deployment.metadata as Record<string, unknown> | undefined;
-  assert(deployment.kind === 'Deployment' && metadata?.namespace === NAMESPACE && metadata?.name === 'mas-demo-checkout' &&
-    typeof metadata.uid === 'string' && metadata.uid.length > 0 && typeof deployment.templateHash === 'string' &&
+  const policy = managedWorkload(metadata?.namespace, metadata?.name);
+  assert(deployment.kind === 'Deployment' && policy?.approach === approach &&
+    typeof metadata?.uid === 'string' && metadata.uid.length > 0 && typeof deployment.templateHash === 'string' &&
     /^[a-f0-9]{64}$/.test(deployment.templateHash), 'Evidence does not identify the permitted Deployment and original template');
-  return { uid: metadata.uid, templateHash: deployment.templateHash };
+  return { uid: metadata.uid as string, templateHash: deployment.templateHash, policy };
+}
+function journalPolicy(journal: RemediationJournal): ManagedWorkload {
+  // Older journals predate the second fixed target and retain their original scope.
+  const policy = managedWorkload(NAMESPACE, journal.spec.targetName ?? 'mas-demo-checkout');
+  assert(policy && policy.approach === (journal.spec.approach ?? 'collected'), 'The journal target and approach are outside the fixed policies');
+  return policy;
 }
 export function journalName(spec: Pick<JournalSpec, 'namespaceUID' | 'targetUID' | 'templateHash' | 'version'>): string {
   // Evidence/Run IDs are deliberately excluded: repeated Events for the same
@@ -155,14 +167,36 @@ export class RemediationController {
     assert(incident.source === 'kubernetes-event' && incident.scenario === 'pod-incident' && run.spec.event &&
       same(incident.event, run.spec.event), 'Backend Event differs from the immutable Kubernetes investigation');
     const stored = evidenceFromStorage(run.spec.evidence);
-    assert(stored && incident.evidence && same(stored, incident.evidence),
-      'Backend evidence differs from the immutable Kubernetes investigation');
+    const approach = run.spec.approach ?? 'collected';
+    assert((snapshot.run.approach ?? 'collected') === approach, 'Backend approach differs from the immutable Kubernetes investigation');
+    assert(stored && incident.evidence, 'The Kubernetes investigation requires retained evidence');
+    let bundle = stored;
+    if (approach === 'mcp') {
+      assert(snapshot.run.admissionEvidence && same(stored, snapshot.run.admissionEvidence),
+        'MCP admission evidence differs from the immutable Kubernetes investigation');
+      const audit = snapshot.run.investigation;
+      assert(audit?.status === 'completed' && audit.runId === id && audit.source === 'kubernetes-api' &&
+        typeof audit.contextSha256 === 'string' && /^[a-f0-9]{64}$/.test(audit.contextSha256) &&
+        audit.evidence && same(audit.evidence, incident.evidence), 'MCP evidence is not the completed frozen live investigation');
+      const expectedTools = ['pod_overview', 'workload_spec', 'pod_logs', 'pod_metrics'];
+      assert(Array.isArray(audit.calls) && audit.calls.length === expectedTools.length &&
+        new Set(audit.calls.map(call => call.tool)).size === expectedTools.length &&
+        new Set(audit.calls.map(call => call.id)).size === expectedTools.length &&
+        audit.calls.every(call => typeof call.id === 'string' && call.id.length > 0 && expectedTools.includes(call.tool) &&
+          call.contextSha256 === audit.contextSha256 && ['collected', 'unavailable', 'error'].includes(call.status) &&
+          Array.isArray(call.evidenceIds) && call.evidenceIds.length > 0 &&
+          call.evidenceIds.every(itemId => audit.evidence!.items.some(item => item.id === itemId))) &&
+        audit.evidence.items.every(item => audit.calls.some(call => call.evidenceIds.includes(item.id))),
+      'MCP evidence requires four distinct context-bound tool results covering the frozen bundle');
+      bundle = audit.evidence;
+      assert(same(bundle.subject, stored.subject), 'Frozen MCP evidence is bound to another Pod');
+    } else assert(same(stored, incident.evidence), 'Backend evidence differs from the immutable Kubernetes investigation');
     const subject = run.spec.event.involvedObject;
     assert(subject.kind === 'Pod' && subject.namespace === NAMESPACE && stored.subject.namespace === NAMESPACE &&
       subject.name === stored.subject.name && subject.uid === stored.subject.uid, 'Evidence is bound to another Pod');
-    if (fresh) this.assertFresh(stored);
-    target(stored);
-    return stored;
+    if (fresh) this.assertFresh(bundle);
+    target(bundle, approach);
+    return bundle;
   }
 
   private assertFresh(bundle: EvidenceBundle) {
@@ -177,11 +211,12 @@ export class RemediationController {
     const snapshot = await this.backend.snapshot(id);
     if (!snapshot) return;
     const bundle = this.binding(run, snapshot, false);
-    const deployment = target(bundle);
+    const deployment = target(bundle, run.spec.approach ?? 'collected');
     const namespace = await this.kube.get<{ metadata: Metadata }>(`/api/v1/namespaces/${NAMESPACE}`);
     assert(namespace.metadata.uid, 'Namespace identity is unavailable');
     const spec: JournalSpec = { version: POLICY_VERSION, runId: id, sourceRunUID: run.metadata.uid,
       namespaceUID: namespace.metadata.uid, targetUID: deployment.uid, templateHash: deployment.templateHash,
+      targetName: deployment.policy.name, approach: deployment.policy.approach,
       evidenceHash: digest({ event: run.spec.event, evidence: bundle }) };
     const name = journalName(spec);
     let journal: RemediationJournal;
@@ -311,7 +346,7 @@ export class RemediationController {
       attemptId: saved?.version === 'mas-k8s-resolution/2' ? saved.attemptId : journal.status?.ownerId ?? this.options.ownerId,
       effectOutcome: journal.status?.phase === 'Applying' ? 'unknown' : 'not_started', verificationOutcome: 'not_run',
       status: 'failed', action: 'replace_readiness_probe_path',
-      target: { namespace: NAMESPACE, name: 'mas-demo-checkout', uid: journal.spec.targetUID },
+      target: { namespace: NAMESPACE, name: journalPolicy(journal).name, uid: journal.spec.targetUID },
       recordedAt: new Date(this.now()).toISOString(), reason, patch: saved?.patch ?? [],
       before: saved?.before ?? null, after: null,
       checks: [...(saved?.checks ?? []).slice(0, 15), { name: 'Executor continuity', passed: false, detail: reason }] };
@@ -323,7 +358,7 @@ export class RemediationController {
       (report.version !== 'mas-k8s-resolution/2' || report.operationId === journal.metadata.name &&
         (!journal.status?.ownerId || report.attemptId === journal.status.ownerId)) &&
       ['not-attempted', 'failed', 'verified'].includes(report.status) && report.action === 'replace_readiness_probe_path' &&
-      report.target?.namespace === NAMESPACE && report.target.name === 'mas-demo-checkout' && report.target.uid === journal.spec.targetUID &&
+      report.target?.namespace === NAMESPACE && report.target.name === journalPolicy(journal).name && report.target.uid === journal.spec.targetUID &&
       Array.isArray(report.patch) && Array.isArray(report.checks) && Buffer.byteLength(canonicalJSON(report)) <= MAX_REPORT_BYTES,
     'The executor report does not match the bounded journal target');
   }
@@ -336,6 +371,7 @@ export class RemediationController {
   }
   private async observeFinished(journal: RemediationJournal): Promise<RemediationJournal> {
     const report = this.parseReport(journal);
+    const policy = journalPolicy(journal);
     if (report.version !== 'mas-k8s-resolution/2' || report.status !== 'failed' ||
         !['unknown', 'applied'].includes(report.effectOutcome)) return journal;
     const retained = journal.status?.reconciliations ?? [];
@@ -353,7 +389,7 @@ export class RemediationController {
       const deployment = await this.kube.get<{ metadata: Metadata & { generation: number }; spec: {
         template: { spec: { containers: { name: string; readinessProbe?: { httpGet?: { path?: string } } }[] } } };
         status?: { observedGeneration?: number; readyReplicas?: number } }>(
-        `/apis/apps/v1/namespaces/${NAMESPACE}/deployments/mas-demo-checkout`);
+        `/apis/apps/v1/namespaces/${NAMESPACE}/deployments/${policy.name}`);
       assert(namespace.metadata.uid && deployment.metadata.uid && deployment.metadata.resourceVersion &&
         Number.isSafeInteger(deployment.metadata.generation), 'The live workload identity is incomplete');
       evidence = { namespaceUID: namespace.metadata.uid, uid: deployment.metadata.uid,
@@ -362,8 +398,8 @@ export class RemediationController {
         readinessPath: deployment.spec.template.spec.containers.find(item => item.name === 'checkout')?.readinessProbe?.httpGet?.path ?? null,
         observedGeneration: deployment.status?.observedGeneration ?? null, readyReplicas: deployment.status?.readyReplicas ?? 0 };
       const sameTarget = evidence.namespaceUID === journal.spec.namespaceUID && evidence.uid === journal.spec.targetUID;
-      state = sameTarget && evidence.templateHash === before.expectedTemplateHash && evidence.readinessPath === '/healthz' ? 'desired'
-        : sameTarget && evidence.templateHash === journal.spec.templateHash && evidence.readinessPath === '/readyz' ? 'original' : 'changed';
+      state = sameTarget && evidence.templateHash === before.expectedTemplateHash && evidence.readinessPath === policy.proposedPath ? 'desired'
+        : sameTarget && evidence.templateHash === journal.spec.templateHash && evidence.readinessPath === policy.currentPath ? 'original' : 'changed';
       reason = state === 'desired' ? 'The admitted template is present at this observation time. This does not establish who applied it or verify application recovery.'
         : state === 'original' ? 'The original template is present at this observation time. A delayed request or later actor can still change it.'
           : 'The namespace, target identity or workload template differs from the admitted before and after states.';

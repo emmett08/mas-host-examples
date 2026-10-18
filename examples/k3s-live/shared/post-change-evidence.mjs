@@ -1,5 +1,6 @@
 // Validate retained verifier observations without executing Kubernetes operations.
 // Existing archives can omit this additive record; new practical captures require it.
+import { managedWorkload } from './workloads.mjs';
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const string = (value, maximum = 253) => typeof value === 'string' && value.length > 0 && value.length <= maximum;
 const timestamp = value => string(value, 64) && Number.isFinite(Date.parse(value));
@@ -17,6 +18,8 @@ export function validatePostChangeEvidence(report, { required = false } = {}) {
   require(report.version === 'mas-k8s-resolution/2' && exact(evidence, ['version', 'subject', 'window', 'logs', 'events']) &&
     evidence.version === 'mas-k8s-post-change-evidence/1', 'unknown record format');
   const { subject, window, logs, events } = evidence;
+  const policy = managedWorkload(report.target?.namespace, report.target?.name);
+  require(policy, 'target is outside the fixed demonstration policies');
   require(exact(subject, ['namespace', 'name', 'uid', 'container']) && subject.namespace === report.target?.namespace &&
     string(subject.name) && string(subject.uid, 128) && subject.container === 'checkout', 'replacement Pod identity');
   require(exact(window, ['startedAt', 'endedAt']) && timestamp(window.startedAt) && timestamp(window.endedAt) &&
@@ -32,7 +35,7 @@ export function validatePostChangeEvidence(report, { required = false } = {}) {
     Array.isArray(logs.records) && logs.records.length <= 80 && nonnegative(logs.omittedLines) && nonnegative(logs.unparsedLines), 'bounded log projection');
   for (const record of logs.records) {
     require(exact(record, ['timestamp', 'method', 'path', 'status']) && timestamp(record.timestamp) && record.method === 'GET' &&
-      ['/', '/healthz', '/readyz'].includes(record.path) && Number.isInteger(record.status) && record.status >= 100 && record.status <= 599,
+      ['/', '/healthz', '/readyz', '/ready'].includes(record.path) && Number.isInteger(record.status) && record.status >= 100 && record.status <= 599,
     'HTTP log record');
   }
   require(exact(events, ['status', 'source', 'observedAt', 'truncated', 'items'], ['reason']) &&
@@ -63,7 +66,7 @@ export function validatePostChangeEvidence(report, { required = false } = {}) {
   require(logs.unparsedLines === 0 && logs.records.some(record => record.path === '/healthz' && record.status === 200 &&
     Date.parse(record.timestamp) >= start && Date.parse(record.timestamp) <= end + 5000), 'fresh successful health probe log');
   require(!logs.records.some(record => Date.parse(record.timestamp) >= start && Date.parse(record.timestamp) <= end + 5000 &&
-    (record.path === '/healthz' && record.status !== 200 || record.path === '/readyz' && record.status === 404)), 'contradictory probe logs');
+    (record.path === policy.proposedPath && record.status !== 200 || record.path === policy.currentPath && record.status === 404)), 'contradictory probe logs');
   require(!events.items.some(event => event.type === 'Warning' && event.reason === 'Unhealthy' && !event.readinessFailure &&
     !/^(?:Liveness|Startup) probe failed:/.test(event.message)), 'unclassified probe Warning');
   for (const event of events.items.filter(item => item.readinessFailure)) {

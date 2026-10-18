@@ -115,9 +115,11 @@ proposal and collected evidence against a fixed policy before applying one
 JSON Patch. The model neither interprets logs nor establishes that the diagnosis
 is correct.
 
-The only permitted action targets namespace `mas-demo`, Deployment
-`mas-demo-checkout`, container `checkout`, and changes the readiness HTTP path
-from `/readyz` to `/healthz`. The evidence bundle's collected items and cited
+The permitted actions target namespace `mas-demo`, container `checkout`, and
+change only a readiness HTTP path. The collected-evidence approach targets
+Deployment `mas-demo-checkout` and changes `/readyz` to `/healthz`; the MCP
+approach targets Deployment `mas-demo-checkout-mcp` and changes `/ready` to
+`/healthz`. `shared/workloads.mjs` defines these two fixed workload policies. The evidence bundle's collected items and cited
 identifiers, target UID, namespace identity, managed label, unchanged full
 workload-template hash and current probe values must satisfy the tool's
 admission checks. Kubernetes applies the patch only if its atomic UID,
@@ -127,7 +129,7 @@ deletion or replacement can reject the effect between them.
 
 | Model predicate/action | Implementation correspondence |
 | --- | --- |
-| `evidence_valid` | `validatePracticalEvidence`: required collected items, subject and owner identities, failed readiness/Warning and fresh measured CPU/memory; `admitReadinessPatch`: cited collected IDs and actual log records for `/readyz` 404 and `/healthz` 200. This models those comparisons, not the truth of arbitrary log content or diagnosis. |
+| `evidence_valid` | `validatePracticalEvidence`: required collected items, subject and owner identities, failed readiness/Warning and fresh measured CPU/memory; `admitReadinessPatch`: cited collected IDs and actual log records for the policy's faulty readiness path returning 404 and `/healthz` returning 200. This models those comparisons, not the truth of arbitrary log content or diagnosis. |
 | `proposal_allowed` | `requires_human === false`, admitted action and exact namespace/name/container/path proposal. `remediation_enabled` separately represents explicit enablement. |
 | `target_preconditions` | Recorder namespace UID, live managed Deployment UID, full recorded template hash and current readiness/liveness paths. |
 | `patch_identity` and `resource_version_matches` | Atomic Kubernetes JSON Patch UID/resourceVersion tests, alongside container-name and old-path tests. The Boolean API outcome also permits an unrelated API error. |
@@ -332,7 +334,8 @@ and disabled. Injected selection mismatch and exhausted-run authority faults mus
 produce their targeted counterexamples. A separate false assertion witnesses a
 passing revision followed by independently admitted remediation. With the original
 35 checks, this assessment extension brought the suite to 42 cases. The MCP
-acquisition extension below now adds 20 cases, bringing the current total to 62.
+acquisition extension below adds 20 cases and the two-repair binding model adds
+11, bringing the current total to 73.
 
 `server/host.integration.ts` executes the real Rust host with a deliberately
 unsupported fixture citation, checks exact candidate/feedback references, verifies
@@ -472,7 +475,7 @@ a deterministic provider fixture. `mcp/client.test.ts` and `mcp/tools.test.ts`
 cover MCP transport and incident-scoped Kubernetes collection. Fixture execution
 does not establish live LLM behaviour or a live-cluster result.
 
-The full suite contains 20 positive searches and 42 expected counterexamples,
+The full suite contains 24 positive searches and 49 expected counterexamples,
 including the coverage controls and reachability witnesses. SPIN 6.5.1 was available from
 a retained local installation for this change; `evidence/summary.json` records
 the exact checker/compiler and reviewed-source hashes for each retained run.
@@ -480,3 +483,41 @@ The maintained verifier and atomic-transition documentation was checked on
 17 October 2026. The model's successful finite searches establish the named
 properties only within the boundary above; application and adapter tests provide
 separate implementation evidence.
+
+
+## Two independent incident-driven repairs
+
+`dual-repair.pml` composes two immutable incident identities with the existing
+investigation, assessment and controller boundaries. The collected-evidence run
+repairs `mas-demo-checkout`; the MCP run repairs `mas-demo-checkout-mcp`. Each run
+has its own Kubernetes Event, seed Pod UID, Deployment UID and original template.
+Both invoke the same guarded executor after their own assessed proposal passes
+controller admission. The MCP tools collect read-only evidence; the controller
+reserves and performs the mutation.
+
+| Model comparison | Implementation obligation |
+| --- | --- |
+| Source Run and Event equality | The completed backend run must identify the immutable `MASDemoRun` UID and exactly preserve its Event. |
+| Seed and evidence subject equality | The original MCP input must preserve the admitted seed; the frozen bundle must name the Event's exact Pod UID. |
+| Approach equality | The backend approach must equal the immutable CR approach, which chooses the fixed workload policy. |
+| Trusted frozen MCP evidence | MCP controller admission requires completed acquisition, complete distinct required-tool coverage and the retained frozen Kubernetes observations. Assessment completion alone grants no effect authority. |
+| Evidence and proposal target equality | Both must identify the Deployment permitted for that approach, including its collected UID and original template. An internally consistent pair for the other workload must fail. |
+| Distinct journal key | Namespace UID, Deployment UID, original template and policy bind each effect reservation to its own target. Both workloads can reserve independently. |
+
+The model enumerates each failed comparison independently. Additional failed
+comparisons cannot turn a rejected conjunction into an admission. Reservation
+is separate from execution and verification. The existing controller model
+checks concurrent claim ownership, lost acknowledgements and uncertain effects;
+this composition has one worker per distinct target and does not duplicate that
+state space. The investigation model separately checks the four-tool freeze
+lifecycle. Accepted execution and recovery abstract the executor's guarded
+Kubernetes PATCH and complete postcondition checks.
+
+Four searches establish finite safety and settlement with and without
+partial-order reduction. Six isolated mutations bypass source, seed, approach,
+freeze or target binding, or collapse the two journal keys; each must produce
+its intended replayable counterexample. A deliberately false assertion witnesses
+a run in which both separate proposals lead to verified repairs. This is a
+reachability result, not a guarantee that arbitrary LLM proposals or cluster
+incidents will pass admission. The model changes no MAS wire format and makes
+no implementation-refinement, unrestricted exactly-once or elapsed-time claim.

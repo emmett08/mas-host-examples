@@ -1,9 +1,16 @@
 // A narrow external tool policy. Model commands and arbitrary patches never execute.
 import { createHash } from 'node:crypto';
 import { executeGuardedOperation, VerificationFailure } from './guarded-operation.mjs';
+import { managedWorkload } from '../shared/workloads.mjs';
 
 export const APPLICATION_BODY = 'MAS checkout service ready\n';
-const TARGET = { namespace: 'mas-demo', name: 'mas-demo-checkout', container: 'checkout' };
+function policyFor(snapshot) {
+  const deployment = collected(evidence(snapshot), 'workload-deployment')?.data;
+  const policy = managedWorkload(deployment?.metadata?.namespace, deployment?.metadata?.name);
+  assert(policy && policy.approach === (snapshot?.run?.approach ?? 'collected'),
+    'The investigation approach cannot remediate this workload');
+  return policy;
+}
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -30,7 +37,7 @@ function postChangeLogRecords(text) {
       const timestamp = line.slice(0, separator);
       const record = JSON.parse(line.slice(separator + 1));
       assert(separator > 0 && Number.isFinite(Date.parse(timestamp)) && record && typeof record === 'object', 'Invalid timestamped log');
-      if (record.method === 'GET' && ['/', '/readyz', '/healthz'].includes(record.path)) {
+      if (record.method === 'GET' && ['/', '/readyz', '/ready', '/healthz'].includes(record.path)) {
         assert(Number.isInteger(record.status) && record.status >= 100 && record.status <= 599, 'Invalid HTTP status');
         // Retain the actual HTTP observation, never arbitrary application fields.
         records.push({ timestamp, method: 'GET', path: record.path, status: record.status });
@@ -63,17 +70,17 @@ function postChangeEvent(event) {
     firstTimestamp: timestamp(event.firstTimestamp), lastTimestamp: timestamp(event.lastTimestamp),
     eventTime: timestamp(event.eventTime), seriesLastObservedTime: timestamp(event.series?.lastObservedTime) };
 }
-async function collectPostChangeEvidence(kubectl, pod, startedAt, now) {
-  const podPath = `/api/v1/namespaces/${TARGET.namespace}/pods/${pod.metadata.name}`;
+async function collectPostChangeEvidence(kubectl, pod, startedAt, now, policy) {
+  const podPath = `/api/v1/namespaces/${policy.namespace}/pods/${pod.metadata.name}`;
   const logSource = `${podPath}/log?container=checkout&timestamps=true&sinceTime=${encodeURIComponent(startedAt)}&previous=false`;
   const eventSelector = `involvedObject.uid=${pod.metadata.uid}`;
-  const eventSource = `/api/v1/namespaces/${TARGET.namespace}/events?fieldSelector=${encodeURIComponent(eventSelector)}`;
+  const eventSource = `/api/v1/namespaces/${policy.namespace}/events?fieldSelector=${encodeURIComponent(eventSelector)}`;
   const [logs, events] = await Promise.all([
     (async () => {
       try {
         // No API-side tail or byte truncation: the transport aborts an oversized
         // response rather than mistaking a partial log for complete coverage.
-        const text = await kubectl(['logs', pod.metadata.name, '-c', TARGET.container, '--timestamps=true',
+        const text = await kubectl(['logs', pod.metadata.name, '-c', policy.container, '--timestamps=true',
           `--since-time=${startedAt}`, '--previous=false']);
         return { status: 'collected', source: logSource, observedAt: new Date(now()).toISOString(), ...postChangeLogRecords(text) };
       } catch {
@@ -90,7 +97,7 @@ async function collectPostChangeEvidence(kubectl, pod, startedAt, now) {
         for (const event of response.items.slice(0, EVENT_LIMIT)) {
           const projected = postChangeEvent(event);
           assert(projected.involvedObject.uid === pod.metadata.uid && projected.involvedObject.name === pod.metadata.name &&
-            projected.involvedObject.namespace === TARGET.namespace, 'Event selector returned another Pod identity');
+            projected.involvedObject.namespace === policy.namespace, 'Event selector returned another Pod identity');
           if (Buffer.byteLength(JSON.stringify([...items, projected])) > EVENT_BYTES) { truncated = true; break; }
           items.push(projected);
         }
@@ -102,16 +109,16 @@ async function collectPostChangeEvidence(kubectl, pod, startedAt, now) {
     })(),
   ]);
   return { version: 'mas-k8s-post-change-evidence/1',
-    subject: { namespace: TARGET.namespace, name: pod.metadata.name, uid: pod.metadata.uid, container: TARGET.container },
+    subject: { namespace: policy.namespace, name: pod.metadata.name, uid: pod.metadata.uid, container: policy.container },
     window: { startedAt, endedAt: new Date(now()).toISOString() }, logs, events };
 }
-export function verifyPostChangeEvidence(evidence) {
+export function verifyPostChangeEvidence(evidence, failedPath = '/readyz') {
   const startedAt = Date.parse(evidence.window.startedAt), endedAt = Date.parse(evidence.window.endedAt);
   const { logs, events } = evidence;
   assert(logs.status === 'collected' && !logs.truncated && logs.unparsedLines === 0,
     'Post-change checkout logs are unavailable, truncated or contain unparseable records');
   const current = logs.records.filter(record => Date.parse(record.timestamp) >= startedAt && Date.parse(record.timestamp) <= endedAt + 5000);
-  verifyAssert(!current.some(record => record.path === '/healthz' && record.status !== 200 || record.path === '/readyz' && record.status === 404),
+  verifyAssert(!current.some(record => record.path === '/healthz' && record.status !== 200 || record.path === failedPath && record.status === 404),
     'Post-change checkout logs still show a failed health endpoint');
   assert(current.some(record => record.method === 'GET' && record.path === '/healthz' && record.status === 200),
     'Post-change checkout logs do not establish a fresh GET /healthz 200 in the observation window');
@@ -136,6 +143,7 @@ export function verifyPostChangeEvidence(evidence) {
 }
 export function validatePracticalEvidence(snapshot) {
   const bundle = evidence(snapshot);
+  const policy = policyFor(snapshot);
   assert(bundle?.version === 'mas-k8s-evidence/1', 'A practical recording requires a collected Kubernetes evidence bundle');
   for (const id of ['pod', 'workload-replicaset', 'workload-deployment', 'events', 'logs-checkout-current', 'metrics']) {
     assert(collected(bundle, id), `A practical recording requires collected ${id} evidence`);
@@ -149,7 +157,7 @@ export function validatePracticalEvidence(snapshot) {
     rs.metadata?.ownerReferences?.some(owner => owner.controller === true && owner.kind === 'Deployment' && owner.uid === deployment.metadata?.uid),
   'Collected Pod and ReplicaSet do not belong to the recorded Deployment');
   assert(pod.status?.conditions?.some(condition => condition.type === 'Ready' && condition.status === 'False') &&
-    pod.spec?.containers?.some(container => container.name === 'checkout' && container.readinessProbe?.httpGet?.path === '/readyz' &&
+    pod.spec?.containers?.some(container => container.name === 'checkout' && container.readinessProbe?.httpGet?.path === policy.currentPath &&
       container.livenessProbe?.httpGet?.path === '/healthz'), 'The original Pod does not show the demonstrated readiness failure');
   assert(collected(bundle, 'events').data?.some(event => event.type === 'Warning' && event.reason === 'Unhealthy' &&
     event.involvedObject?.uid === bundle.subject.uid), 'The original Pod has no collected Unhealthy Warning');
@@ -165,47 +173,51 @@ export function validatePracticalEvidence(snapshot) {
 }
 export function admitReadinessPatch(snapshot, deployment) {
   const bundle = validatePracticalEvidence(snapshot);
+  const policy = policyFor(snapshot);
   const decision = snapshot.run.output;
   assert(decision?.requires_human === false, 'The decision requires an engineer; automatic remediation was not authorised');
   const remedy = decision.remediation;
   assert(remedy?.action === 'replace_readiness_probe_path', 'The decision does not propose the admitted readiness correction');
   const saved = collected(bundle, 'workload-deployment').data;
   const target = remedy.target;
-  assert(target?.kind === 'Deployment' && target.namespace === TARGET.namespace && target.name === TARGET.name &&
-    target.container === TARGET.container && target.uid === saved.metadata.uid &&
+  assert(target?.kind === 'Deployment' && target.namespace === policy.namespace && target.name === policy.name &&
+    target.container === policy.container && target.uid === saved.metadata.uid &&
     target.resource_version === saved.metadata.resourceVersion,
   'The proposed target does not exactly match the recorded demonstration Deployment');
-  assert(remedy.current_path === '/readyz' && remedy.proposed_path === '/healthz', 'Only /readyz to /healthz is admitted');
+  assert(remedy.current_path === policy.currentPath && remedy.proposed_path === policy.proposedPath,
+    'Only the fixed workload readiness correction is admitted');
   const required = ['pod', 'workload-deployment', 'logs-checkout-current'];
   assert(required.every(id => remedy.evidence_ids?.includes(id)) && remedy.evidence_ids.every(id => collected(bundle, id)),
     'The correction must cite actual collected Pod, workload and log evidence');
   const records = collected(bundle, 'logs-checkout-current').data.text.split('\n').map(line => {
     try { return JSON.parse(line.slice(line.indexOf('{'))); } catch { return {}; }
   });
-  assert(records.some(record => record.method === 'GET' && record.path === '/readyz' && record.status === 404) &&
+  assert(records.some(record => record.method === 'GET' && record.path === policy.currentPath && record.status === 404) &&
     records.some(record => record.method === 'GET' && record.path === '/healthz' && record.status === 200),
   'Actual application logs do not establish the proposed readiness-path mismatch');
   assert(deployment.apiVersion === 'apps/v1' && deployment.kind === 'Deployment' &&
-    deployment.metadata.namespace === TARGET.namespace && deployment.metadata.name === TARGET.name &&
+    deployment.metadata.namespace === policy.namespace && deployment.metadata.name === policy.name &&
     deployment.metadata.uid === target.uid && deployment.metadata.labels?.['demo.mas.dev/managed'] === 'true',
   'The live resource is outside the managed demonstration target');
   assert(typeof saved.templateHash === 'string' && canonicalTemplateHash(deployment.spec.template) === saved.templateHash,
     'The live workload template changed after evidence collection; collect new evidence');
   const containers = deployment.spec.template.spec.containers;
-  const index = containers.findIndex(container => container.name === TARGET.container);
-  assert(index >= 0 && containers[index].readinessProbe?.httpGet?.path === '/readyz' &&
+  const index = containers.findIndex(container => container.name === policy.container);
+  assert(index >= 0 && containers[index].readinessProbe?.httpGet?.path === policy.currentPath &&
     containers[index].livenessProbe?.httpGet?.path === '/healthz', 'The live probe preconditions no longer hold');
   const path = `/spec/template/spec/containers/${index}`;
   return [
     { op: 'test', path: '/metadata/uid', value: target.uid },
     { op: 'test', path: '/metadata/resourceVersion', value: deployment.metadata.resourceVersion },
-    { op: 'test', path: `${path}/name`, value: TARGET.container },
-    { op: 'test', path: `${path}/readinessProbe/httpGet/path`, value: '/readyz' },
+    { op: 'test', path: `${path}/name`, value: policy.container },
+    { op: 'test', path: `${path}/readinessProbe/httpGet/path`, value: policy.currentPath },
     { op: 'replace', path: `${path}/readinessProbe/httpGet/path`, value: '/healthz' },
   ];
 }
 function summary(deployment, now = Date.now) {
-  const container = deployment.spec?.template?.spec?.containers?.find(item => item.name === TARGET.container);
+  const policy = managedWorkload(deployment.metadata.namespace, deployment.metadata.name);
+  assert(policy, 'Unmanaged Deployment summary');
+  const container = deployment.spec?.template?.spec?.containers?.find(item => item.name === policy.container);
   return { observedAt: new Date(now()).toISOString(), uid: deployment.metadata.uid, resourceVersion: deployment.metadata.resourceVersion,
     generation: deployment.metadata.generation, templateHash: canonicalTemplateHash(deployment.spec.template),
     readinessPath: container?.readinessProbe?.httpGet?.path, status: deployment.status };
@@ -219,9 +231,10 @@ export async function resolveIncident(snapshot, { kubectl, namespaceUID, enabled
   operationId, attemptId, beforePatch, isDefiniteRejection = () => false }) {
   const bundle = evidence(snapshot);
   const saved = collected(bundle, 'workload-deployment')?.data;
+  const policy = managedWorkload(saved?.metadata?.namespace, saved?.metadata?.name);
   const report = { version: 'mas-k8s-resolution/2', operationId, attemptId,
     effectOutcome: 'not_started', verificationOutcome: 'not_run', status: 'not-attempted', action: 'replace_readiness_probe_path',
-    target: { namespace: TARGET.namespace, name: TARGET.name, uid: saved?.metadata?.uid ?? '' },
+    target: { namespace: policy?.namespace ?? 'mas-demo', name: policy?.name ?? '', uid: saved?.metadata?.uid ?? '' },
     recordedAt: new Date(now()).toISOString(), reason: '', patch: [], before: null, after: null, checks: [] };
   if (!enabled) { report.reason = 'Automatic readiness remediation has not been explicitly enabled.'; return report; }
   try {
@@ -230,12 +243,12 @@ export async function resolveIncident(snapshot, { kubectl, namespaceUID, enabled
       report.reason = 'The agent requested engineer review or proposed no permitted correction.';
       return report;
     }
-    const namespace = JSON.parse(await kubectl(['get', 'namespace', TARGET.namespace, '-o', 'json']));
+    const namespace = JSON.parse(await kubectl(['get', 'namespace', policy.namespace, '-o', 'json']));
     assert(namespaceUID && namespace.metadata.uid === namespaceUID, 'The configured namespace identity changed');
-    const before = JSON.parse(await kubectl(['get', 'deployment', TARGET.name, '-o', 'json']));
+    const before = JSON.parse(await kubectl(['get', 'deployment', policy.name, '-o', 'json']));
     report.patch = admitReadinessPatch(snapshot, before);
     const expectedTemplate = structuredClone(before.spec.template);
-    expectedTemplate.spec.containers.find(container => container.name === TARGET.container).readinessProbe.httpGet.path = '/healthz';
+    expectedTemplate.spec.containers.find(container => container.name === policy.container).readinessProbe.httpGet.path = '/healthz';
     const expectedHash = canonicalTemplateHash(expectedTemplate);
     report.before = { ...summary(before, now), namespaceUID, expectedTemplateHash: expectedHash };
     report.checks.push({ name: 'Admission', passed: true, detail: 'Managed identity, collected evidence and unchanged full template passed. Only the readiness path is admitted.' });
@@ -247,7 +260,7 @@ export async function resolveIncident(snapshot, { kubectl, namespaceUID, enabled
         await beforePatch(structuredClone(report));
       },
       execute: async patch => {
-        const applied = JSON.parse(await kubectl(['patch', 'deployment', TARGET.name, '--type=json', '-p', JSON.stringify(patch), '-o', 'json']));
+        const applied = JSON.parse(await kubectl(['patch', 'deployment', policy.name, '--type=json', '-p', JSON.stringify(patch), '-o', 'json']));
         assert(applied.metadata?.uid === before.metadata.uid &&
           applied.metadata?.resourceVersion && applied.metadata.resourceVersion !== before.metadata.resourceVersion &&
           applied.metadata.generation === before.metadata.generation + 1 &&
@@ -261,26 +274,26 @@ export async function resolveIncident(snapshot, { kubectl, namespaceUID, enabled
         const deadline = now() + timeoutMs;
         let after, pod, metrics;
         while (now() < deadline) {
-          after = JSON.parse(await kubectl(['get', 'deployment', TARGET.name, '-o', 'json']));
+          after = JSON.parse(await kubectl(['get', 'deployment', policy.name, '-o', 'json']));
           verifyAssert(after.metadata.uid === before.metadata.uid && canonicalTemplateHash(after.spec.template) === expectedHash,
             'Another actor changed the workload during verification');
           if (recovered(after)) {
-            const replicasets = JSON.parse(await kubectl(['get', 'replicasets', '-l', 'app.kubernetes.io/name=mas-demo-checkout', '-o', 'json']));
+            const replicasets = JSON.parse(await kubectl(['get', 'replicasets', '-l', `app.kubernetes.io/name=${policy.name}`, '-o', 'json']));
             const ownerUIDs = new Set(replicasets.items.filter(item => item.metadata.ownerReferences?.some(
               owner => owner.controller === true && owner.kind === 'Deployment' && owner.uid === before.metadata.uid) &&
-              item.spec.template.spec.containers.some(container => container.name === TARGET.container &&
+              item.spec.template.spec.containers.some(container => container.name === policy.container &&
                 container.readinessProbe?.httpGet?.path === '/healthz')).map(item => item.metadata.uid));
-            const pods = JSON.parse(await kubectl(['get', 'pods', '-l', 'app.kubernetes.io/name=mas-demo-checkout', '-o', 'json']));
+            const pods = JSON.parse(await kubectl(['get', 'pods', '-l', `app.kubernetes.io/name=${policy.name}`, '-o', 'json']));
             pod = pods.items.find(item => !item.metadata.deletionTimestamp && item.metadata.uid !== bundle.subject.uid &&
               item.metadata.ownerReferences?.some(owner => owner.controller === true && owner.kind === 'ReplicaSet' && ownerUIDs.has(owner.uid)) &&
               item.status?.conditions?.some(condition => condition.type === 'Ready' && condition.status === 'True'));
             if (pod) {
               try {
-                metrics = JSON.parse(await kubectl(['get', '--raw', `/apis/metrics.k8s.io/v1beta1/namespaces/${TARGET.namespace}/pods/${pod.metadata.name}`]));
+                metrics = JSON.parse(await kubectl(['get', '--raw', `/apis/metrics.k8s.io/v1beta1/namespaces/${policy.namespace}/pods/${pod.metadata.name}`]));
                 const timestamp = Date.parse(metrics.timestamp);
-                if (metrics.metadata?.name === pod.metadata.name && metrics.metadata?.namespace === TARGET.namespace &&
+                if (metrics.metadata?.name === pod.metadata.name && metrics.metadata?.namespace === policy.namespace &&
                     Number.isFinite(timestamp) && timestamp >= Date.parse(pod.metadata.creationTimestamp) && timestamp <= now() + 5000 &&
-                    now() - timestamp < 120_000 && typeof metrics.window === 'string' && metrics.window.length > 0 && metrics.containers?.some(container => container.name === TARGET.container &&
+                    now() - timestamp < 120_000 && typeof metrics.window === 'string' && metrics.window.length > 0 && metrics.containers?.some(container => container.name === policy.container &&
                       typeof container.usage?.cpu === 'string' && typeof container.usage?.memory === 'string')) break;
               } catch { /* A new running Pod needs its first metrics-server sampling interval. */ }
             }
@@ -289,39 +302,39 @@ export async function resolveIncident(snapshot, { kubectl, namespaceUID, enabled
           await delay(2000);
         }
         assert(after && recovered(after) && pod && metrics, 'Recovery did not produce one updated Ready Pod with a fresh CPU/memory sample before the deadline');
-        verifyAssert(pod.status.containerStatuses?.find(container => container.name === TARGET.container)?.restartCount === 0,
+        verifyAssert(pod.status.containerStatuses?.find(container => container.name === policy.container)?.restartCount === 0,
           'The replacement application restarted during recovery verification');
-        const body = await kubectl(['get', '--raw', `/api/v1/namespaces/${TARGET.namespace}/services/${TARGET.name}:8081/proxy/`]);
+        const body = await kubectl(['get', '--raw', `/api/v1/namespaces/${policy.namespace}/services/${policy.name}:8081/proxy/`]);
         verifyAssert(body === APPLICATION_BODY, 'The Kubernetes Service application endpoint did not return the expected HTTP 200 response body');
         const initialPod = JSON.parse(await kubectl(['get', 'pod', pod.metadata.name, '-o', 'json']));
         const readyTransition = initialPod.status?.conditions?.find(condition => condition.type === 'Ready' && condition.status === 'True')?.lastTransitionTime;
         verifyAssert(initialPod.metadata.uid === pod.metadata.uid && !initialPod.metadata.deletionTimestamp &&
           initialPod.status?.conditions?.some(condition => condition.type === 'Ready' && condition.status === 'True') &&
-          initialPod.status.containerStatuses?.find(container => container.name === TARGET.container)?.restartCount === 0,
+          initialPod.status.containerStatuses?.find(container => container.name === policy.container)?.restartCount === 0,
         'The replacement Pod changed or lost readiness before post-change evidence collection');
         assert(typeof readyTransition === 'string' && Number.isFinite(Date.parse(readyTransition)) && Date.parse(readyTransition) <= now() + 5000,
           'The replacement Pod has no usable Ready transition timestamp');
-        const periodSeconds = before.spec.template.spec.containers.find(container => container.name === TARGET.container).readinessProbe.periodSeconds ?? 10;
+        const periodSeconds = before.spec.template.spec.containers.find(container => container.name === policy.container).readinessProbe.periodSeconds ?? 10;
         const observationMs = Math.max(10_000, periodSeconds * 2000);
         assert(Number.isInteger(periodSeconds) && periodSeconds > 0 && observationMs <= 30_000 && now() + observationMs < deadline,
           'The verification deadline cannot cover two readiness probe periods');
         const startedAt = new Date(now()).toISOString();
         await delay(observationMs);
         assert(now() - Date.parse(startedAt) >= observationMs, 'The post-change observation interval did not complete');
-        report.verificationEvidence = await collectPostChangeEvidence(kubectl, pod, startedAt, now);
-        const finalDeployment = JSON.parse(await kubectl(['get', 'deployment', TARGET.name, '-o', 'json']));
+        report.verificationEvidence = await collectPostChangeEvidence(kubectl, pod, startedAt, now, policy);
+        const finalDeployment = JSON.parse(await kubectl(['get', 'deployment', policy.name, '-o', 'json']));
         const finalPod = JSON.parse(await kubectl(['get', 'pod', pod.metadata.name, '-o', 'json']));
         verifyAssert(finalDeployment.metadata.uid === before.metadata.uid && recovered(finalDeployment) &&
           canonicalTemplateHash(finalDeployment.spec.template) === expectedHash && finalPod.metadata.uid === pod.metadata.uid &&
           !finalPod.metadata.deletionTimestamp && finalPod.status?.conditions?.some(condition => condition.type === 'Ready' && condition.status === 'True' &&
             condition.lastTransitionTime === readyTransition) &&
-          finalPod.status.containerStatuses?.find(container => container.name === TARGET.container)?.restartCount === 0,
+          finalPod.status.containerStatuses?.find(container => container.name === policy.container)?.restartCount === 0,
         'The workload changed or lost readiness while checking the application endpoint');
-        verifyPostChangeEvidence(report.verificationEvidence);
+        verifyPostChangeEvidence(report.verificationEvidence, policy.currentPath);
         after = finalDeployment;
         pod = finalPod;
         report.after = { ...summary(after, now), pod: { name: pod.metadata.name, uid: pod.metadata.uid,
-          ready: true, readyTransitionTime: readyTransition, restarts: pod.status.containerStatuses?.find(container => container.name === TARGET.container)?.restartCount },
+          ready: true, readyTransitionTime: readyTransition, restarts: pod.status.containerStatuses?.find(container => container.name === policy.container)?.restartCount },
         metrics: { timestamp: metrics.timestamp, window: metrics.window, containers: metrics.containers },
         application: { source: 'Kubernetes Service API proxy HTTP GET /', status: 200, body } };
         report.checks.push({ name: 'Rollout', passed: true, detail: 'Observed generation, one updated/ready/available replica and no old replicas.' },
