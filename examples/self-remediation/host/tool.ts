@@ -52,7 +52,7 @@ export async function runTrustedOperation<T extends { operationId: string; invoc
     return { receipt, observation, invocationIds: [receipt.invocation_id], calls: observation.calls.length };
   } catch {
     try { observation = await observe(true); await writeFile(join(project, 'observation.json'), JSON.stringify(observation), { mode: 0o600 }); } catch { /* The missing outcome remains unknown. */ }
-    throw new HostPhaseError('Tool effect did not return a bound completed measurement; reconcile before repeating', runId, observation,
+    throw new HostPhaseError(`Tool ${options.operationName} did not return a bound completed measurement; reconcile before repeating`, runId, observation,
       !observation || observation.steps.some((step: any) => step.kind === 'effect' && ['executing', 'unknown', 'prepared'].includes(step.state)));
   } finally { clearInterval(timer); }
 }
