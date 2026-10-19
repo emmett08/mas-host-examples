@@ -1,10 +1,32 @@
-# Bounded source self-remediation
+# Bounded source self-healing
 
 This separate example adapts the SDLC into an observed **find → investigate → experiment → repair → check → revise** loop. It uses the repository's pinned MAS host and Nehemiah communication protocol. The application controller owns durable budgets, candidate eligibility, external effects and release policy. `examples/k3s-live` remains a separate example.
 
 The target is a stateless TypeScript parcel quotation service. It calculates GBP delivery prices, validates inputs and exposes a catalogue and liveness route. Engineers supply the versioned intended behaviour, editable paths, execution interfaces and release policy. Live agents can create or edit source files and runtime configuration inside that projection. Production tooling has no fault-label dispatch, expected patch or catalogue of cause-to-fix handlers.
 
 All application data are disposable. Shared persistent writes, database migrations and arbitrary dependency installation are outside this example. Restoring an image does not roll back application data.
+
+## Why self-healing
+
+Self-healing names the implemented capability: restoring a managed application's required behaviour after a reproduced failure. The [controller](controller/loop.ts) investigates the failure, generates source or configuration changes, rejects candidates that fail independent checks, and verifies recovery in an isolated Kubernetes trial. Persistent budgets and release policy bound the work. Here, the managed system comprises the application and its repair controller.
+
+Autonomic computing is the broader approach to self-management, encompassing capabilities such as self-configuration, self-optimisation, self-healing and self-protection ([White et al., 2006](https://research.ibm.com/publications/autonomic-computing-architectural-approach-and-prototype)). This example implements the fault-recovery capability within that family. Its automated configuration edits serve recovery of the specified behaviour. The precise name is **bounded source self-healing**.
+
+Recovery evidence has a defined scope. The benchmark can verify deployment in its disposable target under the selected publication policy. For an operational incident, an independently checked candidate can be retained and, with the scoped credential, published as a repair pull request. Deployment into the original operational cluster requires a separate release process.
+
+## Names and existing integrations
+
+The example now lives at `examples/self-healing`, with workflow `.github/workflows/self-healing.yml` and action `.github/actions/self-healing-integration`. Update local commands and any workflow dispatch calls that use the old paths. The workflow appears as **Bounded source self-healing**, and the observer as **Self-healing**.
+
+Existing integrations retain these identifiers:
+
+| Identifier | Reason for retaining it |
+|---|---|
+| `SELF_REMEDIATION_*` settings and GitHub environments `self-remediation-live` / `self-remediation-publication` | Existing secrets, variables and environment protection rules remain applicable |
+| `self-remediation-*` artefact names, evidence schemas and observation marker | Existing downloads, journals and checkpoint formats remain identifiable |
+| `self-remediation` cluster, `k3d-self-remediation` context, image names and MCP identities | Existing execution guards, cleanup commands and capability records retain their identities |
+
+New progress Check Runs use **Self-healing live observation**. The observer also recognises the previous Check Run name while retaining exact commit and incident matching. Recovery checkpoints must still be resumed from their recorded source revision, as described in [verification/RECOVERY.md](verification/RECOVERY.md).
 
 ## Read the result at the correct level
 
@@ -36,7 +58,7 @@ Fixture runs are explicitly scripted controls. They exercise host communication,
 | `evaluation/` | Protected injectors, scripted control responses and independent checks. These stay outside candidate snapshots and accessible Git objects |
 | `verification/` | Finite SPIN models, guard-removal controls and implementation correspondence |
 | `scripts/` | Entry points, observer/archive packaging and separate publication/promotion jobs |
-| `../../.github/workflows/self-remediation.yml` | Credential-free PR checks and separately selected live/publication jobs |
+| `../../.github/workflows/self-healing.yml` | Credential-free PR checks and separately selected live/publication jobs |
 
 `host-revision.txt` at repository root is authoritative. Read [host/README.md](host/README.md) for the inspected pinned contracts. Assessed revision runs admit inference effects and exclude command/remediation effects and evaluator delegation. Builds, edits, MCP access and deployment therefore run through separately admitted ordinary host operations. Changed frozen inputs or candidate source create new phase identities.
 
@@ -44,13 +66,27 @@ The host is trusted orchestration software. Candidate execution occurs in separa
 
 Hypothesis rank, experiment priority and candidate eligibility have separate roles. Every mandatory candidate criterion must pass. An inconclusive result blocks release. A model vote, test count or uncalibrated confidence cannot admit promotion. Failed candidates and independent review rejections feed counterexamples into another investigation while budget remains. Final evaluation disclosed to a later repair becomes development evidence and requires a fresh final suite.
 
+## Implemented assessment contract
+
+The example implements an executable acceptance contract. Its numerical host rubric has a narrower, structural purpose.
+
+| Layer | Implemented rule | Authority |
+|---|---|---|
+| Service requirements | [`evaluation/requirements.json`](evaluation/requirements.json) defines HTTP behaviour, pricing, input limits and permitted edits; [`evaluation/harness.ts`](evaluation/harness.ts) measures development cases and generates fresh final cases | Protected verifier measurements establish whether the specified behaviour passes |
+| Candidate eligibility | [`contracts/types.ts`](contracts/types.ts) binds evidence to source, patch, requirements, tests, environment and image identities; [`controller/policy.ts`](controller/policy.ts) requires every mandatory criterion to pass with evidence, an authorised independent evaluator, no regressions or unresolved release uncertainty, and permitted capability/resource changes | Any failed, absent or inconclusive mandatory criterion blocks eligibility |
+| Host phase rubric | [`host/phase.ts`](host/phase.ts) admits `self-remediation-structure/1`; [`project/assessment.py`](project/assessment.py) scores `bounded-record` as **1** for canonical JSON output of at most **12,288 bytes**, otherwise **0**, after operation-schema validation | Structural validation only; it cannot establish product correctness or authorise release |
+| Model review | [`project/prompts/reviewer.md`](project/prompts/reviewer.md) requires evidence-based findings, risk and remaining uncertainty; a rejection blocks the candidate in [`controller/loop.ts`](controller/loop.ts) | Additional blocking judgement; model approval cannot override failed measurements |
+| Recovery and publication | The controller requires fresh final checks and an observed recovery of the exact immutable image in the isolated trial before invoking the separately scoped publication policy | Eligibility alone does not establish deployed recovery |
+
+There is no active aggregate quality score or comparison of multiple eligible candidates. `preferEligible()` defines a lexicographic preference by operational risk, edit count and cost, but the controller does not call it: the loop stops after the first candidate completes the required checks, trial and publication step. The recorded risk judgement and edit count are not a calibrated measure of repair quality.
+
 ## Local checks
 
 Use Node **24.19.0**, the repository's pinned host prerequisites, and SPIN plus a C compiler for formal checks. From repository root:
 
 ```sh
 make setup
-cd examples/self-remediation
+cd examples/self-healing
 npm ci --ignore-scripts
 npm run build
 npm test
@@ -99,7 +135,7 @@ The `missing-route` control must demonstrate a baseline failure, an unsuccessful
 
 ## Select a live case
 
-The workflow is **Bounded source self-remediation**. It has credential-free PR/push checks and a manual `live_provider` switch. Live execution is limited to the trusted `main` revision and runs after the fixture checks. One case is selected per workflow, so a matrix cannot multiply provider expenditure.
+The workflow is **Bounded source self-healing**. It has credential-free PR/push checks and a manual `live_provider` switch. Live execution is limited to the trusted `main` revision and runs after the fixture checks. One case is selected per workflow, so a matrix cannot multiply provider expenditure.
 
 Available protected benchmark cases are `missing-route`, `business-logic`, `runtime-config`, `held-out-combination`, `unavailable-dependency`, `ambiguous-requirement`, `no-defect` and `verification-bypass`. Case labels and injectors belong to trusted benchmark setup. They are excluded from live repair inputs and admitted GitHub source access. Live providers must supply actual candidate edits. The `held-out-combination` is a benchmark variation, not a claim that the provider has never encountered similar code.
 

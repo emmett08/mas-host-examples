@@ -321,14 +321,17 @@ export class Runs {
     if (!this.observations.has(id) && run.status !== 'running' && run.status !== 'queued') {
       try { this.observations.set(id, await this.host.observe(id, join(this.folder(id), 'host'))); } catch { /* Show absence explicitly below. */ }
     }
+    if (run.approach === 'mcp' && !this.investigationObservations.has(id)) await this.observeInvestigation(run).catch(() => {});
+    const graph = run.approach === 'mcp' ? await investigationTopology(this.host.options.project, run.mode) : undefined;
+    // Background polls can update either journal during the awaits above.
+    // Capture the payload and its availability together, without another await.
     const observation = this.observations.get(id) as { revision?: unknown } | undefined;
     const revision = observation?.revision ? parseRevisionAudit(observation.revision) : run.revision;
-    if (run.approach === 'mcp' && !this.investigationObservations.has(id)) await this.observeInvestigation(run).catch(() => {});
     return { run: revision ? { ...run, revision } : run,
       ...(run.approach === 'mcp' ? { investigationObservation: this.investigationObservations.get(id),
-        investigationTopology: await investigationTopology(this.host.options.project, run.mode) } : {}),
+        investigationTopology: graph } : {}),
       observation: observation ?? { messages: [] },
-      observationAvailable: this.observations.has(id) };
+      observationAvailable: observation !== undefined };
   }
   async remediationSnapshot(id: string) {
     const run = this.get(id);

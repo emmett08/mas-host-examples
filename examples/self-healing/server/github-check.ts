@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process';
 import { parseWindow, type ObservationWindow } from '../ui/events.js';
 
-export const CHECK_NAME = 'Self-remediation live observation';
+export const CHECK_NAME = 'Self-healing live observation';
+// Existing run-bound observer bundles and Check Runs retain their original name.
+const CHECK_NAMES = [CHECK_NAME, 'Self-remediation live observation'];
 export const MARKER = '<!-- self-remediation-observer/1 -->';
 export interface ApiResponse<T = unknown> { status: number; headers: Record<string, string>; body: T }
 export class ApiError extends Error {
@@ -66,7 +68,7 @@ export function retryDelay(error: unknown, failures: number, now = Date.now()): 
 }
 export function encodeWindow(window: ObservationWindow): string { return `${MARKER}\n\n\`\`\`json\n${JSON.stringify(window)}\n\`\`\``; }
 export function decodeWindow(text: string): ObservationWindow {
-  if (!text.startsWith(MARKER)) throw new Error('Check Run is not a self-remediation observation');
+  if (!text.startsWith(MARKER)) throw new Error('Check Run is not a self-healing observation');
   const match = /```json\n([\s\S]*?)\n```/.exec(text);
   if (!match?.[1]) throw new Error('Check Run has no observation window');
   return parseWindow(JSON.parse(match[1]));
@@ -74,14 +76,15 @@ export function decodeWindow(text: string): ObservationWindow {
 export async function findCheck(api: CheckApi, repo: string, sha: string, incidentId: string): Promise<CheckRun | undefined> {
   if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Check Run SHA must be an exact commit');
   const matches: CheckRun[] = [];
-  for (let page = 1; page <= 10; page++) {
-    const result = await api.request<{ check_runs: CheckRun[] }>('GET', `/repos/${repo}/commits/${sha}/check-runs?check_name=${encodeURIComponent(CHECK_NAME)}&filter=all&per_page=100&page=${page}`);
-    const checks = result.body.check_runs;
-    matches.push(...checks.filter(c => c.external_id === incidentId && c.head_sha === sha && c.name === CHECK_NAME));
-    if (checks.length < 100) {
+  for (const name of CHECK_NAMES) {
+    for (let page = 1; page <= 10; page++) {
+      const result = await api.request<{ check_runs: CheckRun[] }>('GET', `/repos/${repo}/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}&filter=all&per_page=100&page=${page}`);
+      const checks = result.body.check_runs;
+      matches.push(...checks.filter(c => c.external_id === incidentId && c.head_sha === sha && c.name === name));
       if (matches.length > 1) throw new Error('duplicate Check Runs need explicit reconciliation');
-      return matches[0];
+      if (checks.length < 100) break;
+      if (page === 10) throw new Error('Check Run reconciliation window exhausted');
     }
   }
-  throw new Error('Check Run reconciliation window exhausted');
+  return matches[0];
 }

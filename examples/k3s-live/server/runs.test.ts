@@ -12,6 +12,34 @@ import { projectFailure } from './diagnostics.js';
 import { application } from './http.js';
 import { EVIDENCE_VERSION, type EvidenceBundle } from '../shared/evidence.js';
 import { canonicalJson, parseRevisionAudit } from '../shared/revision.mjs';
+import { parseArchive } from '../ui/archive.js';
+
+test('MCP snapshots keep observation availability coherent when a primary poll completes during acquisition', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'mas-snapshot-race-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(join(dir, 'topology.mcp.yaml'), 'edges: [[client, investigator]]\n');
+  const primary = { observed_at_ms: 2_000, messages: [] };
+  const acquisition = { observed_at_ms: 1_900, messages: [] };
+  for (const available of [false, true]) {
+    const host = { options: { project: dir }, observe: async () => {
+      // Complete the concurrent primary poll while snapshot awaits acquisition.
+      if (available) runs.observations.set('snapshot-race', primary);
+      return acquisition;
+    } } as unknown as Host;
+    const runs = new Runs(dir, 'fixture', host);
+    runs.records.set('snapshot-race', { id: 'snapshot-race', mode: 'fixture', approach: 'mcp', status: 'running',
+      startedAt: '2026-10-19T08:00:00Z', input: { incident: {} }, fingerprint: 'fixture' });
+    const snapshot = await runs.snapshot('snapshot-race');
+    assert.equal(snapshot.observationAvailable, available);
+    assert.deepEqual(snapshot.observation, available ? primary : { messages: [] });
+    assert.deepEqual(snapshot.investigationObservation, acquisition);
+    // The same strict parser used by the downloaded dashboard must accept it.
+    const parsed = parseArchive({ version: 'mas-demo-archive/1', capturedAt: '2026-10-19T08:00:01Z',
+      runId: 'snapshot-race', topology: snapshot.investigationTopology,
+      snapshots: [{ ...snapshot, observedAtMs: available ? primary.observed_at_ms : acquisition.observed_at_ms }] });
+    assert.equal(parsed.snapshots[0]!.observationAvailable, available);
+  }
+});
 
 function incidentEvidence(): EvidenceBundle {
   return { version: EVIDENCE_VERSION, capturedAt: '2026-10-16T12:00:00Z',

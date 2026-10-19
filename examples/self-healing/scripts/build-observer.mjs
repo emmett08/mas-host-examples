@@ -51,7 +51,7 @@ export function buildObserver(target = resolve(root, 'dist/observer'), env = pro
   for (const [source, destination] of [['start-observer.mjs', 'start.mjs'], ['discover-github-mcp-schema.mjs', 'discover-github-mcp-schema.mjs']]) {
     cpSync(resolve(root, 'scripts', source), resolve(target, destination));
   }
-  writeFileSync(resolve(target, 'package.json'), JSON.stringify({ name: 'mas-self-remediation-observer', private: true, type: 'module', engines: { node: '>=24.19.0' } }, null, 2) + '\n');
+  writeFileSync(resolve(target, 'package.json'), JSON.stringify({ name: 'mas-self-healing-observer', private: true, type: 'module', engines: { node: '>=24.19.0' } }, null, 2) + '\n');
   writeFileSync(resolve(target, 'observe.mjs'), "import { main } from './server/index.js';\nawait main();\n");
   writeFileSync(resolve(target, 'start.command'), command('start.mjs'), { mode: 0o755 });
   writeFileSync(resolve(target, 'setup-github-mcp.command'), command('discover-github-mcp-schema.mjs --configure'), { mode: 0o755 });
@@ -59,7 +59,7 @@ export function buildObserver(target = resolve(root, 'dist/observer'), env = pro
   const identity = metadata
     ? `Repository: ${metadata.repository}\nWorkflow: https://github.com/${metadata.repository}/actions/runs/${metadata.runId}/attempts/${metadata.runAttempt}\nWorkflow SHA: ${metadata.sha}\nDefault: ${metadata.defaultMode}\n\n${Object.entries(metadata.cases).map(([mode, item]) => `${mode}: ${item.incidentId}\nDownload: ${item.artifactName}`).join('\n\n')}`
     : 'This local build has no workflow identity. Use observe.mjs with explicit --events/--incident or --repo/--sha/--incident arguments. Workflow-produced bundles include run.json automatically.';
-  writeFileSync(resolve(target, 'README.md'), `# Self-remediation observer
+  writeFileSync(resolve(target, 'README.md'), `# Self-healing observer
 
 Requires a working Node 24.19.0 or later and GitHub CLI authenticated to github.com with read access to Actions and Checks. No npm install or local Kubernetes is required.
 
@@ -89,6 +89,8 @@ bash setup-github-mcp.command
 The helper uses SELF_REMEDIATION_GITHUB_READ_TOKEN when set, otherwise the local gh credential. It saves github-mcp-actions_get.schema.json and github-mcp-actions_get.sha256, displays the schema, and asks you to type configure before setting SELF_REMEDIATION_GITHUB_MCP_SCHEMA_SHA256 in the recorded repository/environment. Discovery alone is \`node discover-github-mcp-schema.mjs\`.
 
 The workflow still needs its separate SELF_REMEDIATION_GITHUB_READ_TOKEN secret when optional MCP access is enabled. Local gh authentication does not install that secret. No credential is included in this ZIP or written to a schema file. Setup does not dispatch a workflow or incur provider spend.
+
+The self-healing example retains the self-remediation artefact and configuration identifiers so existing workflow downloads and protected environment settings continue to work.
 
 ## Recorded identifiers
 

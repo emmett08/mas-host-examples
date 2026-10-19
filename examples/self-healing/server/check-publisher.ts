@@ -47,7 +47,7 @@ export class CheckPublisher {
         this.state.createDispatched = true; this.save();
         const created = await this.api.request<CheckRun>('POST', `/repos/${this.repository}/check-runs`, {
           name: CHECK_NAME, head_sha: this.sha, external_id: this.incidentId, status: 'in_progress',
-          started_at: new Date().toISOString(), output: { title: 'Self-remediation observation starting', summary: 'Committed incident events will appear here during the run.', text: encodeWindow(makeWindow([], this.incidentId)) },
+          started_at: new Date().toISOString(), output: { title: 'Self-healing observation starting', summary: 'Committed incident events will appear here during the run.', text: encodeWindow(makeWindow([], this.incidentId)) },
         });
         this.state.checkId = created.body.id; this.save();
       }
@@ -65,7 +65,7 @@ export class CheckPublisher {
     this.state.pending = { text, completed }; this.save();
     await this.api.request<CheckRun>('PATCH', endpoint, { status: completed ? 'completed' : 'in_progress',
       ...(completed ? { conclusion: 'neutral', completed_at: new Date().toISOString() } : {}),
-      output: { title: completed ? 'Observation complete — inspect measured outcome' : 'Self-remediation live observation',
+      output: { title: completed ? 'Observation complete — inspect measured outcome' : 'Self-healing live observation',
         summary: `Incident \`${this.incidentId}\` · committed sequence ${window.lastSeq} · published ${window.generatedAt}. This Check Run reports progress, not acceptance. Windows may omit older events.`, text } });
     this.acknowledged(text, completed);
     return this.state.checkId!;

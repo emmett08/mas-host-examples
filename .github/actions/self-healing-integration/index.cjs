@@ -8,7 +8,7 @@ const output = process.env.INPUT_OUTPUT;
 if (!['fixture', 'live'].includes(mode) || !/^[a-z-]{1,80}$/.test(selected ?? '') || !output?.startsWith('/'))
   throw new Error('Invalid integration action inputs');
 const child = spawn('node', ['--import', 'tsx', 'scripts/integration.ts', '--mode', mode, '--case', selected, '--output', output], {
-  cwd: resolve(process.env.GITHUB_WORKSPACE, 'examples/self-remediation'), env: process.env, stdio: 'inherit',
+  cwd: resolve(process.env.GITHUB_WORKSPACE, 'examples/self-healing'), env: process.env, stdio: 'inherit',
 });
 for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => child.kill(signal));
 child.once('error', () => { process.exitCode = 1; });

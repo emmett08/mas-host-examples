@@ -111,7 +111,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resize); source?.cl
 <template>
   <main>
     <header class="masthead">
-      <div><p class="eyebrow"><span class="mark">M</span> MAS / ENGINEERING OPERATIONS</p><h1>Self-remediation</h1><p class="intro">Follow the evidence from incident to verified recovery.</p></div>
+      <div><p class="eyebrow"><span class="mark">M</span> MAS / ENGINEERING OPERATIONS</p><h1>Self-healing</h1><p class="intro">Follow the evidence from incident to verified recovery.</p></div>
       <div class="session"><span :class="['pill', stale ? 'warn' : 'quiet']"><i></i>{{ freshness }}</span><p>{{ archive ? 'Read-only replay' : 'Committed live events' }}</p><span class="mono">{{ visible.incidentId ?? 'Incident identity pending' }}</span></div>
     </header>
 
@@ -168,6 +168,6 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resize); source?.cl
       </section>
     </div>
     <section class="journal"><div class="section-top"><div><p class="eyebrow">COMMITTED EVENTS</p><h2>Event journal</h2></div><span class="mono muted">{{ visible.events.length }} visible records</span></div><div class="table-scroll"><table><thead><tr><th>Sequence</th><th>Time</th><th>Fact</th><th>Summary</th></tr></thead><tbody><tr v-for="event in recent.slice(0, 100)" :key="event.seq"><td class="mono">{{ event.seq }}</td><td>{{ new Date(event.time).toLocaleTimeString() }}</td><td class="mono">{{ event.type }}</td><td>{{ headline(event) }}</td></tr></tbody></table><p v-if="!recent.length" class="empty">The journal is empty at this playback position.</p></div></section>
-    <footer><span>MAS self-remediation · observed facts and explicit uncertainty</span><span>{{ archive ? 'Offline · no network requests' : 'Read-only observer · credentials stay on the server' }}</span></footer>
+    <footer><span>MAS self-healing · observed facts and explicit uncertainty</span><span>{{ archive ? 'Offline · no network requests' : 'Read-only observer · credentials stay on the server' }}</span></footer>
   </main>
 </template>

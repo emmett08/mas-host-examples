@@ -220,6 +220,8 @@ test('replay orders concurrent host observations without rewriting either journa
   assert.equal(parsed.snapshots[0]!.observation.observed_at_ms, undefined);
   assert.equal(parsed.snapshots[1]!.observation.observed_at_ms, 1_900);
   assert.equal(parsed.snapshots[1]!.investigationObservation!.observed_at_ms, 2_100);
+  const inconsistent = structuredClone(parsed); inconsistent.snapshots[0]!.observationAvailable = true;
+  assert.throws(() => parseArchive(inconsistent), /observation time/);
   const fabricated = structuredClone(parsed); fabricated.snapshots[1]!.observedAtMs = 2_500;
   assert.throws(() => parseArchive(fabricated), /observation time/);
 });

@@ -1,6 +1,6 @@
 # Provider-result contract and CI verification
 
-The repository [host pin](../../../host-revision.txt) and self-remediation
+The repository [host pin](../../../host-revision.txt) and self-healing
 `PINNED_HOST` identify the same reviewed host. That host's
 [inference result contract](https://github.com/emmett08/mas-host/blob/f3cc7cb1894bebd45c2d708edec27c4b8171be1a/docs/inference-results.md)
 defines one result per inference identity: every eligible message must contain

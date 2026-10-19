@@ -51,14 +51,14 @@ export function main() {
   const output = resolve(values.output);
   mkdirSync(dirname(output), { recursive: true, mode: 0o700 });
   writeFileSync(output, JSON.stringify(report, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
-  const lines = [report.ready ? 'Self-remediation configuration checks passed.' : 'Self-remediation configuration checks failed.'];
+  const lines = [report.ready ? 'Self-healing configuration checks passed.' : 'Self-healing configuration checks failed.'];
   for (const item of report.errors) lines.push(`ERROR ${item.setting}: ${item.reason}`);
   for (const item of report.warnings) lines.push(`WARNING ${item.setting}: ${item.reason}`);
   lines.push('Configure Settings → Environments → self-remediation-live. No provider, GitHub or cluster operation was attempted by this check.');
   const text = lines.join('\n') + '\n';
   process.stdout.write(text);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-    `### Self-remediation configuration\n\n${lines.map(line => `- ${line}`).join('\n')}\n\n`, { mode: 0o600 });
+    `### Self-healing configuration\n\n${lines.map(line => `- ${line}`).join('\n')}\n\n`, { mode: 0o600 });
   if (!report.ready) process.exitCode = 1;
 }
 

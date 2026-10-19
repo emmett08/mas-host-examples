@@ -32,7 +32,7 @@ test('browser receives committed live updates before completion; offline seeking
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${address.port}`);
-    await page.getByRole('heading', { name: 'Self-remediation', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Self-healing', exact: true }).waitFor();
     hub.accept(makeWindow(events.slice(0, 3), incidentId));
     await page.getByRole('heading', { name: 'Investigating', exact: true }).waitFor();
     assert.equal(hub.status.completed, false);
@@ -54,7 +54,7 @@ test('browser receives committed live updates before completion; offline seeking
     const offline = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     const network: string[] = []; offline.on('request', request => { if (/^https?:/.test(request.url())) network.push(request.url()); });
     await offline.goto(pathToFileURL(join(temp, 'archive/index.html')).href);
-    await offline.getByRole('heading', { name: 'Self-remediation', exact: true }).waitFor();
+    await offline.getByRole('heading', { name: 'Self-healing', exact: true }).waitFor();
     assert.ok(!(await offline.locator('body').innerText()).includes('FUTURE_VERIFIED_RECOVERY'));
     await offline.getByRole('slider').fill('4');
     await offline.getByRole('heading', { name: 'Baseline measurement failed', exact: true }).waitFor();
