@@ -1,5 +1,15 @@
 # Validation record
 
+## 19 October 2026: pin the Kubernetes client used by host workers
+
+[Run 39315712235, job 118283096279](https://github.com/emmett08/mas-host-examples/actions/runs/39315712235/job/118283096279), at main `33340ddd83f00be3464e1ea651899bed05208f9d`, passed live configuration and image export preflight but stopped the `verification-bypass` case during baseline establishment. The other seven live jobs and shared fixture passed. The retained diagnostic `sha256:0f54e0e9dd0a64988b26597426a811c79c536a27d595c2f418d01978b6b1d144` records `kubectl get` exiting 2 with `runtime/cgo: pthread_create failed: Resource temporarily unavailable`. No provider call or candidate was admitted. The host retained the invocation as unknown; this is not evidence that the namespace mutation completed.
+
+The workflow previously depended on an unpinned runner client. Its published runner image inventory lists kubectl 1.37.1, while this example runs k3s 1.32.3. The failed worker's exact client bytes were not retained. A separately downloaded official 1.37.1 binary passed bounded local startup, so neither the inventory version alone nor the precise resource exhausted by the failing cgo build is established as the cause.
+
+Setup now installs the official static Linux x86_64 kubectl 1.32.3 with committed SHA-256 `ab209d0c5134b61486a0486585604a616a5bb2fc07df46d304b3c95817b2d79f`, matching the disposable server. Every cluster setup verifies the client; the shared fixture installs it before host integration checks. The host, its 2 GiB address-space ceiling, 64 MiB file ceiling and unknown-effect reconciliation rules are unchanged.
+
+The new integration control runs the real pinned host, production `KubectlTransport` and official client against a labelled local HTTP API. It verifies the selected executable digest, client version, three namespace reads and the inherited hard limits. A different client digest is rejected. A separate installer control supplies corrupt download bytes and verifies that real checksum validation blocks installation and removes the temporary file. Local validation passed 177 unit/contract tests (two browser opt-ins skipped), all 12 real-host integration tests, the production build, shell syntax and actionlint. This does not reproduce the original intermittent thread-creation failure or claim real cluster recovery. The full Docker/k3s path remains an automatic PR check, and a subsequent live case requires a fresh dispatch after merge.
+
 ## 19 October 2026: case matrix and release-host comparison
 
 Baseline: `87c3146d16ed8efbf5602c51c9d0cf2fbe84f433`. The changes add an optional eight-case dispatch matrix, retain the default canonical fixture, and move each selected case's publication/promotion dependency chain into a reusable workflow. The matrix has two concurrent members and does not cancel the other cases when one fails. Host source remains pinned to `f3cc7cb1894bebd45c2d708edec27c4b8171be1a` and MCP to `2971c481450978beb469839fed5421463f73c51e`.

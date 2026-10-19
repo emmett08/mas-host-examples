@@ -73,6 +73,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y spin
           rustup toolchain install 1.99.0 --profile minimal
+          bash examples/self-healing/scripts/setup-kubectl.sh
       - name: Compile the pinned host, not host main
         run: make setup
       - name: Compile the independently pinned MCP server
