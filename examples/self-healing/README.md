@@ -95,6 +95,7 @@ cd examples/self-healing
 npm ci --ignore-scripts
 npm run build
 npm test
+bash scripts/setup-kubectl.sh
 export MAS_HOST_BIN="$(pwd)/../../.tools/mas-host/target/debug/mas-host"
 export MAS_SDK_ROOT="$(pwd)/../../.tools/mas-host"
 npm run test:host
@@ -102,6 +103,8 @@ npm run verify:formal
 ```
 
 `npm run build` also produces the portable observer in `dist/observer/`. It includes compiled Node server code and the built Vue application. Extraction and execution require no npm installation.
+
+The Linux host suite needs the checksum-pinned `kubectl`. If `/usr/local/bin` is not writable locally, `SELF_REMEDIATION_TEST_KUBECTL` can point the test to an already downloaded official client; it still verifies the pinned digest. CI exercises the host's normal restricted PATH.
 
 Browser controls require a Playwright Chromium installation:
 
@@ -114,7 +117,7 @@ That test checks in-progress SSE delivery, graph placement directly below stable
 
 ## Run the real host and disposable Kubernetes control
 
-Docker, `kubectl` and permission to create a disposable local cluster are required. On GitHub Actions these run on the runner. Watching the workflow requires no Kubernetes installation on the engineer's computer.
+Docker and permission to create a disposable local cluster are required. `scripts/prepare-k3s.sh` installs the checksum-pinned official Linux x86_64 `kubectl` from `kubectl-version.txt` and uses the matching k3s version. The host integration suite checks that its restricted PATH selects those exact client bytes and exercises client startup and HTTP reads under the host's existing memory and file limits. On GitHub Actions these run on the runner. Watching the workflow requires no Kubernetes installation on the engineer's computer.
 
 From this example directory, after the build above:
 
