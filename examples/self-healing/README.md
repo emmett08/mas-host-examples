@@ -82,6 +82,11 @@ There is no active aggregate quality score or comparison of multiple eligible ca
 
 ## Local checks
 
+An external MCP client can invoke this controller through the independently
+pinned Rust `mas-mcp` server. The optional [MCP entry point](mcp/README.md)
+publishes a bounded incident run, correlated progress and persistent cancellation.
+The controller retains its existing acceptance and release authority.
+
 Use Node **24.19.0**, the repository's pinned host prerequisites, and SPIN plus a C compiler for formal checks. From repository root:
 
 ```sh

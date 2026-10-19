@@ -78,8 +78,9 @@ export class Journal implements EffectStore {
     const row = this.db.prepare('SELECT value FROM values_store WHERE key=?').get(key);
     return row ? JSON.parse(String(row.value)) as T : undefined;
   }
+  isCancelled(): boolean { return Boolean(this.db.prepare('SELECT cancelled FROM incidents WHERE id=?').get(this.incidentId)?.cancelled); }
   assertActive(allowPendingPhase?: string): void {
-    if (this.db.prepare('SELECT cancelled FROM incidents WHERE id=?').get(this.incidentId)?.cancelled) throw new Boundary('cancelled');
+    if (this.isCancelled()) throw new Boundary('cancelled');
     for (const scope of new Set(['workflow',this.incidentId])) if (Date.now() >= this.budget(scope).deadline) throw new Boundary('exhausted_budget','Persistent deadline expired');
     const pending = this.db.prepare(`SELECT id FROM effects WHERE json_extract(record,'$.status') IN ('intended','unknown') LIMIT 1`).get();
     if (pending) throw new UnknownEffect(String(pending.id));
