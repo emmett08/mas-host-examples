@@ -1,11 +1,11 @@
-name: Bounded source self-remediation
+name: Bounded source self-healing
 
 on:
   pull_request:
-    paths: ['examples/self-remediation/**', '.github/workflows/self-remediation.yml', '.github/actions/self-remediation-integration/**', 'host-revision.txt']
+    paths: ['examples/self-healing/**', '.github/workflows/self-healing.yml', '.github/actions/self-healing-integration/**', 'host-revision.txt']
   push:
     branches: [main]
-    paths: ['examples/self-remediation/**', '.github/workflows/self-remediation.yml', '.github/actions/self-remediation-integration/**', 'host-revision.txt']
+    paths: ['examples/self-healing/**', '.github/workflows/self-healing.yml', '.github/actions/self-healing-integration/**', 'host-revision.txt']
   workflow_dispatch:
     inputs:
       live_provider:
@@ -54,7 +54,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: examples/self-remediation/package-lock.json
+          cache-dependency-path: examples/self-healing/package-lock.json
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version: '1.24.0'
@@ -67,7 +67,7 @@ jobs:
       - name: Compile the pinned host, not host main
         run: make setup
       - name: Build the separate application and observer bundle
-        working-directory: examples/self-remediation
+        working-directory: examples/self-healing
         env:
           SELF_REMEDIATION_OBSERVER_LIVE: ${{ github.event_name == 'workflow_dispatch' && inputs.live_provider && github.ref == 'refs/heads/main' }}
           SELF_REMEDIATION_OBSERVER_CASE: ${{ inputs.case || 'missing-route' }}
@@ -79,32 +79,32 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: self-remediation-observer-${{ github.run_id }}-${{ github.run_attempt }}
-          path: examples/self-remediation/dist/observer
+          path: examples/self-healing/dist/observer
           if-no-files-found: error
           retention-days: 14
       - name: Compile host topology and exercise native and custom MCP contracts
-        working-directory: examples/self-remediation
+        working-directory: examples/self-healing
         env:
           MAS_HOST_BIN: ${{ github.workspace }}/.tools/mas-host/target/debug/mas-host
           MAS_SDK_ROOT: ${{ github.workspace }}/.tools/mas-host
         run: npm run test:host
       - name: Verify during-run browser updates, mobile layout and offline seeking
-        working-directory: examples/self-remediation
+        working-directory: examples/self-healing
         env:
           SELF_REMEDIATION_BROWSER_TEST: '1'
         run: |
           npx playwright install --with-deps chromium
           node --import tsx --test tests/observer-browser.test.ts
       - name: Exhaust finite controller invariants and guard-removal controls
-        run: python3 examples/self-remediation/verification/verify.py --out "$RUNNER_TEMP/self-remediation-formal"
+        run: python3 examples/self-healing/verification/verify.py --out "$RUNNER_TEMP/self-remediation-formal"
       - name: Build the credential-free candidate execution image
         run: |
-          docker build -t mas-self-remediation-builder examples/self-remediation/sandbox
+          docker build -t mas-self-remediation-builder examples/self-healing/sandbox
           echo "MAS_SANDBOX_IMAGE=$(docker image inspect --format '{{.Id}}' mas-self-remediation-builder)" >> "$GITHUB_ENV"
       - name: Create isolated runner-local k3s
-        run: bash examples/self-remediation/scripts/prepare-k3s.sh
+        run: bash examples/self-healing/scripts/prepare-k3s.sh
       - name: Real host, generated fixture patch, independent checks and k3s trial
-        uses: ./.github/actions/self-remediation-integration
+        uses: ./.github/actions/self-healing-integration
         with:
           mode: fixture
           case: missing-route
@@ -157,9 +157,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: examples/self-remediation/package-lock.json
+          cache-dependency-path: examples/self-healing/package-lock.json
       - name: Validate live settings before building infrastructure
-        working-directory: examples/self-remediation
+        working-directory: examples/self-healing
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ github.token }}
@@ -177,14 +177,14 @@ jobs:
         run: |
           rustup toolchain install 1.99.0 --profile minimal
           make setup
-          npm ci --ignore-scripts --prefix examples/self-remediation
-          npm run build --prefix examples/self-remediation
-          docker build -t mas-self-remediation-builder examples/self-remediation/sandbox
+          npm ci --ignore-scripts --prefix examples/self-healing
+          npm run build --prefix examples/self-healing
+          docker build -t mas-self-remediation-builder examples/self-healing/sandbox
           echo "MAS_SANDBOX_IMAGE=$(docker image inspect --format '{{.Id}}' mas-self-remediation-builder)" >> "$GITHUB_ENV"
       - name: Create isolated runner-local k3s
-        run: bash examples/self-remediation/scripts/prepare-k3s.sh
+        run: bash examples/self-healing/scripts/prepare-k3s.sh
       - name: Run selected live case and publish redacted progress during execution
-        uses: ./.github/actions/self-remediation-integration
+        uses: ./.github/actions/self-healing-integration
         with:
           mode: live
           case: ${{ inputs.case }}
@@ -257,7 +257,7 @@ jobs:
           rustup toolchain install 1.99.0 --profile minimal
           make setup
       - name: Compile trusted publisher without running candidate code
-        working-directory: examples/self-remediation
+        working-directory: examples/self-healing
         run: |
           npm ci --ignore-scripts
           npm run build
@@ -279,7 +279,7 @@ jobs:
           permission-checks: read
       - name: Publish retained candidate using independently configured policy
         id: publish
-        working-directory: examples/self-remediation
+        working-directory: examples/self-healing
         env:
           SELF_REMEDIATION_PUBLISH_TOKEN: ${{ steps.app.outputs.token }}
           SELF_REMEDIATION_PUBLICATION: ${{ inputs.publication }}
@@ -289,7 +289,7 @@ jobs:
         run: node --import tsx scripts/publish-retained.ts --input "$RUNNER_TEMP/retained-live" --output "$RUNNER_TEMP/self-remediation-publication"
       - name: Combine controller and publication evidence into the offline Vue archive
         if: always()
-        working-directory: examples/self-remediation
+        working-directory: examples/self-healing
         run: |
           if [[ -f "$RUNNER_TEMP/self-remediation-publication/journal/events.jsonl" ]]; then
             node --import tsx scripts/combine-replay.ts --controller "$RUNNER_TEMP/retained-live" --publication "$RUNNER_TEMP/self-remediation-publication" --output "$RUNNER_TEMP/self-remediation-publication/archive"
@@ -328,8 +328,8 @@ jobs:
         run: |
           rustup toolchain install 1.99.0 --profile minimal
           make setup
-          npm ci --ignore-scripts --prefix examples/self-remediation
-          npm run build --prefix examples/self-remediation
+          npm ci --ignore-scripts --prefix examples/self-healing
+          npm run build --prefix examples/self-healing
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: self-remediation-live-${{ github.run_id }}-${{ github.run_attempt }}
@@ -341,16 +341,16 @@ jobs:
           path: ${{ runner.temp }}/promotion-publication
           digest-mismatch: error
       - name: Create a fresh disposable promotion target
-        run: bash examples/self-remediation/scripts/prepare-k3s.sh
+        run: bash examples/self-healing/scripts/prepare-k3s.sh
       - name: Require unchanged merged tree, retained image and fresh protected observations
-        working-directory: examples/self-remediation
+        working-directory: examples/self-healing
         env:
           MAS_HOST_BIN: ${{ github.workspace }}/.tools/mas-host/target/debug/mas-host
           MAS_SDK_ROOT: ${{ github.workspace }}/.tools/mas-host
         run: node --import tsx scripts/promote-retained.ts --input "$RUNNER_TEMP/promotion-live" --publication "$RUNNER_TEMP/promotion-publication" --output "$RUNNER_TEMP/self-remediation-promotion"
       - name: Combine all completed scopes into the offline Vue archive
         if: always()
-        working-directory: examples/self-remediation
+        working-directory: examples/self-healing
         run: |
           if [[ -f "$RUNNER_TEMP/self-remediation-promotion/journal/events.jsonl" ]]; then
             node --import tsx scripts/combine-replay.ts --controller "$RUNNER_TEMP/promotion-live" --publication "$RUNNER_TEMP/promotion-publication" --promotion "$RUNNER_TEMP/self-remediation-promotion" --output "$RUNNER_TEMP/self-remediation-promotion/archive"

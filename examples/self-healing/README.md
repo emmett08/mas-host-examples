@@ -1,10 +1,32 @@
-# Bounded source self-remediation
+# Bounded source self-healing
 
 This separate example adapts the SDLC into an observed **find → investigate → experiment → repair → check → revise** loop. It uses the repository's pinned MAS host and Nehemiah communication protocol. The application controller owns durable budgets, candidate eligibility, external effects and release policy. `examples/k3s-live` remains a separate example.
 
 The target is a stateless TypeScript parcel quotation service. It calculates GBP delivery prices, validates inputs and exposes a catalogue and liveness route. Engineers supply the versioned intended behaviour, editable paths, execution interfaces and release policy. Live agents can create or edit source files and runtime configuration inside that projection. Production tooling has no fault-label dispatch, expected patch or catalogue of cause-to-fix handlers.
 
 All application data are disposable. Shared persistent writes, database migrations and arbitrary dependency installation are outside this example. Restoring an image does not roll back application data.
+
+## Why self-healing
+
+Self-healing names the implemented capability: restoring a managed application's required behaviour after a reproduced failure. The [controller](controller/loop.ts) investigates the failure, generates source or configuration changes, rejects candidates that fail independent checks, and verifies recovery in an isolated Kubernetes trial. Persistent budgets and release policy bound the work. Here, the managed system comprises the application and its repair controller.
+
+Autonomic computing is the broader approach to self-management, encompassing capabilities such as self-configuration, self-optimisation, self-healing and self-protection ([White et al., 2006](https://research.ibm.com/publications/autonomic-computing-architectural-approach-and-prototype)). This example implements the fault-recovery capability within that family. Its automated configuration edits serve recovery of the specified behaviour. The precise name is **bounded source self-healing**.
+
+Recovery evidence has a defined scope. The benchmark can verify deployment in its disposable target under the selected publication policy. For an operational incident, an independently checked candidate can be retained and, with the scoped credential, published as a repair pull request. Deployment into the original operational cluster requires a separate release process.
+
+## Names and existing integrations
+
+The example now lives at `examples/self-healing`, with workflow `.github/workflows/self-healing.yml` and action `.github/actions/self-healing-integration`. Update local commands and any workflow dispatch calls that use the old paths. The workflow appears as **Bounded source self-healing**, and the observer as **Self-healing**.
+
+Existing integrations retain these identifiers:
+
+| Identifier | Reason for retaining it |
+|---|---|
+| `SELF_REMEDIATION_*` settings and GitHub environments `self-remediation-live` / `self-remediation-publication` | Existing secrets, variables and environment protection rules remain applicable |
+| `self-remediation-*` artefact names, evidence schemas and observation marker | Existing downloads, journals and checkpoint formats remain identifiable |
+| `self-remediation` cluster, `k3d-self-remediation` context, image names and MCP identities | Existing execution guards, cleanup commands and capability records retain their identities |
+
+New progress Check Runs use **Self-healing live observation**. The observer also recognises the previous Check Run name while retaining exact commit and incident matching. Recovery checkpoints must still be resumed from their recorded source revision, as described in [verification/RECOVERY.md](verification/RECOVERY.md).
 
 ## Read the result at the correct level
 
@@ -36,7 +58,7 @@ Fixture runs are explicitly scripted controls. They exercise host communication,
 | `evaluation/` | Protected injectors, scripted control responses and independent checks. These stay outside candidate snapshots and accessible Git objects |
 | `verification/` | Finite SPIN models, guard-removal controls and implementation correspondence |
 | `scripts/` | Entry points, observer/archive packaging and separate publication/promotion jobs |
-| `../../.github/workflows/self-remediation.yml` | Credential-free PR checks and separately selected live/publication jobs |
+| `../../.github/workflows/self-healing.yml` | Credential-free PR checks and separately selected live/publication jobs |
 
 `host-revision.txt` at repository root is authoritative. Read [host/README.md](host/README.md) for the inspected pinned contracts. Assessed revision runs admit inference effects and exclude command/remediation effects and evaluator delegation. Builds, edits, MCP access and deployment therefore run through separately admitted ordinary host operations. Changed frozen inputs or candidate source create new phase identities.
 
@@ -50,7 +72,7 @@ Use Node **24.19.0**, the repository's pinned host prerequisites, and SPIN plus 
 
 ```sh
 make setup
-cd examples/self-remediation
+cd examples/self-healing
 npm ci --ignore-scripts
 npm run build
 npm test
@@ -99,7 +121,7 @@ The `missing-route` control must demonstrate a baseline failure, an unsuccessful
 
 ## Select a live case
 
-The workflow is **Bounded source self-remediation**. It has credential-free PR/push checks and a manual `live_provider` switch. Live execution is limited to the trusted `main` revision and runs after the fixture checks. One case is selected per workflow, so a matrix cannot multiply provider expenditure.
+The workflow is **Bounded source self-healing**. It has credential-free PR/push checks and a manual `live_provider` switch. Live execution is limited to the trusted `main` revision and runs after the fixture checks. One case is selected per workflow, so a matrix cannot multiply provider expenditure.
 
 Available protected benchmark cases are `missing-route`, `business-logic`, `runtime-config`, `held-out-combination`, `unavailable-dependency`, `ambiguous-requirement`, `no-defect` and `verification-bypass`. Case labels and injectors belong to trusted benchmark setup. They are excluded from live repair inputs and admitted GitHub source access. Live providers must supply actual candidate edits. The `held-out-combination` is a benchmark variation, not a claim that the provider has never encountered similar code.
 

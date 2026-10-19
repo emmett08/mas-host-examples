@@ -30,7 +30,7 @@ test('local build has no invented run and partial or unsafe metadata fails packa
   assert.throws(() => runManifest({ ...env, SELF_REMEDIATION_OBSERVER_CASE: 'arbitrary-case' }), /Unknown observer case/);
 });
 test('packaging mirrors the same condition and case used by live execution', () => {
-  const workflow = readFileSync(new URL('../../../.github/workflows/self-remediation.yml', import.meta.url), 'utf8');
+  const workflow = readFileSync(new URL('../../../.github/workflows/self-healing.yml', import.meta.url), 'utf8');
   assert.ok(workflow.includes("SELF_REMEDIATION_OBSERVER_LIVE: ${{ github.event_name == 'workflow_dispatch' && inputs.live_provider && github.ref == 'refs/heads/main' }}"));
   assert.ok(workflow.includes("SELF_REMEDIATION_OBSERVER_CASE: ${{ inputs.case || 'missing-route' }}"));
 });

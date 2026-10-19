@@ -13,7 +13,7 @@ const VARIABLE = 'SELF_REMEDIATION_GITHUB_MCP_SCHEMA_SHA256';
 const ROOT = dirname(fileURLToPath(import.meta.url));
 class SetupError extends Error {}
 
-export const HELP = `Discover the official GitHub actions_get schema for self-remediation.
+export const HELP = `Discover the official GitHub actions_get schema for self-healing.
 
 Usage: node discover-github-mcp-schema.mjs [options]
   --configure       Show the schema and ask before setting the environment variable

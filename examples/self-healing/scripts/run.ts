@@ -36,7 +36,7 @@ if(values.cancel){journal.cancel('operator cancellation');journal.checkpoint();j
 const cancellation=new AbortController();
 const cancel=()=>{journal.cancel('process termination requested');cancellation.abort();};
 process.once('SIGTERM',cancel);process.once('SIGINT',cancel);
-const repositoryRoot=resolve('../..'),prefix='examples/self-remediation/target-app';
+const repositoryRoot=resolve('../..'),prefix='examples/self-healing/target-app';
 const git=(args:string[])=>{const result=spawnSync('git',['-C',repositoryRoot,...args],{encoding:'utf8',timeout:30000});if(result.status!==0)throw new Error('Trusted source identity unavailable');return result.stdout.trim();};
 const host={binary:process.env.MAS_HOST_BIN??resolve('../../.tools/mas-host/target/debug/mas-host'),sdkRoot:process.env.MAS_SDK_ROOT??resolve('../../.tools/mas-host'),stateDir:join(directory,'host'),projectTemplate:resolve('project')};
 const runId=incidentId.toLowerCase().replace(/_/g,'-').slice(0,45);

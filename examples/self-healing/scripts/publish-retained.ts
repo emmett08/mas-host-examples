@@ -33,7 +33,7 @@ const runId = `run-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT
 const mode = process.env.SELF_REMEDIATION_PUBLICATION ?? 'pull-request';
 if (!['pull-request', 'automatic'].includes(mode)) throw new Error('Publication job requires explicit scoped publication mode');
 const policy: PublicationPolicy = { repository: process.env.GITHUB_REPOSITORY ?? '', baseBranch: `demo/incidents/${runId}`,
-  allowedPathPrefix: 'examples/self-remediation/target-app', mode: mode as PublicationPolicy['mode'], target: 'disposable-demo', runId,
+  allowedPathPrefix: 'examples/self-healing/target-app', mode: mode as PublicationPolicy['mode'], target: 'disposable-demo', runId,
   requiredChecks: JSON.parse(process.env.SELF_REMEDIATION_REQUIRED_CHECKS ?? '[]'), credentialKind: 'github-app' };
 const request: PublishRequest = { journalDirectory: join(output, 'journal'), incidentId: runId,
   operationId: `${runId}/publication`, attemptId: `runner-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,

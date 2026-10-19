@@ -19,12 +19,12 @@ class Store implements EffectStore {
 }
 const original = 'a'.repeat(40), tree = 'b'.repeat(40), commit = 'c'.repeat(40), merged = 'd'.repeat(40);
 const identity = { operationId: 'incident-1/publish', invocationId: 'actual-host-effect-7', attemptId: 'process-1' };
-const files = { 'examples/self-remediation/target-app/src/service.ts': 'export const tax = 20;\n' };
+const files = { 'examples/self-healing/target-app/src/service.ts': 'export const tax = 20;\n' };
 const candidate: CandidatePublication = { baseCommit: original, candidateTreeSha256: treeIdentity(files), files,
   requirementsSha256: '1'.repeat(64), testsSha256: '2'.repeat(64), environmentSha256: '3'.repeat(64),
   imageDigest: `registry.invalid/app@sha256:${'4'.repeat(64)}`,
   verification: { candidateTreeSha256: treeIdentity(files), mandatory: [{ id: 'business', status: 'pass' }] } };
-const policy: PublicationPolicy = { repository: 'owner/repo', baseBranch: 'demo/incidents/run-1', allowedPathPrefix: 'examples/self-remediation/target-app',
+const policy: PublicationPolicy = { repository: 'owner/repo', baseBranch: 'demo/incidents/run-1', allowedPathPrefix: 'examples/self-healing/target-app',
   mode: 'pull-request', target: 'disposable-demo', runId: 'run-1', credentialKind: 'github-app', requiredChecks: [{ name: 'protected-contract', appId: 123 }] };
 class GitHub implements GitHubTransport {
   refs = new Map([[policy.baseBranch, original]]); prs: any[] = []; writes: string[] = []; lose = ''; mergeTree = tree;
@@ -91,7 +91,7 @@ test('stale source, changed candidate and inconclusive protected check block pub
   const api = new GitHub(); api.refs.set(policy.baseBranch, 'f'.repeat(40));
   const publisher = new GitHubPublisher(api, new Store(), policy);
   await assert.rejects(publisher.publish(identity, candidate), /Stale base/);
-  await assert.rejects(publisher.publish(identity, { ...candidate, files: { ...files, 'examples/self-remediation/target-app/new.ts': 'x' } }), /changed after verification/);
+  await assert.rejects(publisher.publish(identity, { ...candidate, files: { ...files, 'examples/self-healing/target-app/new.ts': 'x' } }), /changed after verification/);
   await assert.rejects(publisher.publish(identity, { ...candidate, verification: { ...candidate.verification, mandatory: [{ id: 'business', status: 'inconclusive' }] } }), /mandatory/);
   assert.equal(api.writes.length, 0);
 });
@@ -168,7 +168,7 @@ test('faulty incident object manifest preserves exact commit bytes and never cha
     execFileSync('git', ['-C', repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'base']);
     const parent = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
     await writeFile(join(snapshot, 'service.ts'), 'export const total = 0;\n');
-    const manifest = await freezeIncidentSource(repo, parent, snapshot, 'examples/self-remediation/target-app', join(directory, 'retained'), '2026-10-18T09:00:00.000Z');
+    const manifest = await freezeIncidentSource(repo, parent, snapshot, 'examples/self-healing/target-app', join(directory, 'retained'), '2026-10-18T09:00:00.000Z');
     assert.notEqual(manifest.faultyCommit, parent); assert.equal(execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), parent);
     const body = manifest.objects.at(-1)!.body as any;
     const epoch = Math.floor(new Date(body.author.date).getTime() / 1000);

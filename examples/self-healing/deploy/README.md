@@ -26,7 +26,7 @@ Trusted setup must freeze the SHA256 of `{name:"actions_get",inputSchema:<discov
 
 The trusted REST publisher uses only `SELF_REMEDIATION_PUBLISH_TOKEN`. Candidate execution receives neither token. Configure a repository-scoped GitHub App installation with contents write, pull requests write and checks read permissions. Set `SELF_REMEDIATION_APP_CLIENT_ID`, `SELF_REMEDIATION_APP_PRIVATE_KEY` and the required-check specification in the protected publication environment. For example, `SELF_REMEDIATION_REQUIRED_CHECKS` is JSON of the form `[{"name":"protected-contract","appId":12345}]`, with the actual check name and actual trusted app ID.
 
-GitHub's token-trigger rules were checked against its official documentation on 18 October 2026. `GITHUB_TOKEN`-originated pushes do not start ordinary push workflows. PR `opened`, `synchronize` and `reopened` events create approval-required workflow runs. A separate GitHub App token permits downstream PR workflows to run unattended. The dedicated self-remediation workflow excludes repair-branch pushes and never enables live credentials for a pull request. These rules are not a substitute for repository permissions or required checks.
+GitHub's token-trigger rules were checked against its official documentation on 18 October 2026. `GITHUB_TOKEN`-originated pushes do not start ordinary push workflows. PR `opened`, `synchronize` and `reopened` events create approval-required workflow runs. A separate GitHub App token permits downstream PR workflows to run unattended. The dedicated self-healing workflow excludes repair-branch pushes and never enables live credentials for a pull request. These rules are not a substitute for repository permissions or required checks.
 
 Sources:
 

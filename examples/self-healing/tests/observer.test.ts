@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { emptyState, reduceEvent, replay, redact, makeWindow, parseEvent, type ObservationEvent } from '../ui/events.js';
-import { ApiError, retryDelay, encodeWindow, decodeWindow, parseGhResponse, type CheckApi, type CheckRun, type ApiResponse } from '../server/github-check.js';
+import { ApiError, retryDelay, encodeWindow, decodeWindow, parseGhResponse, findCheck, CHECK_NAME, type CheckApi, type CheckRun, type ApiResponse } from '../server/github-check.js';
 import { CheckPublisher } from '../server/check-publisher.js';
 import { EventHub, createObserverServer, pollCheck } from '../server/index.js';
 const incidentId = 'observer-test';
@@ -65,6 +65,24 @@ class MemoryChecks implements CheckApi {
     return { status: 200, headers: {}, body: data as T };
   }
 }
+test('renamed observation discovers both Check Run names and rejects ambiguous or mismatched identities', async () => {
+  const sha = 'a'.repeat(40);
+  const current: CheckRun = { id: 42, name: CHECK_NAME, external_id: incidentId, head_sha: sha, status: 'in_progress' };
+  const legacy: CheckRun = { ...current, id: 41, name: 'Self-remediation live observation' };
+  let checks: CheckRun[] = [];
+  const api: CheckApi = { async request<T>(_method, endpoint) {
+    const name = new URL(endpoint, 'https://api.github.com').searchParams.get('check_name');
+    return { status: 200, headers: {}, body: { check_runs: checks.filter(c => c.name === name) } as T };
+  } };
+  for (const check of [current, legacy]) {
+    checks = [check, { ...check, id: 43, external_id: 'other-incident' }, { ...check, id: 44, head_sha: 'b'.repeat(40) }];
+    assert.equal((await findCheck(api, 'owner/repo', sha, incidentId))?.id, check.id);
+  }
+  checks = [current, legacy];
+  await assert.rejects(findCheck(api, 'owner/repo', sha, incidentId), /duplicate Check Runs/);
+  checks = [{ ...legacy, external_id: 'other-incident' }, { ...current, head_sha: 'b'.repeat(40) }];
+  assert.equal(await findCheck(api, 'owner/repo', sha, incidentId), undefined);
+});
 test('lost Check Run create/update responses reconcile before further effects across restart', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'observer-')); const state = join(dir, 'state.json'), api = new MemoryChecks(), sha = 'a'.repeat(40);
   try {
@@ -107,7 +125,7 @@ test('observer command identifies an acknowledged Check Run and stays unavailabl
 });
 test('Check Run polling produces SSE updates before completion with reconnect sequence suppression', async () => {
   const api = new MemoryChecks(), hub = new EventHub();
-  api.check = { id: 42, name: 'Self-remediation live observation', external_id: incidentId, head_sha: 'a'.repeat(40), status: 'in_progress', output: { text: encodeWindow(makeWindow([event(1), event(2)], incidentId)) } };
+  api.check = { id: 42, name: 'Self-healing live observation', external_id: incidentId, head_sha: 'a'.repeat(40), status: 'in_progress', output: { text: encodeWindow(makeWindow([event(1), event(2)], incidentId)) } };
   await pollCheck(api, 'owner/repo', 'a'.repeat(40), incidentId, hub, 42);
   assert.equal(hub.status.completed, false); assert.equal(hub.state.lastSeq, 2);
   const server = createObserverServer(hub, '/nonexistent');

@@ -1,4 +1,4 @@
-name: Self-remediation integration and recovery checkpoint uploads
+name: Self-healing integration and recovery checkpoint uploads
 description: Run trusted integration with the Node action runtime artifact credentials scoped to its checkpoint sidecar
 inputs:
   mode:

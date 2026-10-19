@@ -23,8 +23,8 @@ export async function freezeIncidentSource(repository: string, parentCommit: str
   prefix: string, destination: string, date = new Date().toISOString()): Promise<IncidentGitManifest> {
   if (!/^[a-f0-9]{40}$/.test(parentCommit) || !/^[A-Za-z0-9_.\/-]+$/.test(prefix) || prefix.split('/').some(x => !x || x === '..' || x === '.git')) throw new Error('Exact source parent and scoped prefix required');
   const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: '/tmp/mas-git-objects', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
-    GIT_AUTHOR_NAME: 'MAS Self Remediation', GIT_AUTHOR_EMAIL: 'mas-self-remediation@users.noreply.github.com', GIT_AUTHOR_DATE: date,
-    GIT_COMMITTER_NAME: 'MAS Self Remediation', GIT_COMMITTER_EMAIL: 'mas-self-remediation@users.noreply.github.com', GIT_COMMITTER_DATE: date };
+    GIT_AUTHOR_NAME: 'MAS Self-healing', GIT_AUTHOR_EMAIL: 'mas-self-remediation@users.noreply.github.com', GIT_AUTHOR_DATE: date,
+    GIT_COMMITTER_NAME: 'MAS Self-healing', GIT_COMMITTER_EMAIL: 'mas-self-remediation@users.noreply.github.com', GIT_COMMITTER_DATE: date };
   const sourceObjects = (await run('git', ['-C', resolve(repository), 'rev-parse', '--path-format=absolute', '--git-path', 'objects'], env)).trim();
   await mkdir(destination, { recursive: true, mode: 0o700 });
   const gitDirectory = join(resolve(destination), 'objects.git');
@@ -71,7 +71,7 @@ export async function freezeIncidentSource(repository: string, parentCommit: str
   }
   const candidateTree = await snapshotTree(resolve(snapshotDirectory));
   const gitTree = await replace(originalTree, prefix.split('/'), candidateTree);
-  const message = 'Preserve disposable self-remediation incident source';
+  const message = 'Preserve disposable self-healing incident source';
   const faultyCommit = (await git(['commit-tree', gitTree, '-p', parentCommit, '-m', message])).trim();
   const author = { name: env.GIT_AUTHOR_NAME!, email: env.GIT_AUTHOR_EMAIL!, date };
   // commit-tree retains a trailing newline in its message. Preserve those exact
