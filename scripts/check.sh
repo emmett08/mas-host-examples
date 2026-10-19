@@ -16,7 +16,7 @@ done
 while IFS= read -r source; do
   rustfmt --edition 2021 --check "$source"
 done < <(find examples -type d -name .mas -prune -o -type f -name '*.rs' -print)
-bash -n scripts/setup.sh scripts/check.sh scripts/test-native.sh
+bash -n scripts/setup.sh scripts/setup-mcp.sh scripts/check.sh scripts/test-native.sh
 
 # Parse Python source without creating bytecode beside application modules.
 python3 - <<'PYTHON'
