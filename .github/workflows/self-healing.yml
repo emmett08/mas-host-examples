@@ -206,3 +206,9 @@ jobs:
       publication: ${{ inputs.publication }}
       host_artifact_id: ${{ needs.fixture.outputs.host-artifact-id }}
       host_sha256: ${{ needs.fixture.outputs.host-sha256 }}
+    # Forward named secrets even when their values exist only in the protected
+    # environments selected by the reusable workflow's live/publication jobs.
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SELF_REMEDIATION_GITHUB_READ_TOKEN: ${{ secrets.SELF_REMEDIATION_GITHUB_READ_TOKEN }}
+      SELF_REMEDIATION_APP_PRIVATE_KEY: ${{ secrets.SELF_REMEDIATION_APP_PRIVATE_KEY }}

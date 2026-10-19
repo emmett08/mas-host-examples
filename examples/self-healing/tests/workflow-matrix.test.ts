@@ -9,6 +9,27 @@ import { requiresDuringRunObservation } from '../controller/observation.js';
 const workflow = (name: string) => parse(readFileSync(new URL(`../../../.github/workflows/${name}`, import.meta.url), 'utf8'));
 const env = { GITHUB_RUN_ID: '39303968258', GITHUB_RUN_ATTEMPT: '2' };
 
+test('protected jobs declare and receive every consumed secret across the reusable workflow boundary', () => {
+  const parent = workflow('self-healing.yml'), child = workflow('self-healing-case.yml');
+  const references = (value: unknown) => [...new Set([...JSON.stringify(value).matchAll(/secrets\.([A-Za-z_][A-Za-z0-9_]*)/g)]
+    .map(match => match[1]!))].sort();
+  const consumed = references(child.jobs);
+  assert.deepEqual(Object.keys(child.on.workflow_call.secrets ?? {}).sort(), consumed,
+    'Every secret reference needs a declared workflow_call contract');
+  assert.deepEqual(Object.keys(parent.jobs.examples.secrets ?? {}).sort(), consumed,
+    'The matrix caller must explicitly forward exactly the consumed secrets');
+  for (const name of consumed) {
+    assert.equal(child.on.workflow_call.secrets[name].required, true,
+      'GitHub must reject an omitted mapping; preflight checks the value when live execution is selected');
+    assert.equal(parent.jobs.examples.secrets[name], `\${{ secrets.${name} }}`);
+  }
+  assert.deepEqual(references(child.jobs.live), ['OPENAI_API_KEY', 'SELF_REMEDIATION_GITHUB_READ_TOKEN']);
+  assert.deepEqual(references(child.jobs.publication), ['SELF_REMEDIATION_APP_PRIVATE_KEY']);
+  assert.deepEqual(references(child.jobs.fixture), []);
+  assert.deepEqual(references(child.jobs.promotion), []);
+  assert.deepEqual(references(child.env), []);
+});
+
 test('all-case selection covers every protected case with bounded concurrency and isolated lifecycle outputs', () => {
   const parent = workflow('self-healing.yml'), child = workflow('self-healing-case.yml');
   assert.equal(parent.on.workflow_dispatch.inputs.all_cases.type, 'boolean');
