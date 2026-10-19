@@ -18,6 +18,19 @@ on:
       host_sha256:
         type: string
         required: true
+    # Required mappings allow environment-scoped secrets to resolve in their
+    # protected jobs. Empty values remain valid for credential-free fixtures;
+    # live preflight validates the credentials actually needed by that mode.
+    secrets:
+      OPENAI_API_KEY:
+        description: Provider credential resolved in self-remediation-live
+        required: true
+      SELF_REMEDIATION_GITHUB_READ_TOKEN:
+        description: Optional MCP read credential resolved in self-remediation-live
+        required: true
+      SELF_REMEDIATION_APP_PRIVATE_KEY:
+        description: Publication credential resolved in self-remediation-publication
+        required: true
 
 permissions:
   contents: read
