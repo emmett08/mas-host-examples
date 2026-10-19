@@ -5,6 +5,7 @@ import { resolve,join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { Journal,Boundary,type JournalEvent } from '../controller/journal.js';
+import { watchCancellation } from '../controller/cancellation.js';
 import { writeImmutableFile } from '../controller/immutable-file.js';
 import { Controller,type Incident } from '../controller/loop.js';
 import { Runtime } from '../controller/runtime.js';
@@ -36,6 +37,8 @@ if(values.cancel){journal.cancel('operator cancellation');journal.checkpoint();j
 const cancellation=new AbortController();
 const cancel=()=>{journal.cancel('process termination requested');cancellation.abort();};
 process.once('SIGTERM',cancel);process.once('SIGINT',cancel);
+// Another trusted process can commit cancellation while an inference phase is active.
+const stopWatchingCancellation=watchCancellation(journal,cancellation);
 const repositoryRoot=resolve('../..'),prefix='examples/self-healing/target-app';
 const git=(args:string[])=>{const result=spawnSync('git',['-C',repositoryRoot,...args],{encoding:'utf8',timeout:30000});if(result.status!==0)throw new Error('Trusted source identity unavailable');return result.stdout.trim();};
 const host={binary:process.env.MAS_HOST_BIN??resolve('../../.tools/mas-host/target/debug/mas-host'),sdkRoot:process.env.MAS_SDK_ROOT??resolve('../../.tools/mas-host'),stateDir:join(directory,'host'),projectTemplate:resolve('project')};
@@ -43,6 +46,7 @@ const runId=incidentId.toLowerCase().replace(/_/g,'-').slice(0,45);
 let runtime:Runtime|undefined, deployment:Deployment|undefined;
 let result:Record<string,unknown>={outcome:'policy_boundary',reason:'setup did not complete'};
 try{
+  if(journal.isCancelled())throw new Boundary('cancelled');
   if(existsSync(join(directory,'RUNNER_LOSS_REQUIRES_RECONCILIATION.json')))
     throw new Boundary('unknown_effect','Restored runner checkpoint requires reconciliation of original host paths, images, cluster and surviving external effects before dispatch');
   journal.put('attempt',journal.value('attempt')??randomUUID());
@@ -182,6 +186,6 @@ try{
   const metrics={mode,case:values.case,provider:mode==='fixture'?'explicit-scripted-control':process.env.SELF_REMEDIATION_MODEL??'host-default',success:result.outcome==='verified_recovery',trialRecovery:events.some(e=>e.type==='trial'&&e.data.recovered===true),falsePromotion:null,promotionAssessment:'Publication and promotion run separately; this controller has not assessed a deployed promotion',regressions:events.filter(e=>e.type==='verification'&&Array.isArray(e.data.regressions)&&e.data.regressions.length).length,abstention:result.outcome!=='verified_recovery',elapsedMs:Date.now()-(journal.budget().deadline-journal.budget().limits.wallMs),budget:journal.budget(),limitations:['Fixture responses establish control-path behaviour only','Billed cost requires provider usage and a current price schedule','Source behaviour is sampled by protected tests; arbitrary generated code correctness is unproved']};
   writeFileSync(join(directory,'result.json'),JSON.stringify({...result,metrics},null,2),{mode:0o600});
   writeFileSync(join(directory,'observation.done'),JSON.stringify({outcome:result.outcome}),{mode:0o600});
-  journal.checkpoint();journal.close();process.off('SIGTERM',cancel);process.off('SIGINT',cancel);
+  stopWatchingCancellation();journal.checkpoint();journal.close();process.off('SIGTERM',cancel);process.off('SIGINT',cancel);
   process.stdout.write(JSON.stringify(result)+'\n');
 }

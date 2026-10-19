@@ -2,10 +2,10 @@ name: Bounded source self-healing
 
 on:
   pull_request:
-    paths: ['examples/self-healing/**', '.github/workflows/self-healing.yml', '.github/actions/self-healing-integration/**', 'host-revision.txt']
+    paths: ['examples/self-healing/**', '.github/workflows/self-healing.yml', '.github/actions/self-healing-integration/**', 'host-revision.txt', 'mcp-revision.txt', 'scripts/setup-mcp.sh']
   push:
     branches: [main]
-    paths: ['examples/self-healing/**', '.github/workflows/self-healing.yml', '.github/actions/self-healing-integration/**', 'host-revision.txt']
+    paths: ['examples/self-healing/**', '.github/workflows/self-healing.yml', '.github/actions/self-healing-integration/**', 'host-revision.txt', 'mcp-revision.txt', 'scripts/setup-mcp.sh']
   workflow_dispatch:
     inputs:
       live_provider:
@@ -66,6 +66,8 @@ jobs:
           rustup toolchain install 1.99.0 --profile minimal
       - name: Compile the pinned host, not host main
         run: make setup
+      - name: Compile the independently pinned MCP server
+        run: bash scripts/setup-mcp.sh
       - name: Build the separate application and observer bundle
         working-directory: examples/self-healing
         env:
@@ -87,7 +89,9 @@ jobs:
         env:
           MAS_HOST_BIN: ${{ github.workspace }}/.tools/mas-host/target/debug/mas-host
           MAS_SDK_ROOT: ${{ github.workspace }}/.tools/mas-host
-        run: npm run test:host
+        run: |
+          npm run test:host
+          npm run test:mcp
       - name: Verify during-run browser updates, mobile layout and offline seeking
         working-directory: examples/self-healing
         env:
@@ -112,6 +116,12 @@ jobs:
         env:
           MAS_HOST_BIN: ${{ github.workspace }}/.tools/mas-host/target/debug/mas-host
           MAS_SDK_ROOT: ${{ github.workspace }}/.tools/mas-host
+      - name: Full isolated repair through the official MCP client
+        working-directory: examples/self-healing
+        env:
+          MAS_HOST_BIN: ${{ github.workspace }}/.tools/mas-host/target/debug/mas-host
+          MAS_SDK_ROOT: ${{ github.workspace }}/.tools/mas-host
+        run: npm run demo:mcp -- --output "$RUNNER_TEMP/self-healing-mcp" --incident mcp-fixture
       - name: Retain diagnostics, checkpoint receipts and offline observer
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -121,6 +131,8 @@ jobs:
             ${{ runner.temp }}/self-remediation-fixture
             !${{ runner.temp }}/self-remediation-fixture/durable-checkpoints/**
             ${{ runner.temp }}/self-remediation-formal
+            ${{ runner.temp }}/self-healing-mcp/incident
+            ${{ runner.temp }}/self-healing-mcp/observations.json
           if-no-files-found: warn
           retention-days: 14
       - name: Retain desktop and mobile browser control evidence

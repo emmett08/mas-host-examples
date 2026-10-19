@@ -4,6 +4,6 @@
     "noUncheckedIndexedAccess": true, "skipLibCheck": true, "rootDir": ".", "outDir": "dist",
     "types": ["node"], "ignoreDeprecations": "6.0"
   },
-  "include": ["controller/**/*.ts", "contracts/**/*.ts", "host/**/*.ts", "tools/**/*.ts", "sandbox/**/*.ts", "evaluation/**/*.ts", "server/**/*.ts", "deploy/**/*.ts", "scripts/**/*.ts", "ui/events.ts"],
+  "include": ["controller/**/*.ts", "contracts/**/*.ts", "host/**/*.ts", "tools/**/*.ts", "sandbox/**/*.ts", "evaluation/**/*.ts", "server/**/*.ts", "deploy/**/*.ts", "scripts/**/*.ts", "mcp/**/*.ts", "ui/events.ts"],
   "exclude": ["**/*.test.ts", "**/*.integration.ts", "target-app"]
 }
