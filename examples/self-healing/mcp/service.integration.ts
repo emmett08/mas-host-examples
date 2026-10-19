@@ -1,27 +1,48 @@
 /** Official JavaScript MCP client -> real Rust gateway -> real host -> bounded controller controls. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { build } from 'esbuild';
 import { prepare } from './prepare.js';
 import { call, completed, connect, input, observeIncident } from './client.js';
+import { ambiguousRequirement, type CaseName } from '../evaluation/injectors.js';
+import { sha256 } from '../deploy/effects.js';
 
-async function fixture(t: any, mode: 'finish' | 'wait' | 'interrupt') {
+async function fixture(t: any, mode: 'finish' | 'wait' | 'interrupt' | 'actual', caseName: CaseName = 'missing-route') {
   const root = mkdtempSync(join(tmpdir(), 'healing-mcp-host-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const controller = join(root, 'control.mjs');
-  await build({ entryPoints: ['tests/fixtures/mcp-controller.ts'], outfile: controller, bundle: true, platform: 'node', format: 'esm',
+  if (mode !== 'actual') await build({ entryPoints: ['tests/fixtures/mcp-controller.ts'], outfile: controller, bundle: true, platform: 'node', format: 'esm',
     define: { MCP_CONTROL_MODE: JSON.stringify(mode) } });
   const previous = process.env.MAS_SANDBOX_IMAGE; process.env.MAS_SANDBOX_IMAGE = 'sha256:' + 'a'.repeat(64);
   try {
-    return await prepare({ directory: join(root, 'service'), example: process.cwd(), incidentId: `mcp-${mode}`, mode: 'fixture', controlController: controller,
+    return await prepare({ directory: join(root, 'service'), example: process.cwd(), incidentId: `mcp-${mode}`, mode: 'fixture', caseName,
+      ...(mode === 'actual' ? {} : { controlController: controller }),
       host: resolve(process.env.MAS_HOST_BIN ?? '../../.tools/mas-host/target/debug/mas-host'), sdkRoot: resolve(process.env.MAS_SDK_ROOT ?? '../../.tools/mas-host'),
       server: resolve(process.env.MAS_MCP_BIN ?? '../../.tools/mas-mcp/target/release/mas-mcp') });
   } finally { if (previous === undefined) delete process.env.MAS_SANDBOX_IMAGE; else process.env.MAS_SANDBOX_IMAGE = previous; }
 }
+
+test('the real controller reports the same ambiguous requirement contract admitted by MCP', { timeout: 120000 }, async t => {
+  const prepared = await fixture(t, 'actual', 'ambiguous-requirement'), { client } = await connect(prepared);
+  try {
+    const descriptor = await call(client, 'mas_describe'), requestId = 'ambiguous-contract';
+    const done = await completed(client, await call(client, 'mas_submit', {
+      request_id: requestId, operation: 'self_healing_run', descriptor_digest: descriptor.descriptor_digest,
+      input_json: JSON.stringify({ ...input(prepared), request_id: requestId }),
+    }));
+    const view = JSON.parse(JSON.parse(done.output_json).snapshot_json);
+    const expected = sha256({ ...JSON.parse(readFileSync('evaluation/requirements.json', 'utf8')), requestedChange: ambiguousRequirement });
+    assert.equal(view.profile, 'k3s'); assert.equal(view.outcome, 'missing_requirements');
+    assert.equal(view.requirements_digest, expected);
+    assert.equal(view.events.find((event: any) => event.type === 'incident.opened')?.data.requirements, expected);
+    assert.deepEqual(view.result.unresolvedIntent, [ambiguousRequirement]);
+    assert.equal(view.budget.used.calls, 0);
+  } finally { await client.close(); }
+});
 
 test('official client preserves request identity, rejection gates and completed replay across restart', { timeout: 120000 }, async t => {
   const prepared = await fixture(t, 'finish'); let session = await connect(prepared);

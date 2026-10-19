@@ -28,6 +28,11 @@ export async function completed(client: Client, task: any, timeoutMs = 60000): P
   return task;
 }
 export function input(prepared: Prepared) { return { incident_id: prepared.admission.incidentId, contract_digest: prepared.contract_digest }; }
+/** The gateway status must be read after this snapshot to establish progress before completion. */
+export function observedDuringRun(view: { controller_state?: unknown; outcome?: unknown; events?: unknown }, followingTask: { state?: unknown }): boolean {
+  return view.controller_state === 'dispatched' && view.outcome === null && Array.isArray(view.events) && view.events.length > 0 &&
+    ['submitted', 'working'].includes(String(followingTask.state));
+}
 export async function observeIncident(client: Client, prepared: Prepared, descriptorDigest: string, after = 0) {
   const task = await completed(client, await call(client, 'mas_submit', {
     request_id: `observe.${randomUUID()}`, operation: 'self_healing_status', descriptor_digest: descriptorDigest,

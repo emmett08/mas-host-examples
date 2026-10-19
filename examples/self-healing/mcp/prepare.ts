@@ -6,7 +6,8 @@ import { promisify } from 'node:util';
 import { admissionDigest, dependencyFiles, inputSchema, outputSchema, rawDigest, type Admission } from './contract.js';
 import { sha256 } from '../deploy/effects.js';
 import { pinnedHostIdentity } from '../host/phase.js';
-import { caseNames } from '../evaluation/injectors.js';
+import { caseNames, type CaseName } from '../evaluation/injectors.js';
+import { resolveIncidentRequirements } from '../evaluation/requirements.js';
 
 const execute = promisify(execFile);
 export interface PrepareOptions {
@@ -21,6 +22,9 @@ export async function prepare(options: PrepareOptions) {
   if (!['fixture', 'live'].includes(options.mode) || (options.controlController && options.mode !== 'fixture')) throw new Error('Invalid execution profile');
   const caseName = options.caseName ?? 'missing-route';
   if (!caseNames.includes(caseName as never)) throw new Error('Unknown protected benchmark case');
+  const reservation = process.env.SELF_REMEDIATION_MAX_CALL_MICRO_USD ?? '';
+  if (options.mode === 'live' && (!process.env.SELF_REMEDIATION_MODEL || !/^[1-9][0-9]*$/.test(reservation) || !Number.isSafeInteger(Number(reservation))))
+    throw new Error('Live preparation requires an explicit model and positive safe-integer per-call cost reservation');
   const host = realpathSync(options.host), sdkRoot = realpathSync(options.sdkRoot), server = realpathSync(options.server);
   await pinnedHostIdentity({ binary: host, sdkRoot, stateDir: directory });
   const sourceRevision = (await execute('git', ['-C', repository, 'rev-parse', 'HEAD'])).stdout.trim();
@@ -49,8 +53,6 @@ export async function prepare(options: PrepareOptions) {
   };
   for (const name of ['SELF_REMEDIATION_MODEL', 'SELF_REMEDIATION_MAX_CALL_MICRO_USD', 'SELF_REMEDIATION_GITHUB_MCP_SCHEMA_SHA256', 'GITHUB_REPOSITORY', 'GITHUB_RUN_ID', 'GITHUB_SHA'])
     if (process.env[name]) environment[name] = process.env[name]!;
-  if (options.mode === 'live' && (!environment.SELF_REMEDIATION_MODEL || !/^[1-9][0-9]*$/.test(environment.SELF_REMEDIATION_MAX_CALL_MICRO_USD ?? '')))
-    throw new Error('Live preparation requires an explicit model and positive per-call cost reservation');
   const credentialNames = ['KUBECONFIG', 'SELF_REMEDIATION_SOURCE_KUBECONFIG', ...(options.mode === 'live' ? ['OPENAI_API_KEY'] : []),
     'SELF_REMEDIATION_GITHUB_READ_TOKEN', ...(config?.publicationMode === 'pull-request' ? ['SELF_REMEDIATION_PUBLISH_TOKEN'] : [])];
   // A fresh directory prevents configuration changes from rebinding retained requests or budgets.
@@ -67,12 +69,18 @@ export async function prepare(options: PrepareOptions) {
   if (config) { const file = join(project, 'incident.json'); writeFileSync(file, JSON.stringify(config), { mode: 0o400 }); arguments_.push('--config', file); }
   const files: Record<string, string> = {};
   const directories: string[] = [];
+  const directoryExclusions: Record<string, string[]> = {};
   const retain = (file: string) => { files[file] = rawDigest(readFileSync(file)); };
-  const tree = (root: string) => {
+  const tree = (root: string, exclusions: string[] = []) => {
     directories.push(root);
-    for (const file of dependencyFiles(root)) retain(file);
+    if (exclusions.length) directoryExclusions[root] = exclusions;
+    for (const file of dependencyFiles(root, exclusions)) retain(file);
   };
-  for (const name of ['project', 'target-app', 'dist-tools']) tree(join(example, name));
+  tree(join(example, 'project'), ['.mas']);
+  // exportSnapshot reads src/ plus config.json and package.json. Root caches are
+  // outside that projection, while equally named directories inside src/ are not.
+  tree(join(example, 'target-app'), ['node_modules', '.mas', '.git', '__pycache__']);
+  tree(join(example, 'dist-tools'));
   retain(join(example, 'evaluation/requirements.json'));
   for (const file of [host, retainedHost, process.execPath, controller, ...(config ? [join(project, 'incident.json')] : [])]) retain(file);
   if (config?.sourceDirectory) {
@@ -82,8 +90,8 @@ export async function prepare(options: PrepareOptions) {
   const admission: Admission = { version: 'self-healing-mcp/1', profile: options.controlController ? 'boundary-control' : 'k3s',
     incidentId: options.incidentId, directory: join(directory, 'incident'), example, repository, sourceRevision,
     host: retainedHost, gatewayState: join(directory, 'state/runs'), node: process.execPath, controller,
-    arguments: arguments_, environment, credentialNames, files, directories, limits, mode: options.mode,
-    publication: config?.publicationMode ?? 'archive', requirementsDigest: sha256(config?.requirements ?? JSON.parse(readFileSync(join(example, 'evaluation/requirements.json'), 'utf8'))),
+    arguments: arguments_, environment, credentialNames, files, directories, directoryExclusions, limits, mode: options.mode,
+    publication: config?.publicationMode ?? 'archive', requirementsDigest: sha256(resolveIncidentRequirements(JSON.parse(readFileSync(join(example, 'evaluation/requirements.json'), 'utf8')), caseName as CaseName, config).requirements),
     policyDigest: sha256({ config: config ?? null, mode: options.mode, caseName, limits, environment, credentialNames }) };
   writeFileSync(join(project, 'admission.json'), JSON.stringify(admission), { mode: 0o400 });
   const operations = ['run', 'status', 'cancel'] as const;

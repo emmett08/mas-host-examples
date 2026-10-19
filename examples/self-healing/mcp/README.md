@@ -38,6 +38,9 @@ It performs no repair. Register the `mas-self-healing` entry from
 `mcp-client.json` with a stdio-capable client. Keep the prepared directory,
 original checkout, pinned SDK, runtime assets and their paths available.
 Changed dependency bytes or repository HEAD block a new repair dispatch.
+The inventory includes consumed source beneath nested cache-named directories.
+Only explicitly recorded generated paths are excluded. Retained observations
+remain available after the checkout changes.
 The run uses the controller bundle built by `npm run build`; rebuild before
 preparing an incident after source edits.
 
@@ -112,6 +115,14 @@ An identical MCP submission returns the original task. A changed submission
 under that ID rejects. A different MCP request ID for this prepared incident
 returns its existing controller record and never launches a second controller.
 The incident's original deadline, expenditure and call reservations remain.
+The first mutating operation atomically publishes the journal with its contract
+binding and budget. Concurrent status reads see either an absent incident or a
+fully initialised journal. Preparation alone does not start the incident clock.
+
+The adapter waits for its foreground controller to exit. Cancellation, the
+original incident deadline or excess process output requests termination and
+allows five seconds before forced termination. Interrupted execution retains
+an unknown outcome where no controller outcome was committed.
 
 After abrupt server loss, `mas-mcp` converts unfinished tasks to `unknown` and
 does not dispatch them again. A surviving controller may still finish, and a
@@ -141,8 +152,10 @@ executors and introduces no second repair policy or MCP implementation.
 | MCP task identity and transport | Pinned Rust `mas-mcp` |
 | Published application schemas and operator preparation | `contract.ts`, `prepare.ts` |
 | Original controller dispatch and cancellation | Controller journal, `incident.ts` |
+| Atomic initial journal publication and retained binding | `retained-journal.ts` |
 | Bounded read-only incident projection | `observation.ts` |
 | Foreground process and request-to-effect binding | `execute.ts` |
+| Bounded controller process shutdown | `controller-process.ts` |
 | Outer host cancellation to incident intent | `service.ts` |
 | Cross-process incident intent to active runtime signal | `controller/cancellation.ts` |
 | Repair acceptance and publication | Existing controller and independent verifier |
@@ -157,12 +170,19 @@ npm run demo:mcp -- --output /absolute/path/new-mcp-control --incident mcp-contr
 ```
 
 Unit checks exercise frozen identities, budget retention, cancellation and
-bounded read-only progress. Official-client integration uses the real Rust
+bounded read-only progress, including concurrent first operations and forced
+process shutdown. Preparation and execution share the effective requirements
+resolver, so scenario-specific requirements have the same published identity.
+Official-client integration uses the real Rust
 server, real host and real controller with explicitly labelled scripted
 measurement ports. It checks failed acceptance gates, restart replay, lost
-outcomes and both cancellation paths. The final command uses the ordinary
+outcomes and both cancellation paths. A further check runs the actual bundled
+controller for the ambiguous-requirement case and compares the published
+requirements digest with its retained incident event. The final command uses the ordinary
 sandbox and Kubernetes adapters for the complete `missing-route` control,
-including progress observed before completion. CI runs both levels.
+including a nonterminal progress snapshot followed by an active gateway status.
+CI retains the outer gateway task and host-effect evidence in the
+`self-healing-mcp-gateway` artifact as well as the controller evidence.
 
 These controls establish the tested execution and recovery behaviour. Live
 repair competence and operational deployment require their own observations.

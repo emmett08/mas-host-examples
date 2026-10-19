@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 
 export const PINNED_HOST = 'f3cc7cb1894bebd45c2d708edec27c4b8171be1a';
 export type PhaseKind = 'investigation' | 'synthesis' | 'review';
@@ -166,10 +167,38 @@ export class HostPhaseRunner {
     try { if ((await readFile(bundleReceipt, 'utf8')) !== bundleHash) throw new Error('Retained phase bundle changed'); }
     catch (error: any) { if (error.code !== 'ENOENT') throw error; await writeFile(bundleReceipt, bundleHash, { flag: 'wx' }); }
     const onObservation = options.onObservation ?? this.configuration.onObservation;
-    let observing = false, observation: any = null;
-    const poll = async () => { if (observing) return; observing = true; try { observation = await this.observe(phaseId, stateDir); await onObservation?.(observation); } catch { /* Active journal creation and SQLite busy are transient. */ } finally { observing = false; } };
-    const timer = setInterval(() => { void poll(); }, 750);
-    const cancel = () => { void this.cancel(phaseId, stateDir).catch(() => {}); };
+    let phaseFinished = false, observation: any = null, polling: Promise<void> | undefined;
+    const poll = () => {
+      if (phaseFinished || polling) return;
+      polling = (async () => {
+        try {
+          // Public progress must never replace the authoritative payload-bearing
+          // completion observation used to retain inference receipts and usage.
+          const progress = await this.observe(phaseId, stateDir);
+          await onObservation?.(progress);
+        } catch { /* Active journal creation and SQLite busy are transient. */ }
+      })().finally(() => { polling = undefined; });
+    };
+    const timer = setInterval(poll, 750);
+    // Abort can arrive after spawn but before the host creates its run journal.
+    // Retain delivery intent until that original run accepts it or execution ends.
+    let cancellation: Promise<void> | undefined;
+    const cancel = () => {
+      cancellation ??= (async () => {
+        for (;;) {
+          try {
+            await this.cancel(phaseId, stateDir);
+            // A host journal can exist before its metadata row is admitted.
+            // Confirm the committed flag, since an acknowledgement alone can
+            // precede that row and therefore leave no retained cancellation.
+            const confirmed = await this.observe(phaseId, stateDir);
+            if (confirmed.run_id === phaseId && confirmed.cancelled === true) return;
+          } catch { /* Run initialisation can still be incomplete. */ }
+          if (phaseFinished) return;
+          await delay(50);
+        }
+      })();
+    };
     options.signal?.addEventListener('abort', cancel, { once: true });
     try {
       if (options.signal?.aborted) throw new Error('Cancelled before host phase dispatch');
@@ -189,6 +218,12 @@ export class HostPhaseRunner {
       if (error instanceof HostPhaseError) throw error;
       const uncertain = !observation || observation.steps?.some((step: any) => step.kind === 'effect' && ['executing', 'unknown', 'prepared'].includes(step.state));
       throw new HostPhaseError('Host phase failed; inspect retained observation before any new phase', phaseId, observation, uncertain);
-    } finally { clearInterval(timer); options.signal?.removeEventListener('abort', cancel); }
+    } finally {
+      phaseFinished = true;
+      clearInterval(timer); options.signal?.removeEventListener('abort', cancel);
+      // Both host commands retain their existing timeouts. Drain the admitted
+      // public callback before its caller can close the incident journal.
+      await Promise.all([cancellation, polling]);
+    }
   }
 }

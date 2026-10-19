@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { JournalEvent } from '../controller/journal.js';
 import { publicEvent, redact } from '../ui/events.js';
 import { admissionDigest, type Admission } from './contract.js';
-const bindingKey = 'mcp:admission', dispatchKey = 'mcp:dispatch';
+import { bindingKey, dispatchKey } from './retained-journal.js';
 export function snapshot(admission: Admission, after = 0): Record<string, unknown> {
   const base: Record<string, unknown> = {
     version: 'self-healing-mcp-observation/1', incident_id: admission.incidentId, contract_digest: admissionDigest(admission),

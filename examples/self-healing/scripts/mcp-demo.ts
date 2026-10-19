@@ -4,7 +4,7 @@ import { resolve, join } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { prepare } from '../mcp/prepare.js';
-import { call, connect, input, observeIncident } from '../mcp/client.js';
+import { call, connect, input, observeIncident, observedDuringRun } from '../mcp/client.js';
 const { values } = parseArgs({ options: { output: { type: 'string' }, incident: { type: 'string', default: 'mcp-fixture' } } });
 if (!values.output) throw new Error('Use --output NEW_DIRECTORY');
 const prepared = await prepare({ directory: values.output, incidentId: values.incident!, example: process.cwd(), mode: 'fixture',
@@ -20,10 +20,10 @@ try {
   let cursor = 0, duringRun = false, terminal: any;
   const deadline = Date.now() + prepared.admission.limits.wallMs + 60000;
   while (Date.now() < deadline) {
-    const task = await call(client, 'mas_status', { task_id: requestId });
     const view = await observeIncident(client, prepared, descriptor.descriptor_digest, cursor);
+    const task = await call(client, 'mas_status', { task_id: requestId });
     observations.push(view); cursor = view.next_after;
-    if (view.events.length && ['submitted', 'working'].includes(task.state)) duringRun = true;
+    if (observedDuringRun(view, task)) duringRun = true;
     if (task.state === 'completed') { terminal = JSON.parse(JSON.parse(task.output_json).snapshot_json); break; }
     if (task.state === 'unknown' || task.state === 'cancelled') throw new Error(`Gateway task ${task.state}; inspect original controller observations`);
     if (!view.more) await delay(1000);
