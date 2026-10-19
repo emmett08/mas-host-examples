@@ -1,5 +1,24 @@
 # Validation record
 
+## 19 October 2026: case matrix and release-host comparison
+
+Baseline: `87c3146d16ed8efbf5602c51c9d0cf2fbe84f433`. The changes add an optional eight-case dispatch matrix, retain the default canonical fixture, and move each selected case's publication/promotion dependency chain into a reusable workflow. The matrix has two concurrent members and does not cancel the other cases when one fails. Host source remains pinned to `f3cc7cb1894bebd45c2d708edec27c4b8171be1a` and MCP to `2971c481450978beb469839fed5421463f73c51e`.
+
+The local comparison executed `node --import tsx --test host/phase.integration.ts` with `MAS_HOST_BIN` selecting debug or release and the same pinned `MAS_SDK_ROOT`. Each invocation ran the five existing delegation, replay, changed-input, cancellation and observation tests in fresh state. Order: debug, release, release, debug, debug, release. No warm-up observation was discarded. Environment: Linux x86_64, AMD EPYC 9V74, Node 24.19.0, Rust 1.99.0. Compilation was measured separately.
+
+| Profile | Three elapsed observations (seconds) | Median |
+|---|---|---|
+| Debug | 49.884, 48.518, 46.663 | 48.518 s |
+| Release | 2.952, 2.973, 2.918 | 2.952 s |
+
+Every invocation passed. The median difference was **45.566 s (93.9%)** for this workload. Local cold builds took 14.79 s for debug and 55.46 s for release. The release binary and complete pinned source/SDK checkout are packaged once for case jobs, preserving the Git revision and clean-tree checks used by `pinnedHostIdentity`. A 4,916,402-byte archive was restored into another directory and all five phase tests passed against that restored distribution. These are local measurements, not a measured end-to-end GitHub workflow speed-up.
+
+Local validation passed TypeScript/Vue production builds, 175 unit/contract tests (two opt-in browser tests skipped), all 11 real-host integration tests and five MCP integration tests with release, and actionlint 1.7.12 for every workflow. Matrix controls check the complete protected case list, per-case lifecycle wiring, distinct publication/namespace identities, rejection of another case/attempt's manifest, and observer artefact isolation. A two-event requirements stop retains acknowledged terminal evidence and declares that limited observation scope. Other cases still require during-run observations.
+
+An existing concurrent-initial-claim control exposed a SQLite startup race: WAL activation ran before the busy timeout was installed. The timeout now precedes WAL activation. The control passed ten consecutive runs after that change, and the complete unit suite passed.
+
+Docker and Kubernetes are unavailable in this local environment. The eight-case Kubernetes dispatch, paid providers and publication/promotion remain unexecuted here. Automatic PR checks exercise the canonical credential-free Docker/Kubernetes repair path. Full matrix dispatch is an explicit opt-in after the workflow is available on the default branch. Each live case keeps its original limits; all eight permit at most 96 inference calls, 24 candidates and USD 16 in configured reservations per attempt.
+
 Observed locally on **18 October 2026**, against the implementation prepared for this PR. The repository baseline was `7a0b5f37d7a28ee7a676ecc9d12154361c9f2fb0`; the pinned host remained `8df16b640b78999b5eba60d83f2695f29052aaa2`. This record distinguishes local evidence from automatic PR workflow results, each bound to its published PR commit.
 
 ## Executed checks

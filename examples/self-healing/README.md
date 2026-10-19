@@ -140,13 +140,17 @@ The `missing-route` control must demonstrate a baseline failure, an unsuccessful
 
 ## Select a live case
 
-The workflow is **Bounded source self-healing**. It has credential-free PR/push checks and a manual `live_provider` switch. Live execution is limited to the trusted `main` revision and runs after the fixture checks. One case is selected per workflow, so a matrix cannot multiply provider expenditure.
+The workflow is **Bounded source self-healing**. Open **Run workflow** and select a case, or tick **Run all eight cases** (`all_cases`) to override the case selector. The checkbox is off by default. With `live_provider` unchecked, the selected cases use scripted controls. Enabling `live_provider` uses the configured billed provider on trusted `main`, after the shared credential-free checks pass.
+
+The matrix runs at most two cases concurrently and retains every case's result even when another case fails. Shared contract tests, browser checks, formal verification and the canonical direct/MCP repair controls run once. Every selected case reuses the exact tested release host and SDK, verified by archive digest and pinned source revision. Each case has its own runner-local cluster, incident, observer, evidence artefacts and publication/promotion chain. A failed case cannot publish, and one case's candidate output cannot select another case's publication. PR and push checks retain the canonical fixture coverage. An unchanged manual, fixture-only `missing-route` selection uses that same control without running it twice.
+
+Publication remains **archive** by default. If publication is explicitly selected for an all-case live run, each eligible case uses a distinct disposable branch. Negative controls retain their specified outcomes: `ambiguous-requirement` requires `missing_requirements`, `no-defect` requires `no_repair_required`, and `unavailable-dependency` requires `unavailable_external_cause`. The other scripted cases require `verified_recovery`. Live outcomes remain observations of the selected provider. A requirements stop that records only incident opening and its terminal outcome requires acknowledged completion evidence. It records that scope explicitly, because no controller effect was executed during an observable repair interval. Other cases retain the during-run checkpoint and progress requirements.
 
 Available protected benchmark cases are `missing-route`, `business-logic`, `runtime-config`, `held-out-combination`, `unavailable-dependency`, `ambiguous-requirement`, `no-defect` and `verification-bypass`. Case labels and injectors belong to trusted benchmark setup. They are excluded from live repair inputs and admitted GitHub source access. Live providers must supply actual candidate edits. The `held-out-combination` is a benchmark variation, not a claim that the provider has never encountered similar code.
 
 Configure the protected **self-remediation-live** environment:
 
-The live job checks these settings immediately after Node setup, before host compilation, image builds or cluster creation. A failed check lists every missing or invalid required setting in the job summary and retains `live-preflight.json` in the diagnostics artefact. The integration entry point repeats the same validation for direct invocation. Reports contain setting names and fixed guidance, never credential values.
+The live job checks these settings immediately after Node setup, before restoring the tested host, image builds or cluster creation. A failed check lists every missing or invalid required setting in the job summary and retains `live-preflight.json` in the diagnostics artefact. The integration entry point repeats the same validation for direct invocation. Reports contain setting names and fixed guidance, never credential values.
 
 | Setting | Purpose |
 |---|---|
@@ -159,7 +163,7 @@ The live job checks these settings immediately after Node setup, before host com
 
 Set the secrets and variables in **Settings → Environments → self-remediation-live**. Secrets stored only in another environment, such as the existing Kubernetes demonstration environment, are scoped to jobs that use that environment. A live job needs an OpenAI key and explicit model. When both GitHub MCP settings are absent, the report warns that the official MCP acceptance gate remains unexecuted. A partially configured MCP grant or malformed schema digest blocks startup.
 
-Workflow defaults cap inference at **12 calls, 3 candidates, 600 seconds and USD 2 reserved expenditure**. The default USD 0.15 reservation is configuration that must be checked against the selected model and admitted token limits before a paid run. Durable counters survive process restart. Provider usage and reserved cost are retained separately. Reservations need a defensible configured per-call upper bound for the chosen model and token limits. They are not a statement that a fixture's zero provider cost predicts live cost.
+Defaults cap each case at **12 calls, 3 candidates, 600 seconds and USD 2 reserved expenditure**. Selecting all eight live cases allows at most **96 calls, 24 candidates and USD 16 reserved expenditure** across independent case budgets. The two-case concurrency limit reduces simultaneous activity; it does not reduce these aggregate limits. These bounds apply per workflow attempt. Explicit reruns can incur additional expenditure. The default USD 0.15 reservation is configuration that must be checked against the selected model and admitted token limits before a paid run. Durable counters survive process restart. Provider usage and reserved cost are retained separately. Reservations need a defensible configured per-call upper bound for the chosen model and token limits. They are not a statement that a fixture's zero provider cost predicts live cost.
 
 The official GitHub MCP integration requires a frozen admitted schema digest, repository, workflow run and exact workflow SHA. A discovered schema change blocks access. The demonstration reads workflow metadata, without exposing healthy-main source, history, search, logs or downloadable benchmark artefacts. Missing credentials or an unavailable official service are reported as unavailable integration. See [deploy/README.md](deploy/README.md) for the exact runtime grant and credential configuration.
 
@@ -168,7 +172,7 @@ The official GitHub MCP integration requires a frozen admitted schema digest, re
 A runner's web server is not automatically reachable from your browser. This example publishes redacted event windows to a dedicated Check Run approximately every **12 seconds**. A local Node observer polls that Check Run through server-side `gh` authentication and serves Vue plus SSE on loopback.
 
 1. Authenticate GitHub CLI locally with read access to the repository's Actions and Checks.
-2. Download the **self-remediation-observer-RUN-ATTEMPT** artefact. The fixture job uploads it before the live job begins.
+2. Download **self-remediation-observer-RUN-ATTEMPT-CASE** for the selected case. Its job uploads it before that case executes. The unsuffixed **self-remediation-observer-RUN-ATTEMPT** bundle observes the shared canonical fixture.
 3. Extract the ZIP, open a terminal in that folder and run:
 
 ```sh
@@ -177,7 +181,7 @@ bash start.command
 
 Then open **http://127.0.0.1:4318**. The equivalent cross-platform command is `node start.mjs`. No npm installation or local Kubernetes is required.
 
-The bundle's `run.json` records the repository, exact workflow SHA, run ID, attempt, incident IDs and artefact names. A requested live run is the default. `node start.mjs --mode fixture` selects the separately recorded control case. The launcher resolves the exact download within that run and attempt, downloads available completed evidence and validates its incident before serving replay. While a live incident is active, it discovers the acknowledged progress Check Run. Pending fixture data, failed live setup and expired artefacts produce an explanation before the viewer starts.
+The bundle's `run.json` records the repository, exact workflow SHA, run ID, attempt, incident IDs and artefact names. Each case bundle selects its requested mode by default. In a live case bundle, `node start.mjs --mode fixture` selects the shared canonical control. In a fixture matrix bundle it selects that exact case. Case-suffixed artefact names prevent another matrix member from supplying its replay. The launcher resolves the exact download within that run and attempt, downloads available completed evidence and validates its incident before serving replay. While a live incident is active, it discovers the acknowledged progress Check Run. Pending fixture data, failed live setup and expired artefacts produce an explanation before the viewer starts.
 
 The launcher prints the downloaded `archive/index.html` path when available. That file opens directly without Node. The explicit `observe.mjs --events ... --incident ...` and `observe.mjs --repo ... --sha ... --incident ...` interfaces remain available. Local builds without GitHub run metadata use those explicit interfaces.
 

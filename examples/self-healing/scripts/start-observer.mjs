@@ -44,7 +44,10 @@ export function validateRun(value) {
     if (!MODES.includes(mode) || !entry || typeof entry !== 'object') throw new Error('run.json has an invalid incident case');
     const prefix = `${value.runId}-${value.runAttempt}-`;
     if (typeof entry.incidentId !== 'string' || !entry.incidentId.startsWith(prefix) || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/.test(entry.incidentId) || entry.incidentId === prefix) throw new Error('run.json incident does not belong to the exact run attempt');
-    if (entry.artifactName !== `self-remediation-${mode}-${value.runId}-${value.runAttempt}`) throw new Error('run.json artefact does not belong to the exact run attempt');
+    const base = `self-remediation-${mode}-${value.runId}-${value.runAttempt}`;
+    const selected = entry.incidentId.slice(prefix.length);
+    if (entry.artifactName !== base && entry.artifactName !== `${base}-${selected}`)
+      throw new Error('run.json artefact does not belong to the exact run attempt and case');
   }
   return value;
 }

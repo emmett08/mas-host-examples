@@ -1,0 +1,32 @@
+name: Restore the tested MAS host
+description: Reuse the exact host and SDK prepared by this workflow attempt
+inputs:
+  artifact-id:
+    description: Numeric artifact ID from the successful fixture job
+    required: true
+  sha256:
+    description: SHA-256 of the archive produced by that job
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+      with:
+        artifact-ids: ${{ inputs.artifact-id }}
+        path: ${{ runner.temp }}/prepared-mas-host
+        merge-multiple: true
+        digest-mismatch: error
+    - name: Verify and restore the prepared host
+      shell: bash
+      env:
+        EXPECTED_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        [[ "$EXPECTED_SHA256" =~ ^[a-f0-9]{64}$ ]]
+        archive="$RUNNER_TEMP/prepared-mas-host/self-healing-host.tar.gz"
+        printf '%s  %s\n' "$EXPECTED_SHA256" "$archive" | sha256sum --check --strict
+        mkdir -p "$GITHUB_WORKSPACE/.tools/mas-host"
+        tar -xzf "$archive" -C "$GITHUB_WORKSPACE/.tools/mas-host"
+        test "$(git -C "$GITHUB_WORKSPACE/.tools/mas-host" rev-parse HEAD)" = "$(cat "$GITHUB_WORKSPACE/host-revision.txt")"
+        git -C "$GITHUB_WORKSPACE/.tools/mas-host" diff --quiet HEAD --
+        "$GITHUB_WORKSPACE/.tools/mas-host/target/release/mas-host" --version

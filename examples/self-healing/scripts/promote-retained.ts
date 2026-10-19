@@ -11,6 +11,7 @@ import { canonical, sha256 } from '../deploy/effects.js';
 import type { ImportedImage } from '../deploy/image.js';
 import type { PublishRequest } from './publish.js';
 import type { TrialRequest } from './trial.js';
+import { assertWorkflowIncident } from './workflow-identity.js';
 const argument = (name: string) => { const i = process.argv.indexOf(name); if (i < 0 || !process.argv[i + 1]) throw new Error(`Missing ${name}`); return resolve(process.argv[i + 1]!); };
 const input = argument('--input'), publication = argument('--publication'), output = argument('--output');
 async function locate(root: string, name: string): Promise<string> {
@@ -29,6 +30,7 @@ async function locate(root: string, name: string): Promise<string> {
   return matches[0]!;
 }
 const manifest = JSON.parse(await readFile(await locate(input, 'publication-manifest.json'), 'utf8')) as PublishRequest;
+const identity = assertWorkflowIncident(manifest.incidentId);
 const rawReceipt = JSON.parse(await readFile(await locate(publication, 'publication-receipt.json'), 'utf8'));
 const published = rawReceipt.receipt?.result ?? rawReceipt.result;
 if (published?.status !== 'merged' || published.candidateTreeSha256 !== manifest.candidate.candidateTreeSha256
@@ -39,7 +41,7 @@ if (!manifest.promotion || manifest.promotion.spec.imageDigest !== manifest.cand
   || manifest.promotion.spec.environmentSha256 !== manifest.candidate.environmentSha256) throw new Error('Retained image/protected verification projection missing or changed');
 const imageArchive = { ...manifest.promotion.imageArchive, path: await locate(input, 'candidate-image.json') };
 await mkdir(output, { recursive: true, mode: 0o700 });
-const runId = `run-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}-promotion`;
+const runId = `${identity.runId}-promotion`;
 const directory = join(output, 'journal'); const journal = new Journal(directory, runId);
 journal.put('merged-publication', published); journal.put('promotion-manifest', manifest.promotion); journal.close();
 const here = dirname(fileURLToPath(import.meta.url)), repository = resolve(here, '../../..');
@@ -66,7 +68,7 @@ try {
   await run('load', { imageArchive });
   const imported = await run('import', { imageConfigDigest: imageArchive.configDigest }) as ImportedImage;
   if (imported.imageDigest !== manifest.candidate.imageDigest) throw new Error('Restored image manifest identity changed');
-  const spec = { ...manifest.promotion.spec, namespace: `mas-repair-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
+  const spec = { ...manifest.promotion.spec, namespace: identity.namespace,
     owner: runId, runId: runId.slice(0, 50), stage: 'promotion' as const };
   const target = await run('establish', { spec });
   if (target.status === 'rejected') throw new Error('Promotion target rejected');

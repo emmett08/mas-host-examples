@@ -1,12 +1,14 @@
 /** Run the real host/source-repair/k3s path and publish progress while it runs. */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, createWriteStream, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, createWriteStream, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
 import { Journal } from '../controller/journal.js';
 import { Deployment } from '../controller/deployment.js';
 import type { ImageArchive } from '../deploy/image.js';
+import { fixtureOutcome, type CaseName } from '../evaluation/injectors.js';
+import { requiresDuringRunObservation } from '../controller/observation.js';
 
 const { values } = parseArgs({ options: {
   mode: { type: 'string', default: 'fixture' }, case: { type: 'string', default: 'missing-route' },
@@ -57,6 +59,7 @@ let checkpointExit: Promise<number | null> | undefined;
 let interrupted = false;
 let controllerCode: number | null = null;
 let failure: string | undefined;
+let observedOutcome = 'unavailable';
 const done = join(output, 'observation.done');
 const log = createWriteStream(join(output, 'controller.log'), { flags: 'wx', mode: 0o600 });
 const stop = () => {
@@ -160,6 +163,9 @@ try {
   if (controllerCode !== 0) throw new Error(`Controller exited ${controllerCode ?? 'by signal'}; retained effects may require reconciliation`);
   if (!existsSync(join(output, 'events.jsonl'))) throw new Error('Controller retained no committed events');
   const result = JSON.parse(readFileSync(join(output, 'result.json'), 'utf8'));
+  if (typeof result.outcome === 'string' && /^[a-z_]+$/.test(result.outcome)) observedOutcome = result.outcome;
+  if (values.mode === 'fixture' && result.outcome !== fixtureOutcome(values.case as CaseName))
+    throw new Error(`Fixture ${values.case}: expected ${fixtureOutcome(values.case as CaseName)}, observed ${result.outcome}`);
   const events = readFileSync(join(output, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
   const statuses = (value: unknown, wanted: string): boolean => {
     if (!value || typeof value !== 'object') return false;
@@ -184,6 +190,16 @@ try {
   process.stderr.write(`${failure}\n`);
 } finally {
   log.end();
+  let committed: { type: string; data: Record<string, unknown> }[] = [];
+  try {
+    if (existsSync(join(output, 'events.jsonl')))
+      committed = readFileSync(join(output, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
+  } catch {
+    // An interrupted or malformed projection must still stop the sidecars and
+    // retain the integration failure; it cannot waive during-run evidence.
+    failure ??= 'Committed event projection is unreadable';
+  }
+  const duringRunRequired = requiresDuringRunObservation(committed);
   writeFileSync(done, JSON.stringify({ controllerCode, interrupted, failure: failure ?? null }) + '\n', { mode: 0o600 });
   if (checkpointer) {
     const timer = setTimeout(() => checkpointer?.kill('SIGKILL'), 45_000);
@@ -191,8 +207,9 @@ try {
     if (checkpointer.exitCode !== 0) failure ??= 'Recovery checkpoint sidecar failed or has an unknown upload; retained local evidence requires inspection';
     try {
       const state = JSON.parse(readFileSync(join(output, 'checkpoint-summary.json'), 'utf8'));
-      if (!state.localCuts || (process.env.GITHUB_ACTIONS === 'true' && !state.duringRunAcknowledged))
-        failure ??= 'No acknowledged recovery checkpoint before controller completion';
+      if (!state.localCuts || (process.env.GITHUB_ACTIONS === 'true'
+        && (!state.acknowledgedUploads || (duringRunRequired && !state.duringRunAcknowledged))))
+        failure ??= 'No acknowledged recovery checkpoint satisfying the required observation scope';
     } catch { failure ??= 'No recovery checkpoint summary'; }
   }
   if (observer) {
@@ -202,7 +219,7 @@ try {
     if (observer.exitCode !== 0) failure ??= `During-run Check Run publication failed (${observer.exitCode ?? 'signal'})`;
     try {
       const state = JSON.parse(readFileSync(join(output, 'check-state.json'), 'utf8'));
-      if (!state.completed || !(state.lastSeq > 0) || !(state.inProgressUpdates > 0) || !state.firstPublishedAt)
+      if (!state.completed || !(state.lastSeq > 0) || (duringRunRequired && !(state.inProgressUpdates > 0)) || !state.firstPublishedAt)
         failure ??= 'No acknowledged nonempty Check Run update before controller completion';
     } catch { failure ??= 'No retained during-run Check Run acknowledgement'; }
   }
@@ -219,9 +236,12 @@ try {
   const events = existsSync(join(output, 'events.jsonl')) ? readFileSync(join(output, 'events.jsonl')) : Buffer.alloc(0);
   writeFileSync(join(output, 'integration-result.json'), JSON.stringify({ ...scope, finished: new Date().toISOString(), controllerCode,
     interrupted, status: failure ? 'FAILED_OR_UNEXECUTED' : 'COMPLETED', failure: failure ?? null,
+    observationScope: duringRunRequired ? 'during-run and completed' : 'completed requirements stop before controller effects',
     eventsSha256: createHash('sha256').update(events).digest('hex'),
     requiresExternalEvidence: ['GitHub repair PR', 'browser observed before workflow completion', 'live-provider competence'],
   }, null, 2) + '\n', { flag: 'wx', mode: 0o400 });
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+    `### Self-healing case: ${values.case}\n\n| Mode | Observed outcome | Integration |\n|---|---|---|\n| ${values.mode} | ${observedOutcome} | ${failure ? 'FAILED_OR_UNEXECUTED' : 'COMPLETED'} |\n\n`);
   process.off('SIGTERM', stop); process.off('SIGINT', stop);
 }
 if (failure) process.exitCode = 1;
