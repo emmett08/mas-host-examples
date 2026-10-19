@@ -143,6 +143,23 @@ jobs:
           path: /tmp/self-remediation-observer-*.png
           if-no-files-found: warn
           retention-days: 14
+      - name: Retain outer MCP task, host effect and prepared contract evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: self-healing-mcp-gateway-${{ github.run_id }}-${{ github.run_attempt }}
+          # These fixture records contain credential names, never credential values.
+          # Restrict project retention to metadata and the bundle, excluding executable copies.
+          path: |
+            ${{ runner.temp }}/self-healing-mcp/state
+            ${{ runner.temp }}/self-healing-mcp/server.json
+            ${{ runner.temp }}/self-healing-mcp/request.json
+            ${{ runner.temp }}/self-healing-mcp/mcp-client.json
+            ${{ runner.temp }}/self-healing-mcp/project/*.json
+            ${{ runner.temp }}/self-healing-mcp/project/.mas/build/bundle.json
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
       - name: Preserve cluster observations and remove disposable cluster
         if: always()
         run: |

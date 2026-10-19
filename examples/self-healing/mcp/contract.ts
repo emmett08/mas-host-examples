@@ -22,6 +22,8 @@ export interface Admission {
   credentialNames: string[];
   files: Record<string, string>;
   directories: string[];
+  /** Exact paths relative to an inventory root which its consumer does not read. */
+  directoryExclusions?: Record<string, string[]>;
   limits: Budget;
   mode: 'fixture' | 'live';
   publication: 'archive' | 'pull-request';
@@ -47,19 +49,22 @@ export function validateRequest(admission: Admission, request: Request, operatio
 export function verifyFiles(admission: Admission): void {
   for (const root of admission.directories) {
     const expected = Object.keys(admission.files).filter(file => file.startsWith(root + sep)).sort();
-    if (canonical(dependencyFiles(root)) !== canonical(expected)) throw new Error('Prepared dependency inventory changed');
+    if (canonical(dependencyFiles(root, admission.directoryExclusions?.[root])) !== canonical(expected)) throw new Error('Prepared dependency inventory changed');
   }
   for (const [file, digest] of Object.entries(admission.files)) {
     if (rawDigest(readFileSync(file)) !== digest) throw new Error('Prepared execution dependency changed');
   }
 }
-export function dependencyFiles(root: string): string[] {
-  return readdirSync(root, { withFileTypes: true }).flatMap(entry => {
-    if (['node_modules', '.mas', '.git', '__pycache__'].includes(entry.name)) return [];
-    const file = join(root, entry.name);
+export function dependencyFiles(root: string, exclusions: readonly string[] = []): string[] {
+  const excluded = new Set(exclusions);
+  const walk = (directory: string, relative = ''): string[] => readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const path = relative ? `${relative}/${entry.name}` : entry.name;
+    if (excluded.has(path)) return [];
+    const file = join(directory, entry.name);
     if (entry.isSymbolicLink()) throw new Error('Prepared dependencies must be regular files');
-    return entry.isDirectory() ? dependencyFiles(file) : entry.isFile() ? [file] : [];
-  }).sort();
+    return entry.isDirectory() ? walk(file, path) : entry.isFile() ? [file] : [];
+  });
+  return walk(root).sort();
 }
 export function inputSchema(admission: Admission, operation: 'run' | 'status' | 'cancel') {
   const properties: Record<string, unknown> = {

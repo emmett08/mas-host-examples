@@ -19,7 +19,8 @@ import { sha256,UnknownEffect } from '../deploy/effects.js';
 import { treeIdentity,type CandidatePublication,type PublicationPolicy } from '../deploy/github.js';
 import { freezeIncidentSource,type IncidentGitManifest } from '../deploy/source.js';
 import { developmentChecks,type Exposure } from '../evaluation/harness.js';
-import { caseNames,inject,unavailableRequirement,ambiguousRequirement,type CaseName } from '../evaluation/injectors.js';
+import { caseNames,inject,type CaseName } from '../evaluation/injectors.js';
+import { resolveIncidentRequirements } from '../evaluation/requirements.js';
 import type { Budget,Investigation,Review,Synthesis } from '../contracts/types.js';
 import type { BuildResult,HTTPCheck } from '../sandbox/executor.js';
 import type { TargetSnapshot,TrialSpec } from '../deploy/trial.js';
@@ -62,8 +63,7 @@ try{
     repository,revision:configured?.baseCommit??mainCommit,paths:['src/','config.json','package.json'],mode:configured?'operational':'blind',
   });
   let faulty:Snapshot=healthy,incidentGit:IncidentGitManifest|undefined;
-  let requirements=JSON.parse(readFileSync(resolve('evaluation/requirements.json'),'utf8')) as Record<string,unknown>;
-  let unresolvedIntent:string[]=[];
+  const {requirements,unresolvedIntent}=resolveIncidentRequirements(JSON.parse(readFileSync(resolve('evaluation/requirements.json'),'utf8')),name,configured);
   const checks:HTTPCheck[]=configured?.checks??developmentChecks;
   if(configured){
     if(!/^[a-f0-9]{40}$/.test(configured.baseCommit??'')||!configured.requirements||!Array.isArray(configured.checks)||!configured.checks.length)throw new Boundary('missing_requirements','Operational mode needs exact baseCommit, requirements and protected checks');
@@ -72,15 +72,12 @@ try{
       const source=spawnSync('git',['-C',resolve(configured.repositoryDirectory??repositoryRoot),'show',`${configured.baseCommit}:${configured.pathPrefix}/${path}`],{encoding:'utf8',timeout:10000});
       if(source.status!==0||source.stdout!==text)throw new Boundary('stale_revision_target','Operational snapshot differs from the admitted source commit');
     }
-    requirements=configured.requirements;unresolvedIntent=configured.unresolvedIntent??[];
   }else{
     const retained=journal.value<{files:Record<string,string>;manifest:IncidentGitManifest}>('benchmark-source');
     if(retained){faulty=await materialise(retained.files,healthy.projection);incidentGit=retained.manifest;}
     else{faulty=await inject(healthy,name);incidentGit=await freezeIncidentSource(repositoryRoot,mainCommit,faulty.root,prefix,join(directory,'trusted-incident-git'));
       journal.put('benchmark-source',{files:faulty.files,manifest:incidentGit});}
     faulty=await materialise(faulty.files,{...faulty.projection,revision:incidentGit.faultyCommit});
-    if(name==='unavailable-dependency')requirements={...requirements,externalTariff:unavailableRequirement};
-    if(name==='ambiguous-requirement'){requirements={...requirements,requestedChange:ambiguousRequirement};unresolvedIntent=[ambiguousRequirement];}
   }
   const baseCommit=configured?.baseCommit??incidentGit!.faultyCommit,requirementsHash=sha256(requirements),testsHash=rawSha(JSON.stringify(checks));
   const environmentHash=sha256({builder:process.env.MAS_SANDBOX_IMAGE,node:process.versions.node,network:'none',user:10001,memoryBytes:268435456,pids:64,protectedChecks:testsHash});

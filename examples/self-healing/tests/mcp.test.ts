@@ -1,15 +1,17 @@
 /** The gateway preserves controller identity, budgets and committed cancellation across processes. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { admissionDigest, validateRequest, verifyFiles, rawDigest, type Admission } from '../mcp/contract.js';
+import { admissionDigest, dependencyFiles, validateRequest, verifyFiles, rawDigest, type Admission } from '../mcp/contract.js';
+import { prepare } from '../mcp/prepare.js';
 import { claim, cancelIncident, interrupted } from '../mcp/incident.js';
 import { snapshot } from '../mcp/observation.js';
 import { Journal } from '../controller/journal.js';
 import { watchCancellation } from '../controller/cancellation.js';
+import { exportSnapshot } from '../tools/projection.js';
 
 function fixture(t: any): Admission {
   const root = mkdtempSync(join(tmpdir(), 'healing-mcp-unit-'));
@@ -78,4 +80,49 @@ test('request and file identity checks reject changed inputs before dispatch', t
   const directory = join(a.example, 'source'); mkdirSync(directory); a.directories.push(directory);
   verifyFiles(a); writeFileSync(join(directory, 'added.ts'), 'new code');
   assert.throws(() => verifyFiles(a), /inventory changed/);
+});
+test('source inventories freeze consumed files beneath cache-named directories', async t => {
+  for (const operational of [false, true]) for (const name of ['node_modules', '__pycache__']) {
+    const a = fixture(t), source = join(a.example, 'source'), src = join(source, 'src');
+    const nested = join(src, name); mkdirSync(nested, { recursive: true });
+    const original = join(nested, 'existing.ts'); writeFileSync(original, 'export const value = 1;');
+    const inventoryRoot = operational ? src : source;
+    a.directories = [inventoryRoot];
+    a.directoryExclusions = operational ? {} : { [source]: ['node_modules', '__pycache__'] };
+    a.files = Object.fromEntries(dependencyFiles(inventoryRoot, a.directoryExclusions[inventoryRoot]).map(file => [file, rawDigest(readFileSync(file))]));
+    const projection = { repository: 'example/app', revision: 'a'.repeat(40), paths: ['src/', 'config.json', 'package.json'], mode: 'blind' as const };
+    const before = await exportSnapshot(source, projection); t.after(() => rmSync(before.root, { recursive: true, force: true }));
+    mkdirSync(join(source, name)); writeFileSync(join(source, name, 'unused.ts'), 'outside the admitted source projection');
+    verifyFiles(a); // Only the source root's non-consumed cache is excluded.
+    writeFileSync(original, 'export const value = 2;');
+    assert.throws(() => verifyFiles(a), /dependency changed/);
+    writeFileSync(original, 'export const value = 1;'); verifyFiles(a);
+    writeFileSync(join(nested, 'added.ts'), 'export const added = true;');
+    assert.throws(() => verifyFiles(a), /inventory changed/);
+    const after = await exportSnapshot(source, projection); t.after(() => rmSync(after.root, { recursive: true, force: true }));
+    assert.notEqual(after.tree, before.tree);
+    assert.equal(after.files[`src/${name}/added.ts`], 'export const added = true;');
+  }
+});
+test('generated host build output remains outside the frozen project inputs', t => {
+  const a = fixture(t), project = join(a.example, 'project'); mkdirSync(project);
+  a.directories = [project]; a.directoryExclusions = { [project]: ['.mas'] };
+  mkdirSync(join(project, '.mas')); writeFileSync(join(project, '.mas', 'generated.json'), '{}'); verifyFiles(a);
+  writeFileSync(join(project, '.mas', 'generated.json'), '{"rebuilt":true}'); verifyFiles(a);
+  writeFileSync(join(project, 'assessment.py'), 'print("changed implementation")');
+  assert.throws(() => verifyFiles(a), /inventory changed/);
+});
+test('live preparation rejects invalid per-call reservations before publishing a service', async t => {
+  const a = fixture(t), oldModel = process.env.SELF_REMEDIATION_MODEL, oldReservation = process.env.SELF_REMEDIATION_MAX_CALL_MICRO_USD;
+  process.env.SELF_REMEDIATION_MODEL = 'configured-model';
+  try {
+    for (const reservation of ['0', '-1', '1.5', '9007199254740993', '9'.repeat(400)]) {
+      process.env.SELF_REMEDIATION_MAX_CALL_MICRO_USD = reservation;
+      await assert.rejects(prepare({ directory: a.directory, example: a.example, incidentId: a.incidentId, mode: 'live', host: 'unused', sdkRoot: 'unused', server: 'unused' }), /positive safe-integer per-call cost reservation/);
+      assert.equal(existsSync(a.directory), false);
+    }
+  } finally {
+    if (oldModel === undefined) delete process.env.SELF_REMEDIATION_MODEL; else process.env.SELF_REMEDIATION_MODEL = oldModel;
+    if (oldReservation === undefined) delete process.env.SELF_REMEDIATION_MAX_CALL_MICRO_USD; else process.env.SELF_REMEDIATION_MAX_CALL_MICRO_USD = oldReservation;
+  }
 });
