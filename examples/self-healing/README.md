@@ -66,6 +66,20 @@ The host is trusted orchestration software. Candidate execution occurs in separa
 
 Hypothesis rank, experiment priority and candidate eligibility have separate roles. Every mandatory candidate criterion must pass. An inconclusive result blocks release. A model vote, test count or uncalibrated confidence cannot admit promotion. Failed candidates and independent review rejections feed counterexamples into another investigation while budget remains. Final evaluation disclosed to a later repair becomes development evidence and requires a fresh final suite.
 
+## Implemented assessment contract
+
+The example implements an executable acceptance contract. Its numerical host rubric has a narrower, structural purpose.
+
+| Layer | Implemented rule | Authority |
+|---|---|---|
+| Service requirements | [`evaluation/requirements.json`](evaluation/requirements.json) defines HTTP behaviour, pricing, input limits and permitted edits; [`evaluation/harness.ts`](evaluation/harness.ts) measures development cases and generates fresh final cases | Protected verifier measurements establish whether the specified behaviour passes |
+| Candidate eligibility | [`contracts/types.ts`](contracts/types.ts) binds evidence to source, patch, requirements, tests, environment and image identities; [`controller/policy.ts`](controller/policy.ts) requires every mandatory criterion to pass with evidence, an authorised independent evaluator, no regressions or unresolved release uncertainty, and permitted capability/resource changes | Any failed, absent or inconclusive mandatory criterion blocks eligibility |
+| Host phase rubric | [`host/phase.ts`](host/phase.ts) admits `self-remediation-structure/1`; [`project/assessment.py`](project/assessment.py) scores `bounded-record` as **1** for canonical JSON output of at most **12,288 bytes**, otherwise **0**, after operation-schema validation | Structural validation only; it cannot establish product correctness or authorise release |
+| Model review | [`project/prompts/reviewer.md`](project/prompts/reviewer.md) requires evidence-based findings, risk and remaining uncertainty; a rejection blocks the candidate in [`controller/loop.ts`](controller/loop.ts) | Additional blocking judgement; model approval cannot override failed measurements |
+| Recovery and publication | The controller requires fresh final checks and an observed recovery of the exact immutable image in the isolated trial before invoking the separately scoped publication policy | Eligibility alone does not establish deployed recovery |
+
+There is no active aggregate quality score or comparison of multiple eligible candidates. `preferEligible()` defines a lexicographic preference by operational risk, edit count and cost, but the controller does not call it: the loop stops after the first candidate completes the required checks, trial and publication step. The recorded risk judgement and edit count are not a calibrated measure of repair quality.
+
 ## Local checks
 
 Use Node **24.19.0**, the repository's pinned host prerequisites, and SPIN plus a C compiler for formal checks. From repository root:

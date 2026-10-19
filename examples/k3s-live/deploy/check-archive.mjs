@@ -170,7 +170,9 @@ export async function checkArchive(directory, launchOptions = {}) {
       if (/^https?:/.test(request.url())) requests.push(request.url());
     });
     await page.goto(pathToFileURL(html).href, { waitUntil: 'load' });
-    await page.getByRole('button', { name: 'Play', exact: true }).waitFor();
+    const archiveError = page.locator('.error-notice');
+    await page.getByRole('button', { name: 'Play', exact: true }).or(archiveError).first().waitFor();
+    if (await archiveError.isVisible()) assert.fail(`Archive UI rejected the recording: ${await archiveError.innerText()}`);
     assert.match(await page.locator('body').innerText(), /Recorded run · playback/);
     assert.equal(await page.locator('.start-button').count(), 0, 'The archive must not offer live inference');
     const envelopeCount = () => page.locator('.run-stats > div').filter({ has: page.locator('dt', { hasText: /^Envelopes$/ }) }).locator('dd').innerText().then(Number);
