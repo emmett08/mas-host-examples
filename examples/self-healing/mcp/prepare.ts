@@ -1,9 +1,9 @@
 /** Prepare immutable host exports for one operator-selected self-healing incident. */
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync, chmodSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync, chmodSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { admissionDigest, inputSchema, outputSchema, rawDigest, type Admission } from './contract.js';
+import { admissionDigest, dependencyFiles, inputSchema, outputSchema, rawDigest, type Admission } from './contract.js';
 import { sha256 } from '../deploy/effects.js';
 import { pinnedHostIdentity } from '../host/phase.js';
 import { caseNames } from '../evaluation/injectors.js';
@@ -66,23 +66,23 @@ export async function prepare(options: PrepareOptions) {
   const arguments_ = ['--mode', options.mode, '--case', caseName, '--incident', options.incidentId, '--output', join(directory, 'incident')];
   if (config) { const file = join(project, 'incident.json'); writeFileSync(file, JSON.stringify(config), { mode: 0o400 }); arguments_.push('--config', file); }
   const files: Record<string, string> = {};
+  const directories: string[] = [];
   const retain = (file: string) => { files[file] = rawDigest(readFileSync(file)); };
   const tree = (root: string) => {
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (['node_modules', '.mas', '__pycache__'].includes(entry.name)) continue;
-      const file = join(root, entry.name);
-      if (entry.isSymbolicLink()) throw new Error('Prepared dependencies must be regular files');
-      if (entry.isDirectory()) tree(file); else if (entry.isFile()) retain(file);
-    }
+    directories.push(root);
+    for (const file of dependencyFiles(root)) retain(file);
   };
   for (const name of ['project', 'target-app', 'dist-tools']) tree(join(example, name));
   retain(join(example, 'evaluation/requirements.json'));
   for (const file of [host, retainedHost, process.execPath, controller, ...(config ? [join(project, 'incident.json')] : [])]) retain(file);
-  if (config?.sourceDirectory) tree(config.sourceDirectory);
+  if (config?.sourceDirectory) {
+    tree(join(config.sourceDirectory, 'src'));
+    for (const name of ['config.json', 'package.json']) retain(join(config.sourceDirectory, name));
+  }
   const admission: Admission = { version: 'self-healing-mcp/1', profile: options.controlController ? 'boundary-control' : 'k3s',
     incidentId: options.incidentId, directory: join(directory, 'incident'), example, repository, sourceRevision,
     host: retainedHost, gatewayState: join(directory, 'state/runs'), node: process.execPath, controller,
-    arguments: arguments_, environment, credentialNames, files, limits, mode: options.mode,
+    arguments: arguments_, environment, credentialNames, files, directories, limits, mode: options.mode,
     publication: config?.publicationMode ?? 'archive', requirementsDigest: sha256(config?.requirements ?? JSON.parse(readFileSync(join(example, 'evaluation/requirements.json'), 'utf8'))),
     policyDigest: sha256({ config: config ?? null, mode: options.mode, caseName, limits, environment, credentialNames }) };
   writeFileSync(join(project, 'admission.json'), JSON.stringify(admission), { mode: 0o400 });

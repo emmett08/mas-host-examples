@@ -1,7 +1,7 @@
 /** The gateway preserves controller identity, budgets and committed cancellation across processes. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -16,7 +16,7 @@ function fixture(t: any): Admission {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return { version: 'self-healing-mcp/1', profile: 'boundary-control', incidentId: 'incident-1', directory: join(root, 'incident'),
     example: root, repository: root, sourceRevision: 'a'.repeat(40), host: 'unused', gatewayState: 'unused', node: process.execPath,
-    controller: 'unused', arguments: [], environment: {}, credentialNames: [], files: {},
+    controller: 'unused', arguments: [], environment: {}, credentialNames: [], files: {}, directories: [],
     limits: { calls: 12, candidates: 3, operations: 160, microUsd: 2_000_000, wallMs: 600000 }, mode: 'fixture', publication: 'archive',
     requirementsDigest: 'b'.repeat(64), policyDigest: 'c'.repeat(64) };
 }
@@ -74,4 +74,8 @@ test('request and file identity checks reject changed inputs before dispatch', t
   assert.throws(() => validateRequest(a, { ...request, after: -1 }, 'status'));
   const file = join(a.example, 'runtime.mjs'); writeFileSync(file, 'original'); a.files[file] = rawDigest('original'); verifyFiles(a);
   writeFileSync(file, 'changed'); assert.throws(() => verifyFiles(a), /dependency changed/);
+  writeFileSync(file, 'original');
+  const directory = join(a.example, 'source'); mkdirSync(directory); a.directories.push(directory);
+  verifyFiles(a); writeFileSync(join(directory, 'added.ts'), 'new code');
+  assert.throws(() => verifyFiles(a), /inventory changed/);
 });

@@ -1,6 +1,7 @@
 /** Bind the MCP entry point to one operator-prepared incident and execution grant. */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { canonical, sha256 } from '../deploy/effects.js';
 import type { Budget } from '../contracts/types.js';
 
@@ -20,6 +21,7 @@ export interface Admission {
   environment: Record<string, string>;
   credentialNames: string[];
   files: Record<string, string>;
+  directories: string[];
   limits: Budget;
   mode: 'fixture' | 'live';
   publication: 'archive' | 'pull-request';
@@ -43,9 +45,21 @@ export function validateRequest(admission: Admission, request: Request, operatio
   if (request.after !== undefined && (!Number.isSafeInteger(request.after) || request.after < 0)) throw new Error('Invalid event cursor');
 }
 export function verifyFiles(admission: Admission): void {
+  for (const root of admission.directories) {
+    const expected = Object.keys(admission.files).filter(file => file.startsWith(root + sep)).sort();
+    if (canonical(dependencyFiles(root)) !== canonical(expected)) throw new Error('Prepared dependency inventory changed');
+  }
   for (const [file, digest] of Object.entries(admission.files)) {
     if (rawDigest(readFileSync(file)) !== digest) throw new Error('Prepared execution dependency changed');
   }
+}
+export function dependencyFiles(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap(entry => {
+    if (['node_modules', '.mas', '.git', '__pycache__'].includes(entry.name)) return [];
+    const file = join(root, entry.name);
+    if (entry.isSymbolicLink()) throw new Error('Prepared dependencies must be regular files');
+    return entry.isDirectory() ? dependencyFiles(file) : entry.isFile() ? [file] : [];
+  }).sort();
 }
 export function inputSchema(admission: Admission, operation: 'run' | 'status' | 'cancel') {
   const properties: Record<string, unknown> = {
