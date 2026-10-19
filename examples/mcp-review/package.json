@@ -1,0 +1,13 @@
+{
+  "name": "mas-mcp-release-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An official MCP SDK client invokes a retained multi-agent MAS workflow.",
+  "scripts": {
+    "demo": "node demo.mjs",
+    "check": "node --check demo.mjs"
+  },
+  "engines": { "node": ">=22.13" },
+  "dependencies": { "@modelcontextprotocol/sdk": "1.32.1" }
+}

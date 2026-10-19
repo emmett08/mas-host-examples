@@ -1,0 +1,67 @@
+name: Rust MAS MCP example
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/mcp-review.yml'
+      - 'examples/mcp-review/**'
+      - 'examples/a2a-review/project/**'
+      - 'scripts/setup-mcp.sh'
+      - 'scripts/setup.sh'
+      - 'host-revision.txt'
+      - 'mcp-revision.txt'
+      - 'Makefile'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mcp-review.yml'
+      - 'examples/mcp-review/**'
+      - 'examples/a2a-review/project/**'
+      - 'scripts/setup-mcp.sh'
+      - 'scripts/setup.sh'
+      - 'host-revision.txt'
+      - 'mcp-revision.txt'
+      - 'Makefile'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  interoperability:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MAS_HOST_BUILD_PROFILE: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: examples/mcp-review/package-lock.json
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Build the independently pinned host and MCP server
+        run: make setup mcp-setup
+      - name: Exercise the official SDK, durable replay and export restrictions
+        timeout-minutes: 3
+        run: make mcp
+      - name: Retain fixture evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: nehemiah-mcp-fixture
+          path: .state/mcp-review
+          if-no-files-found: warn
+          retention-days: 14

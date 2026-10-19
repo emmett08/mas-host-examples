@@ -12,7 +12,7 @@ export PYTHONDONTWRITEBYTECODE := 1
 export GOWORK := off
 export GOTOOLCHAIN := local
 
-.PHONY: setup check test acceptance recovery verify go rust cpp python python-client command command-agent star tree mesh composed a2a a2a-sdk
+.PHONY: setup check test acceptance recovery verify go rust cpp python python-client command command-agent star tree mesh composed a2a a2a-sdk mcp-setup mcp
 
 setup:
 	bash scripts/setup.sh
@@ -69,3 +69,10 @@ a2a:
 # Install examples/a2a-review/requirements-sdk.txt in this interpreter first.
 a2a-sdk:
 	python3 examples/a2a-review/sdk_check.py --report .state/a2a-review/official-sdk.json
+
+mcp-setup:
+	bash scripts/setup-mcp.sh
+	npm ci --ignore-scripts --prefix examples/mcp-review
+
+mcp:
+	node examples/mcp-review/demo.mjs --report .state/mcp-review/demo.json
