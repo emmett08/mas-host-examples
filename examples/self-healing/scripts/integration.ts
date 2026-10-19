@@ -190,8 +190,15 @@ try {
   process.stderr.write(`${failure}\n`);
 } finally {
   log.end();
-  const committed = existsSync(join(output, 'events.jsonl'))
-    ? readFileSync(join(output, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
+  let committed: { type: string; data: Record<string, unknown> }[] = [];
+  try {
+    if (existsSync(join(output, 'events.jsonl')))
+      committed = readFileSync(join(output, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
+  } catch {
+    // An interrupted or malformed projection must still stop the sidecars and
+    // retain the integration failure; it cannot waive during-run evidence.
+    failure ??= 'Committed event projection is unreadable';
+  }
   const duringRunRequired = requiresDuringRunObservation(committed);
   writeFileSync(done, JSON.stringify({ controllerCode, interrupted, failure: failure ?? null }) + '\n', { mode: 0o600 });
   if (checkpointer) {
