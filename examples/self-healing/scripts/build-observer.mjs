@@ -17,10 +17,14 @@ export function runManifest(env = process.env) {
   const selectedCase = env.SELF_REMEDIATION_OBSERVER_CASE || 'missing-route';
   const cases = ['missing-route', 'business-logic', 'runtime-config', 'held-out-combination', 'unavailable-dependency', 'ambiguous-requirement', 'no-defect', 'verification-bypass'];
   if (!cases.includes(selectedCase)) throw new Error('Unknown observer case');
-  const entry = (mode, name) => ({ incidentId: `${runId}-${runAttempt}-${name}`, artifactName: `self-remediation-${mode}-${runId}-${runAttempt}` });
+  const matrix = env.SELF_REMEDIATION_MATRIX_CASE;
+  if (matrix && matrix !== selectedCase) throw new Error('Observer matrix case differs from selected case');
+  const entry = (mode, name, scoped = false) => ({ incidentId: `${runId}-${runAttempt}-${name}`,
+    artifactName: `self-remediation-${mode}-${runId}-${runAttempt}${scoped ? `-${name}` : ''}` });
   return { schema: 'self-remediation-observer-run/1', repository, sha, runId, runAttempt,
     defaultMode: live ? 'live' : 'fixture',
-    cases: { fixture: entry('fixture', 'missing-route'), ...(live ? { live: entry('live', selectedCase) } : {}) } };
+    cases: { fixture: entry('fixture', matrix && !live ? selectedCase : 'missing-route', Boolean(matrix && !live)),
+      ...(live ? { live: entry('live', selectedCase, Boolean(matrix)) } : {}) } };
 }
 
 function command(entry) {

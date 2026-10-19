@@ -88,7 +88,14 @@ export async function main(): Promise<void> {
       let delay = 12_000;
       try {
         const complete = existsSync(done);
-        const checkId = await publisher.tick(readEvents(eventsFile), complete);
+        const events = readEvents(eventsFile);
+        // Wait locally for the first committed event instead of consuming the
+        // first 12-second publication interval on an empty starting window.
+        if (!complete && events.length === 0 && !process.argv.includes('--once')) {
+          await new Promise(resolveDelay => setTimeout(resolveDelay, 100));
+          continue;
+        }
+        const checkId = await publisher.tick(events, complete);
         const command = publisher.observerCommand();
         if (!announced && command) { process.stdout.write(`Live observer: ${command}\n`); announced = true; }
         process.stdout.write(`observer check=${checkId} seq=${publisher.state.lastSeq ?? 0} completed=${complete}\n`);

@@ -2,6 +2,14 @@
 import { materialise, type Snapshot } from '../tools/projection.js';
 export const caseNames = ['missing-route', 'business-logic', 'runtime-config', 'held-out-combination', 'unavailable-dependency', 'ambiguous-requirement', 'no-defect', 'verification-bypass'] as const;
 export type CaseName = typeof caseNames[number];
+/** Expected outcomes of scripted controls, independent of a live provider's result. */
+export function fixtureOutcome(name: CaseName): string {
+  if (!caseNames.includes(name)) throw new Error('Unknown protected benchmark case');
+  if (name === 'ambiguous-requirement') return 'missing_requirements';
+  if (name === 'no-defect') return 'no_repair_required';
+  if (name === 'unavailable-dependency') return 'unavailable_external_cause';
+  return 'verified_recovery';
+}
 export async function inject(healthy: Snapshot, name: CaseName): Promise<Snapshot> {
   const files = { ...healthy.files };
   const removeHealth = () => {

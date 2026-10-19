@@ -18,7 +18,7 @@ export class Journal implements EffectStore {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     this.artefacts = new Artefacts(join(directory, 'artefacts'));
     this.db = new DatabaseSync(join(directory, 'journal.sqlite'));
-    this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
+    this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS incidents(id TEXT PRIMARY KEY, cancelled INTEGER NOT NULL DEFAULT 0, metadata TEXT);
       CREATE TABLE IF NOT EXISTS budgets(scope TEXT PRIMARY KEY, limits TEXT NOT NULL, used TEXT NOT NULL, deadline INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS reservations(id TEXT PRIMARY KEY, scope TEXT NOT NULL, charge TEXT NOT NULL);

@@ -9,6 +9,7 @@ import { writeImmutableFile } from '../controller/immutable-file.js';
 import { canonical, sha256 } from '../deploy/effects.js';
 import type { PublicationPolicy } from '../deploy/github.js';
 import type { PublishRequest } from './publish.js';
+import { assertWorkflowIncident } from './workflow-identity.js';
 const arg = (key: string) => { const i = process.argv.indexOf(key); if (i < 0 || !process.argv[i + 1]) throw new Error(`Missing ${key}`); return resolve(process.argv[i + 1]!); };
 const inputRoot = arg('--input'), output = arg('--output');
 await mkdir(output, { recursive: true, mode: 0o700 });
@@ -29,7 +30,7 @@ if (Buffer.byteLength(text) > 4 * 1024 * 1024) throw new Error('Publication mani
 const retained = JSON.parse(text) as PublishRequest;
 if (!retained.incidentGit || retained.incidentGit.faultyCommit !== retained.candidate?.baseCommit
   || retained.incidentGit.parentCommit !== process.env.GITHUB_SHA) throw new Error('Retained incident must bind the exact trusted workflow source');
-const runId = `run-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`;
+const { runId } = assertWorkflowIncident(retained.incidentId);
 const mode = process.env.SELF_REMEDIATION_PUBLICATION ?? 'pull-request';
 if (!['pull-request', 'automatic'].includes(mode)) throw new Error('Publication job requires explicit scoped publication mode');
 const policy: PublicationPolicy = { repository: process.env.GITHUB_REPOSITORY ?? '', baseBranch: `demo/incidents/${runId}`,
